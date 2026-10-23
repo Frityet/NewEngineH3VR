@@ -1,0 +1,8 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><AllowUnsafeBlocks>true</AllowUnsafeBlocks><OutputType>Exe</OutputType><AssemblyName>h3vr-convert</AssemblyName></PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Mono.Cecil" Version="0.11.4" />
+    <PackageReference Include="AssetsTools.NET" Version="3.0.5" />
+    <EmbeddedResource Include="AssetRipper.ShaderExporter.patch" LogicalName="H3VR.Converter.AssetRipper.ShaderExporter.patch" />
+  </ItemGroup>
+</Project>

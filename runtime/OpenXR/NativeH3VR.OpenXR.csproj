@@ -1,0 +1,39 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>netstandard2.1</TargetFramework>
+    <AssemblyName>NativeH3VR.OpenXR</AssemblyName>
+    <RootNamespace>NativeH3VR</RootNamespace>
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+    <Nullable>disable</Nullable>
+    <LangVersion>9.0</LangVersion>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <UnityManagedPath Condition="'$(UnityManagedPath)' == ''">$(UnityEngineAssemblies)</UnityManagedPath>
+    <GameManagedPath Condition="'$(GameManagedPath)' == ''">$(GameManaged)</GameManagedPath>
+    <NewtonsoftAssembly Condition="'$(NewtonsoftAssembly)' == ''">$(GameManagedPath)/Valve.Newtonsoft.Json.dll</NewtonsoftAssembly>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="UnityEngine.CoreModule"><HintPath>$(UnityManagedPath)/UnityEngine.CoreModule.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="UnityEngine.XRModule"><HintPath>$(UnityManagedPath)/UnityEngine.XRModule.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="UnityEngine.VRModule"><HintPath>$(UnityManagedPath)/UnityEngine.VRModule.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="UnityEngine.SubsystemsModule"><HintPath>$(UnityManagedPath)/UnityEngine.SubsystemsModule.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="UnityEngine.InputLegacyModule"><HintPath>$(UnityManagedPath)/UnityEngine.InputLegacyModule.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="UnityEngine.InputModule"><HintPath>$(UnityManagedPath)/UnityEngine.InputModule.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="UnityEngine.UIModule"><HintPath>$(UnityManagedPath)/UnityEngine.UIModule.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="NativeH3VR.FirstPass"><HintPath>$(GameManagedPath)/NativeH3VR.FirstPass.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="NativeH3VR.Game"><HintPath>$(GameManagedPath)/NativeH3VR.Game.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="Valve.Newtonsoft.Json"><HintPath>$(NewtonsoftAssembly)</HintPath><Private>false</Private></Reference>
+    <Compile Remove="Unity/**/*.cs" />
+  </ItemGroup>
+  <Target Name="ValidateOpenXRBuildInputs" BeforeTargets="ResolveReferences">
+    <Error Condition="'$(UnityEngineAssemblies)' == '' and '$(UnityManagedPath)' == ''"
+           Text="Set UnityEngineAssemblies to the Unity 2021.3.45f2 Managed/UnityEngine directory." />
+    <Error Condition="'$(GameManaged)' == '' and '$(GameManagedPath)' == ''"
+           Text="Set GameManaged to the converted managed assembly directory containing NativeH3VR.Game.dll and NativeH3VR.FirstPass.dll." />
+    <Error Condition="!Exists('$(UnityManagedPath)/UnityEngine.CoreModule.dll')"
+           Text="UnityEngineAssemblies must contain UnityEngine.CoreModule.dll: $(UnityManagedPath)" />
+    <Error Condition="!Exists('$(GameManagedPath)/NativeH3VR.Game.dll') or !Exists('$(GameManagedPath)/NativeH3VR.FirstPass.dll')"
+           Text="GameManaged is missing NativeH3VR.Game.dll or NativeH3VR.FirstPass.dll: $(GameManagedPath)" />
+    <Error Condition="!Exists('$(NewtonsoftAssembly)')"
+           Text="Could not find Valve.Newtonsoft.Json.dll: $(NewtonsoftAssembly)" />
+  </Target>
+</Project>

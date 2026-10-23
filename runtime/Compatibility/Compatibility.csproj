@@ -1,0 +1,5 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><TargetFramework>netstandard2.0</TargetFramework><ImplicitUsings>disable</ImplicitUsings><Nullable>disable</Nullable><AssemblyName>NativeH3VR.Compat</AssemblyName></PropertyGroup>
+  <ItemGroup><Reference Include="$(UnityEngineAssemblies)/UnityEngine*.dll" /></ItemGroup>
+  <Target Name="RequireUnity" BeforeTargets="ResolveReferences"><Error Condition="!Exists('$(UnityEngineAssemblies)/UnityEngine.CoreModule.dll')" Text="Set UnityEngineAssemblies to Unity 2021.3.45f2 Managed/UnityEngine." /></Target>
+</Project>

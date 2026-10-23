@@ -1,0 +1,19 @@
+name: Converter source checks
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  source:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - run: dotnet build H3VR.Converter.sln -c Release --warnaserror
+      - run: dotnet format H3VR.Converter.sln --verify-no-changes --no-restore
+      - run: dotnet format whitespace editor --folder --verify-no-changes
+      - run: dotnet format whitespace runtime --folder --verify-no-changes
+      - run: dotnet run --project tests/H3VR.Converter.Tests -c Release --no-build
+      - run: dotnet run --project tools/OpenXRPatch.Tests -c Release --no-build
+      - run: dotnet run --project src/H3VR.Converter -c Release --no-build -- check-publication

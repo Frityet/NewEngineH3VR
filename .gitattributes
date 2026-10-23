@@ -1,3 +1,6 @@
 * text=auto
-# Patch context whitespace and line endings must remain byte-for-byte applicable.
-*.patch -text -whitespace
+*.cs text eol=lf
+*.csproj text eol=lf
+*.md text eol=lf
+# Unified diff context markers intentionally precede upstream indentation.
+*.patch text eol=lf whitespace=-blank-at-eol,-space-before-tab

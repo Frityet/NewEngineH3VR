@@ -1,0 +1,1441 @@
+diff --git a/Source/AssetRipper.Export.Modules.Shader/IO/SerializedExtensions.cs b/Source/AssetRipper.Export.Modules.Shader/IO/SerializedExtensions.cs
+index f02a12f4..cc808232 100644
+--- a/Source/AssetRipper.Export.Modules.Shader/IO/SerializedExtensions.cs
++++ b/Source/AssetRipper.Export.Modules.Shader/IO/SerializedExtensions.cs
+@@ -14,6 +14,7 @@ using AssetRipper.SourceGenerated.Subclasses.SerializedProperty;
+ using AssetRipper.SourceGenerated.Subclasses.SerializedShader;
+ using AssetRipper.SourceGenerated.Subclasses.SerializedShaderRTBlendState;
+ using AssetRipper.SourceGenerated.Subclasses.SerializedShaderState;
++using AssetRipper.SourceGenerated.Subclasses.SerializedShaderFloatValue;
+ using AssetRipper.SourceGenerated.Subclasses.SerializedStencilOp;
+ using AssetRipper.SourceGenerated.Subclasses.SerializedSubProgram;
+ using AssetRipper.SourceGenerated.Subclasses.SerializedSubShader;
+@@ -24,6 +25,8 @@ namespace AssetRipper.Export.Modules.Shaders.IO
+ {
+ 	public static class SerializedExtensions
+ 	{
++        private static string StateExpression(ISerializedShaderFloatValue value, object fallback)
++            => value.HasPropertyReference() ? $"[{value.PropertyReferenceName()}]" : fallback.ToString()!;
+ 		public static void Export(this ISerializedPass _this, ShaderWriter writer)
+ 		{
+ 			writer.WriteIndent(2);
+@@ -277,7 +280,7 @@ namespace AssetRipper.Export.Modules.Shaders.IO
+ 
+ 		public static void Export(this ISerializedShaderRTBlendState _this, TextWriter writer, int index)
+ 		{
+-			if (!_this.SrcBlendValue().IsOne() || !_this.DestBlendValue().IsZero() || !_this.SrcBlendAlphaValue().IsOne() || !_this.DestBlendAlphaValue().IsZero())
++			if (_this.SrcBlend.HasPropertyReference() || _this.DestBlend.HasPropertyReference() || _this.SrcBlendAlpha.HasPropertyReference() || _this.DestBlendAlpha.HasPropertyReference() || !_this.SrcBlendValue().IsOne() || !_this.DestBlendValue().IsZero() || !_this.SrcBlendAlphaValue().IsOne() || !_this.DestBlendAlphaValue().IsZero())
+ 			{
+ 				writer.WriteIndent(3);
+ 				writer.Write("Blend ");
+@@ -285,15 +288,15 @@ namespace AssetRipper.Export.Modules.Shaders.IO
+ 				{
+ 					writer.Write($"{index} ");
+ 				}
+-				writer.Write($"{_this.SrcBlendValue()} {_this.DestBlendValue()}");
+-				if (!_this.SrcBlendValue().IsOne() || !_this.DestBlendAlphaValue().IsZero())
++				writer.Write($"{StateExpression(_this.SrcBlend, _this.SrcBlendValue())} {StateExpression(_this.DestBlend, _this.DestBlendValue())}");
++				if (_this.SrcBlendAlpha.HasPropertyReference() || _this.DestBlendAlpha.HasPropertyReference() || _this.SrcBlendValue() != _this.SrcBlendAlphaValue() || _this.DestBlendValue() != _this.DestBlendAlphaValue())
+ 				{
+-					writer.Write($", {_this.SrcBlendAlphaValue()} {_this.DestBlendAlphaValue()}");
++					writer.Write($", {StateExpression(_this.SrcBlendAlpha, _this.SrcBlendAlphaValue())} {StateExpression(_this.DestBlendAlpha, _this.DestBlendAlphaValue())}");
+ 				}
+ 				writer.Write('\n');
+ 			}
+ 
+-			if (!_this.BlendOpValue().IsAdd() || !_this.BlendOpAlphaValue().IsAdd())
++			if (_this.BlendOp.HasPropertyReference() || _this.BlendOpAlpha.HasPropertyReference() || !_this.BlendOpValue().IsAdd() || !_this.BlendOpAlphaValue().IsAdd())
+ 			{
+ 				writer.WriteIndent(3);
+ 				writer.Write("BlendOp ");
+@@ -301,19 +304,20 @@ namespace AssetRipper.Export.Modules.Shaders.IO
+ 				{
+ 					writer.Write($"{index} ");
+ 				}
+-				writer.Write(_this.BlendOpValue().ToString());
+-				if (!_this.BlendOpAlphaValue().IsAdd())
++				writer.Write(StateExpression(_this.BlendOp, _this.BlendOpValue()));
++				if (_this.BlendOpAlpha.HasPropertyReference() || !_this.BlendOpAlphaValue().IsAdd())
+ 				{
+-					writer.Write($", {_this.BlendOpAlphaValue()}");
++					writer.Write($", {StateExpression(_this.BlendOpAlpha, _this.BlendOpAlphaValue())}");
+ 				}
+ 				writer.Write('\n');
+ 			}
+ 
+-			if (!_this.ColMaskValue().IsRBGA())
++			if (_this.ColMask.HasPropertyReference() || !_this.ColMaskValue().IsRBGA())
+ 			{
+ 				writer.WriteIndent(3);
+ 				writer.Write("ColorMask ");
+-				if (_this.ColMaskValue().IsNone())
++				if (_this.ColMask.HasPropertyReference()) { writer.Write($"[{_this.ColMask.PropertyReferenceName()}]"); }
++                else if (_this.ColMaskValue().IsNone())
+ 				{
+ 					writer.Write(0);
+ 				}
+@@ -366,10 +370,10 @@ namespace AssetRipper.Export.Modules.Shaders.IO
+ 			_this.RtBlend6.Export(writer, 6);
+ 			_this.RtBlend7.Export(writer, 7);
+ 
+-			if (_this.AlphaToMaskValue())
++			if (_this.AlphaToMask.HasPropertyReference() || _this.AlphaToMaskValue())
+ 			{
+ 				writer.WriteIndent(3);
+-				writer.Write("AlphaToMask On\n");
++				writer.Write($"AlphaToMask {StateExpression(_this.AlphaToMask, "On")}\n");
+ 			}
+ 
+ 			if (!_this.ZClipValue().IsOn())
+@@ -377,45 +381,45 @@ namespace AssetRipper.Export.Modules.Shaders.IO
+ 				writer.WriteIndent(3);
+ 				writer.Write($"ZClip {_this.ZClipValue()}\n");
+ 			}
+-			if (!_this.ZTestValue().IsLEqual() && !_this.ZTestValue().IsNone())
++			if (_this.ZTest.HasPropertyReference() || (!_this.ZTestValue().IsLEqual() && !_this.ZTestValue().IsNone()))
+ 			{
+ 				writer.WriteIndent(3);
+-				writer.Write($"ZTest {_this.ZTestValue()}\n");
++				writer.Write($"ZTest {StateExpression(_this.ZTest, _this.ZTestValue())}\n");
+ 			}
+-			if (!_this.ZWriteValue().IsOn())
++			if (_this.ZWrite.HasPropertyReference() || (!_this.ZWriteValue().IsOn()))
+ 			{
+ 				writer.WriteIndent(3);
+-				writer.Write($"ZWrite {_this.ZWriteValue()}\n");
++				writer.Write($"ZWrite {StateExpression(_this.ZWrite, _this.ZWriteValue())}\n");
+ 			}
+-			if (!_this.CullingValue().IsBack())
++			if (_this.Culling.HasPropertyReference() || (!_this.CullingValue().IsBack()))
+ 			{
+ 				writer.WriteIndent(3);
+-				writer.Write($"Cull {_this.CullingValue()}\n");
++				writer.Write($"Cull {StateExpression(_this.Culling, _this.CullingValue())}\n");
+ 			}
+-			if (!_this.OffsetFactor.IsZero() || !_this.OffsetUnits.IsZero())
++			if (_this.OffsetFactor.HasPropertyReference() || _this.OffsetUnits.HasPropertyReference() || !_this.OffsetFactor.IsZero() || !_this.OffsetUnits.IsZero())
+ 			{
+ 				writer.WriteIndent(3);
+-				writer.Write($"Offset {_this.OffsetFactor.Val}, {_this.OffsetUnits.Val}\n");
++				writer.Write($"Offset {StateExpression(_this.OffsetFactor, _this.OffsetFactor.Val.ToStringInvariant())}, {StateExpression(_this.OffsetUnits, _this.OffsetUnits.Val.ToStringInvariant())}\n");
+ 			}
+ 
+-			if (!_this.StencilRef.IsZero() || !_this.StencilReadMask.IsMax() || !_this.StencilWriteMask.IsMax() || !_this.StencilOp.IsDefault() || !_this.StencilOpFront.IsDefault() || !_this.StencilOpBack.IsDefault())
++			if (_this.StencilRef.HasPropertyReference() || _this.StencilReadMask.HasPropertyReference() || _this.StencilWriteMask.HasPropertyReference() || !_this.StencilRef.IsZero() || !_this.StencilReadMask.IsMax() || !_this.StencilWriteMask.IsMax() || !_this.StencilOp.IsDefault() || !_this.StencilOpFront.IsDefault() || !_this.StencilOpBack.IsDefault())
+ 			{
+ 				writer.WriteIndent(3);
+ 				writer.Write("Stencil {\n");
+-				if (!_this.StencilRef.IsZero())
++				if (_this.StencilRef.HasPropertyReference() || !_this.StencilRef.IsZero())
+ 				{
+ 					writer.WriteIndent(4);
+-					writer.Write($"Ref {_this.StencilRef.Val}\n");
++					writer.Write($"Ref {StateExpression(_this.StencilRef, _this.StencilRef.Val.ToStringInvariant())}\n");
+ 				}
+-				if (!_this.StencilReadMask.IsMax())
++				if (_this.StencilReadMask.HasPropertyReference() || !_this.StencilReadMask.IsMax())
+ 				{
+ 					writer.WriteIndent(4);
+-					writer.Write($"ReadMask {_this.StencilReadMask.Val}\n");
++					writer.Write($"ReadMask {StateExpression(_this.StencilReadMask, _this.StencilReadMask.Val.ToStringInvariant())}\n");
+ 				}
+-				if (!_this.StencilWriteMask.IsMax())
++				if (_this.StencilWriteMask.HasPropertyReference() || !_this.StencilWriteMask.IsMax())
+ 				{
+ 					writer.WriteIndent(4);
+-					writer.Write($"WriteMask {_this.StencilWriteMask.Val}\n");
++					writer.Write($"WriteMask {StateExpression(_this.StencilWriteMask, _this.StencilWriteMask.Val.ToStringInvariant())}\n");
+ 				}
+ 				if (!_this.StencilOp.IsDefault())
+ 				{
+@@ -440,7 +444,7 @@ namespace AssetRipper.Export.Modules.Shaders.IO
+ 				if (!_this.FogModeValue().IsUnknown())
+ 				{
+ 					writer.WriteIndent(4);
+-					writer.Write($"Mode {_this.FogMode}\n");
++					writer.Write($"Mode {_this.FogModeValue()}\n");
+ 				}
+ 				if (!_this.FogColor.IsZero())
+ 				{
+@@ -473,7 +477,8 @@ namespace AssetRipper.Export.Modules.Shaders.IO
+ 		public static void Export(this ISerializedStencilOp _this, TextWriter writer, StencilType type)
+ 		{
+ 			writer.WriteIndent(4);
+-			if (_this.CompValue() == StencilComp.Disabled)
++			if (_this.Comp.HasPropertyReference()) { writer.Write($"Comp{type.ToSuffixString()} [{_this.Comp.PropertyReferenceName()}]\n"); }
++            else if (_this.CompValue() == StencilComp.Disabled)
+ 			{
+ 				// When the value is set to 'Disabled', it indicates that this is the default value defined using Properties.
+ 				// https://github.com/AssetRipper/AssetRipper/pull/1337
+@@ -484,11 +489,11 @@ namespace AssetRipper.Export.Modules.Shaders.IO
+ 				writer.Write($"Comp{type.ToSuffixString()} {_this.CompValue()}\n");
+ 			}
+ 			writer.WriteIndent(4);
+-			writer.Write($"Pass{type.ToSuffixString()} {_this.PassValue()}\n");
++			writer.Write($"Pass{type.ToSuffixString()} {StateExpression(_this.Pass, _this.PassValue())}\n");
+ 			writer.WriteIndent(4);
+-			writer.Write($"Fail{type.ToSuffixString()} {_this.FailValue()}\n");
++			writer.Write($"Fail{type.ToSuffixString()} {StateExpression(_this.Fail, _this.FailValue())}\n");
+ 			writer.WriteIndent(4);
+-			writer.Write($"ZFail{type.ToSuffixString()} {_this.ZFailValue()}\n");
++			writer.Write($"ZFail{type.ToSuffixString()} {StateExpression(_this.ZFail, _this.ZFailValue())}\n");
+ 		}
+ 
+ 		public static void Export(this ISerializedSubProgram _this, ShaderWriter writer, ShaderType type, bool isTier)
+diff --git a/Source/AssetRipper.Export.Modules.Shader/UltraShaderConverter/DirectXDisassembler/Blocks/SHDR.cs b/Source/AssetRipper.Export.Modules.Shader/UltraShaderConverter/DirectXDisassembler/Blocks/SHDR.cs
+index 07c56549..d377ba42 100644
+--- a/Source/AssetRipper.Export.Modules.Shader/UltraShaderConverter/DirectXDisassembler/Blocks/SHDR.cs
++++ b/Source/AssetRipper.Export.Modules.Shader/UltraShaderConverter/DirectXDisassembler/Blocks/SHDR.cs
+@@ -1,4 +1,4 @@
+-﻿using System.Diagnostics;
++using System.Diagnostics;
+ 
+ namespace AssetRipper.Export.Modules.Shaders.UltraShaderConverter.DirectXDisassembler.Blocks
+ {
+@@ -73,9 +73,9 @@ namespace AssetRipper.Export.Modules.Shaders.UltraShaderConverter.DirectXDisasse
+ 				{
+ 					case ExtendedOpcodeType.SampleControls:
+ 						{
+-							addrOffsetIU = (extOpcodeToken & 0x1e00) >> 9;
+-							addrOffsetIV = (extOpcodeToken & 0x1e000) >> 13;
+-							addrOffsetIW = (extOpcodeToken & 0x1e0000) >> 17;
++							addrOffsetIU = ((extOpcodeToken >> 9) & 15) - (((extOpcodeToken >> 9) & 8) << 1);
++							addrOffsetIV = ((extOpcodeToken >> 13) & 15) - (((extOpcodeToken >> 13) & 8) << 1);
++							addrOffsetIW = ((extOpcodeToken >> 17) & 15) - (((extOpcodeToken >> 17) & 8) << 1);
+ 							break;
+ 						}
+ 					case ExtendedOpcodeType.ResourceReturnType:
+diff --git a/Source/AssetRipper.Export.Modules.Shader/UltraShaderConverter/USIL/Metadders/USILCBufferMetadder.cs b/Source/AssetRipper.Export.Modules.Shader/UltraShaderConverter/USIL/Metadders/USILCBufferMetadder.cs
+index 4df08dea..7298c6a0 100644
+--- a/Source/AssetRipper.Export.Modules.Shader/UltraShaderConverter/USIL/Metadders/USILCBufferMetadder.cs
++++ b/Source/AssetRipper.Export.Modules.Shader/UltraShaderConverter/USIL/Metadders/USILCBufferMetadder.cs
+@@ -1,5 +1,5 @@
+-﻿using AssetRipper.Export.Modules.Shaders.ShaderBlob;
+-using AssetRipper.Export.Modules.Shaders.ShaderBlob.Parameters;
++﻿using AssetRipper.Export.Modules.Shaders.ShaderBlob;
++using AssetRipper.Export.Modules.Shaders.ShaderBlob.Parameters;
+ using AssetRipper.Export.Modules.Shaders.UltraShaderConverter.UShader.Function;
+ 
+ namespace AssetRipper.Export.Modules.Shaders.UltraShaderConverter.USIL.Metadders
+@@ -47,7 +47,8 @@ namespace AssetRipper.Export.Modules.Shaders.UltraShaderConverter.USIL.Metadders
+ 				foreach (NumericShaderParameter param in constantBuffer.AllNumericParams)
+ 				{
+ 					int paramCbStart = param.Index;
+-					int paramCbSize = param.RowCount * param.ColumnCount * 4;
++					int paramStride = param.IsMatrix ? param.RowCount * param.ColumnCount * 4 : 16;
++                    int paramCbSize = param.ArraySize > 0 ? paramStride * param.ArraySize : param.RowCount * param.ColumnCount * 4;
+ 					int paramCbEnd = paramCbStart + paramCbSize;
+ 
+ 					foreach (int operandMaskAddress in operandMaskAddresses)
+@@ -57,6 +58,7 @@ namespace AssetRipper.Export.Modules.Shaders.UltraShaderConverter.USIL.Metadders
+ 							cbParams.Add(param);
+ 
+ 							int maskIndex = (operandMaskAddress - paramCbStart) / 4;
++                            if (param.ArraySize > 0) maskIndex %= paramStride / 4;
+ 							if (param.IsMatrix)
+ 							{
+ 								maskIndex %= 4;
+@@ -82,6 +84,7 @@ namespace AssetRipper.Export.Modules.Shaders.UltraShaderConverter.USIL.Metadders
+ 								cbParams.Add(cbParam);
+ 
+ 								int maskIndex = (operandMaskAddress - paramCbStart) / 4;
++
+ 								if (cbParam.IsMatrix)
+ 								{
+ 									maskIndex %= 4;
+@@ -136,9 +139,20 @@ namespace AssetRipper.Export.Modules.Shaders.UltraShaderConverter.USIL.Metadders
+ 					operand.mask = cbMasks.ToArray();
+ 					operand.metadataName = param.Name;
+ 					operand.metadataNameAssigned = true;
+-					operand.metadataNameWithArray = operand.arrayRelative != null && !param.IsMatrix;
+-
+-					if (cbMasks.Count == param.RowCount && !param.IsMatrix)
++					operand.metadataNameWithArray = false;
++                    if (param.ArraySize > 0) {
++                        int registersPerElement = param.IsMatrix ? param.RowCount : 1;
++                        string relative = operand.arrayRelative == null ? "0" : $"(int)({operand.arrayRelative})";
++                        operand.metadataName = $"{param.Name}[({relative} + {operand.arrayIndex}) / {registersPerElement}]";
++                        operand.arrayIndex %= registersPerElement;
++                        operand.arrayRelative = null;
++                    }
++
++
++					// Hiding a swizzle is only safe when the instruction reads every
++					// component once and in identity order. A count-only check loses
++					// broadcasts such as `.yyyy` and permutations such as `.yx`.
++					if (!param.IsMatrix && IsIdentityComponentMask(cbMasks, param.RowCount))
+ 					{
+ 						operand.displayMask = false;
+ 					}
+@@ -146,6 +160,16 @@ namespace AssetRipper.Export.Modules.Shaders.UltraShaderConverter.USIL.Metadders
+ 			}
+ 		}
+ 
++		private static bool IsIdentityComponentMask(IReadOnlyList<int> mask, int width)
++		{
++			if (width <= 0 || mask.Count != width) return false;
++			for (int i = 0; i < width; i++)
++			{
++				if (mask[i] != i) return false;
++			}
++			return true;
++		}
++
+ 		private static int[] MatchMaskToConstantBuffer(int[] mask, int pos, int size)
+ 		{
+ 			// Mask is aligned (x, xy, xyz, xyzw)
+diff --git a/Source/AssetRipper.Export.Modules.Shader/UltraShaderConverter/USIL/Metadders/USILInputOutputMetadder.cs b/Source/AssetRipper.Export.Modules.Shader/UltraShaderConverter/USIL/Metadders/USILInputOutputMetadder.cs
+index 5bd65723..e2676658 100644
+--- a/Source/AssetRipper.Export.Modules.Shader/UltraShaderConverter/USIL/Metadders/USILInputOutputMetadder.cs
++++ b/Source/AssetRipper.Export.Modules.Shader/UltraShaderConverter/USIL/Metadders/USILInputOutputMetadder.cs
+@@ -1,5 +1,5 @@
+-﻿using AssetRipper.Export.Modules.Shaders.ShaderBlob;
+-using AssetRipper.Export.Modules.Shaders.UltraShaderConverter.UShader.DirectX;
++﻿using AssetRipper.Export.Modules.Shaders.ShaderBlob;
++using AssetRipper.Export.Modules.Shaders.UltraShaderConverter.UShader.DirectX;
+ using AssetRipper.Export.Modules.Shaders.UltraShaderConverter.UShader.Function;
+ 
+ namespace AssetRipper.Export.Modules.Shaders.UltraShaderConverter.USIL.Metadders
+@@ -8,7 +8,31 @@ namespace AssetRipper.Export.Modules.Shaders.UltraShaderConverter.USIL.Metadders
+ 	{
+ 		public bool Run(UShaderProgram shader, ShaderSubProgram shaderData)
+ 		{
+-			List<USILInstruction> instructions = shader.instructions;
++			// DXBC packs unrelated semantics into different lanes of one output register.
++            // Evaluate the original instruction once, then distribute every written lane.
++            List<USILInstruction> instructions = new();
++            int packedIndex = 0;
++            foreach (var inst in shader.instructions) {
++                var dest = inst.destOperand;
++                var outputs = dest?.operandType == USILOperandType.OutputRegister
++                    ? shader.outputs.Where(o => o.register == dest.registerIndex && dest.mask.Any(m => (o.mask & (1 << m)) != 0)).ToList()
++                    : new List<USILInputOutput>();
++                if (outputs.Count <= 1) { instructions.Add(inst); continue; }
++                string name = "packedOutput" + packedIndex++;
++                shader.locals.Add(new USILLocal("float4", name, USILLocalType.Vector4));
++                var temporary = new USILOperand(dest!) { operandType = USILOperandType.TempRegister, metadataName = name, metadataNameAssigned = true };
++                inst.destOperand = temporary;
++                instructions.Add(inst);
++                foreach (var output in outputs) {
++                    int[] lanes = dest!.mask.Where(m => (output.mask & (1 << m)) != 0).ToArray();
++                    instructions.Add(new USILInstruction {
++                        instructionType = USILInstructionType.Move,
++                        destOperand = new USILOperand(dest) { mask = lanes },
++                        srcOperands = new() { new USILOperand(temporary) { mask = lanes } }
++                    });
++                }
++            }
++            shader.instructions = instructions;
+ 			foreach (USILInstruction instruction in instructions)
+ 			{
+ 				if (instruction.destOperand != null)
+@@ -27,7 +51,17 @@ namespace AssetRipper.Export.Modules.Shaders.UltraShaderConverter.USIL.Metadders
+ 		{
+ 			if (operand.operandType == USILOperandType.InputRegister)
+ 			{
+-				int searchMask = operand.mask.Length != 0 ? 1 << operand.mask[0] : 0;
++				var matches = operand.mask.Select(m => shader.inputs.First(i => i.register == operand.registerIndex && (i.mask & (1 << m)) != 0)).Distinct().ToList();
++                if (matches.Count > 1) {
++                    var components = operand.mask.Select(m => new USILOperand(operand) { mask = new[] { m }, negative = false, absoluteValue = false }).ToArray();
++                    foreach (var component in components) UseMetadata(component, shader);
++                    operand.operandType = USILOperandType.Multiple;
++                    operand.children = components;
++                    operand.mask = Array.Empty<int>();
++                    operand.displayMask = false;
++                    return;
++                }
++                int searchMask = operand.mask.Length != 0 ? 1 << operand.mask[0] : 0;
+ 				USILInputOutput input = shader.inputs.First(
+ 					i => i.register == operand.registerIndex && (searchMask & i.mask) == searchMask
+ 				);
+diff --git a/Source/AssetRipper.Export.Modules.Shader/UltraShaderConverter/USIL/Optimizers/USILAndOptimizer.cs b/Source/AssetRipper.Export.Modules.Shader/UltraShaderConverter/USIL/Optimizers/USILAndOptimizer.cs
+index e6f16b40..0aa2e6b9 100644
+--- a/Source/AssetRipper.Export.Modules.Shader/UltraShaderConverter/USIL/Optimizers/USILAndOptimizer.cs
++++ b/Source/AssetRipper.Export.Modules.Shader/UltraShaderConverter/USIL/Optimizers/USILAndOptimizer.cs
+@@ -1,133 +1,154 @@
+-﻿using AssetRipper.Export.Modules.Shaders.ShaderBlob;
++using AssetRipper.Export.Modules.Shaders.ShaderBlob;
+ using AssetRipper.Export.Modules.Shaders.UltraShaderConverter.UShader.Function;
+-using System.Diagnostics;
+ 
+ namespace AssetRipper.Export.Modules.Shaders.UltraShaderConverter.USIL.Optimizers
+ {
+-	/// <summary>
+-	/// Replaces XXX & YYY with XXX ? YYY : 0 if XXX holds a comparison value
+-	/// </summary>
+-	public class USILAndOptimizer : IUSILOptimizer
+-	{
+-		public bool Run(UShaderProgram shader, ShaderSubProgram shaderData)
+-		{
+-			bool changes = false;
++    /// <summary>
++    /// Comparison masks are represented by the HLSL emitter as float 0/1 rather
++    /// than DXBC's zero/all-one bits. Only proven mask lanes may be simplified:
++    /// NOT becomes logical complement and mask AND value becomes conditional
++    /// selection, preserving fractional values and either operand order.
++    /// </summary>
++    public class USILAndOptimizer : IUSILOptimizer
++    {
++        private sealed class Branch
++        {
++            public required HashSet<string> Before;
++            public HashSet<string>? Then;
++        }
+ 
+-			HashSet<string> _comparisonResultRegisters = new();
++        public bool Run(UShaderProgram shader, ShaderSubProgram shaderData)
++        {
++            bool changed = false;
++            var predicates = new HashSet<string>();
++            var branches = new Stack<Branch>();
++            var loopWrites = new Stack<HashSet<string>>();
++            var instructions = shader.instructions;
++            for (int index = 0; index < instructions.Count; index++)
++            {
++                var instruction = instructions[index];
++                if (instruction.commented) continue;
++                switch (instruction.instructionType)
++                {
++                    case USILInstructionType.IfTrue:
++                    case USILInstructionType.IfFalse:
++                        branches.Push(new Branch { Before = new HashSet<string>(predicates) });
++                        continue;
++                    case USILInstructionType.Else:
++                        if (branches.Count == 0) { predicates.Clear(); continue; }
++                        branches.Peek().Then = new HashSet<string>(predicates);
++                        predicates = new HashSet<string>(branches.Peek().Before);
++                        continue;
++                    case USILInstructionType.EndIf:
++                        if (branches.Count == 0) { predicates.Clear(); continue; }
++                        var branch = branches.Pop();
++                        predicates.IntersectWith(branch.Then ?? branch.Before);
++                        continue;
++                    case USILInstructionType.Loop:
++                    case USILInstructionType.ForLoop:
++                        // A loop may run zero/many times, or exit via break. Do
++                        // not infer a loop-carried predicate from linear order.
++                        var writes = FindLoopWrites(instructions, index);
++                        loopWrites.Push(writes);
++                        predicates.ExceptWith(writes);
++                        continue;
++                    case USILInstructionType.EndLoop:
++                        if (loopWrites.Count == 0) predicates.Clear();
++                        else predicates.ExceptWith(loopWrites.Pop());
++                        continue;
++                }
+ 
+-			List<USILInstruction> instructions = shader.instructions;
+-			foreach (USILInstruction instruction in instructions)
+-			{
+-				// track if a register (and its masks) come from comparison results or not
+-				USILOperand? destOperand = instruction.destOperand;
++                var destination = instruction.destOperand;
++                if (destination == null) continue;
++                var sources = instruction.srcOperands;
++                // Snapshot source classification before invalidating destination:
++                // DXBC permits overlapping source/destination registers/swizzles.
++                bool[] result = new bool[destination.mask.Length];
++                for (int lane = 0; lane < result.Length; lane++)
++                {
++                    bool Predicate(int source) => source < sources.Count && IsPredicate(sources[source], lane, predicates);
++                    result[lane] = instruction.IsComparisonType() || instruction.instructionType switch
++                    {
++                        USILInstructionType.Move => Predicate(0),
++                        USILInstructionType.MoveConditional =>
++                            (Predicate(1) && (Predicate(2) || IsZero(sources[2], lane))) ||
++                            (Predicate(2) && IsZero(sources[1], lane)),
++                        USILInstructionType.Not or USILInstructionType.LogicalNot => Predicate(0),
++                        USILInstructionType.And or USILInstructionType.Or or USILInstructionType.Xor => Predicate(0) && Predicate(1),
++                        _ => false
++                    };
++                }
+ 
+-				if (IsComparisonOrBooleanOp(instruction))
+-				{
+-					if (destOperand != null)
+-					{
+-						SetRegisterIsComparison(destOperand, true, _comparisonResultRegisters);
+-					}
+-				}
+-				else if (instruction.instructionType == USILInstructionType.And)
+-				{
+-					USILOperand leftOperand = instruction.srcOperands[0];
+-					USILOperand rightOperand = instruction.srcOperands[1];
+-					if (rightOperand.operandType == USILOperandType.ImmediateFloat &&
+-						rightOperand.immValueFloat[0] == 1)
+-					{
+-						instruction.instructionType = USILInstructionType.MoveConditional;
+-						instruction.srcOperands = new List<USILOperand>
+-						{
+-							leftOperand,
+-							new USILOperand()
+-							{
+-								operandType = USILOperandType.ImmediateFloat,
+-								immValueFloat = new float[1] { 1f }
+-							},
+-							new USILOperand()
+-							{
+-								operandType = USILOperandType.ImmediateFloat,
+-								immValueFloat = new float[1] { 0f }
+-							}
+-						};
++                bool AllPredicate(int source) => result.Length > 0 && source < sources.Count &&
++                    Enumerable.Range(0, result.Length).All(lane => IsPredicate(sources[source], lane, predicates));
++                if (instruction.instructionType == USILInstructionType.Not && AllPredicate(0))
++                {
++                    instruction.instructionType = USILInstructionType.LogicalNot;
++                    changed = true;
++                }
++                else if (instruction.instructionType == USILInstructionType.And && (AllPredicate(0) || AllPredicate(1)))
++                {
++                    bool left = AllPredicate(0);
++                    instruction.instructionType = USILInstructionType.MoveConditional;
++                    instruction.srcOperands = new List<USILOperand> { sources[left ? 0 : 1], sources[left ? 1 : 0], new USILOperand(0f) };
++                    changed = true;
++                }
+ 
+-						if (destOperand != null)
+-						{
+-							SetRegisterIsComparison(destOperand, false, _comparisonResultRegisters);
+-						}
+-					}
+-					else
+-					{
+-						bool leftIsComparison = IsRegisterComparison(leftOperand, _comparisonResultRegisters);
+-						bool rightIsComparison = IsRegisterComparison(rightOperand, _comparisonResultRegisters);
+-						if (leftIsComparison || rightIsComparison)
+-						{
+-							USILOperand cmpOperand = leftIsComparison ? leftOperand : rightOperand;
+-							USILOperand resOperand = leftIsComparison ? rightOperand : leftOperand;
++                // Every ordinary write kills prior knowledge, including partial
++                // writes, arithmetic, loads and numeric constants. This is vital:
++                // register allocation reuses former predicate lanes for floats.
++                string[] keys = Keys(destination).ToArray();
++                predicates.ExceptWith(keys);
++                for (int lane = 0; lane < keys.Length; lane++)
++                    if (result[lane]) predicates.Add(keys[lane]);
++            }
++            return changed;
++        }
+ 
+-							instruction.instructionType = USILInstructionType.MoveConditional;
+-							instruction.srcOperands = new List<USILOperand>
+-							{
+-								cmpOperand,
+-								resOperand,
+-								new USILOperand()
+-								{
+-									operandType = USILOperandType.ImmediateFloat,
+-									immValueFloat = new float[1] { 0f }
+-								}
+-							};
+-						}
++        private static bool IsPredicate(USILOperand operand, int lane, HashSet<string> predicates)
++        {
++            if (operand.negative || operand.absoluteValue || operand.arrayRelative != null ||
++                operand.operandType != USILOperandType.TempRegister || operand.mask.Length == 0) return false;
++            int index = operand.mask.Length == 1 ? 0 : lane;
++            return index < operand.mask.Length && predicates.Contains(Key(operand, operand.mask[index]));
++        }
+ 
+-						Debug.Assert(destOperand != null);
++        private static bool IsZero(USILOperand operand, int lane)
++        {
++            if (operand.negative || operand.absoluteValue) return false;
++            // A numeric zero is also an all-zero mask, but only admit it as the
++            // other arm of a movc whose first arm is independently proven mask.
++            if (operand.operandType == USILOperandType.ImmediateFloat)
++            {
++                int i = operand.immValueFloat.Length == 1 ? 0 : lane;
++                return i < operand.immValueFloat.Length && BitConverter.SingleToInt32Bits(operand.immValueFloat[i]) == 0;
++            }
++            if (operand.operandType == USILOperandType.ImmediateInt)
++            {
++                int i = operand.immValueInt.Length == 1 ? 0 : lane;
++                return i < operand.immValueInt.Length && operand.immValueInt[i] == 0;
++            }
++            return false;
++        }
+ 
+-						// output is comparison if both are comparison (because result is also comparison)
+-						if (leftIsComparison && rightIsComparison)
+-						{
+-							SetRegisterIsComparison(destOperand, true, _comparisonResultRegisters);
+-						}
+-						else
+-						{
+-							SetRegisterIsComparison(destOperand, false, _comparisonResultRegisters);
+-						}
+-					}
+-				}
+-			}
+-			return changes; // any changes made?
+-		}
++        private static string Key(USILOperand operand, int lane) => $"{operand.registerIndex}.{lane}";
++        private static IEnumerable<string> Keys(USILOperand operand) =>
++            operand.operandType == USILOperandType.TempRegister && operand.arrayRelative == null
++                ? operand.mask.Select(lane => Key(operand, lane)) : Enumerable.Empty<string>();
+ 
+-		private static void SetRegisterIsComparison(USILOperand operand, bool isComparison, HashSet<string> _comparisonResultRegisters)
+-		{
+-			foreach (int maskIdx in operand.mask)
+-			{
+-				// I don't know if non temps can do this, so just use ToString without mask
+-				if (isComparison)
+-				{
+-					_comparisonResultRegisters.Add($"{operand.ToString(true)}.{USILConstants.MASK_CHARS[maskIdx]}");
+-				}
+-				else
+-				{
+-					_comparisonResultRegisters.Remove($"{operand.ToString(true)}.{USILConstants.MASK_CHARS[maskIdx]}");
+-				}
+-			}
+-		}
+-
+-		// 3dmigoto checked if any match, here we check if they all match
+-		private static bool IsRegisterComparison(USILOperand operand, HashSet<string> _comparisonResultRegisters)
+-		{
+-			foreach (int maskIdx in operand.mask)
+-			{
+-				if (!_comparisonResultRegisters.Contains($"{operand.ToString(true)}.{USILConstants.MASK_CHARS[maskIdx]}"))
+-				{
+-					return false;
+-				}
+-			}
+-			return true;
+-		}
+-
+-		private static bool IsComparisonOrBooleanOp(USILInstruction instruction)
+-		{
+-			// non-exhaustive list obviously
+-			return instruction.IsComparisonType() || instruction.instructionType == USILInstructionType.Not;
+-		}
+-	}
++        private static HashSet<string> FindLoopWrites(List<USILInstruction> instructions, int start)
++        {
++            var result = new HashSet<string>();
++            int depth = 1;
++            for (int i = start + 1; i < instructions.Count && depth > 0; i++)
++            {
++                var instruction = instructions[i];
++                if (instruction.commented) continue;
++                if (instruction.instructionType == USILInstructionType.Loop || instruction.instructionType == USILInstructionType.ForLoop) depth++;
++                if (instruction.instructionType == USILInstructionType.EndLoop) depth--;
++                if (instruction.destOperand != null) result.UnionWith(Keys(instruction.destOperand));
++            }
++            return result;
++        }
++    }
+ }
+diff --git a/Source/AssetRipper.Export.Modules.Shader/UltraShaderConverter/USIL/USILInstruction.cs b/Source/AssetRipper.Export.Modules.Shader/UltraShaderConverter/USIL/USILInstruction.cs
+index 43125b55..91174639 100644
+--- a/Source/AssetRipper.Export.Modules.Shader/UltraShaderConverter/USIL/USILInstruction.cs
++++ b/Source/AssetRipper.Export.Modules.Shader/UltraShaderConverter/USIL/USILInstruction.cs
+@@ -1,4 +1,4 @@
+-﻿using System.Text;
++using System.Text;
+ 
+ namespace AssetRipper.Export.Modules.Shaders.UltraShaderConverter.USIL
+ {
+@@ -8,6 +8,8 @@ namespace AssetRipper.Export.Modules.Shaders.UltraShaderConverter.USIL
+ 		public USILOperand? destOperand { get; set; }
+ 		public required List<USILOperand> srcOperands { get; set; }
+ 		public bool saturate { get; set; }
++        // Original signed texel-space offsets; never fold these into UVs.
++        public int[] textureOffsets { get; set; } = Array.Empty<int>();
+ 		public bool commented { get; set; }
+ 
+ 		public bool isIntVariant { get; set; }
+diff --git a/Source/AssetRipper.Export.Modules.Shader/UltraShaderConverter/USIL/USILInstructionType.cs b/Source/AssetRipper.Export.Modules.Shader/UltraShaderConverter/USIL/USILInstructionType.cs
+index 3daf663a..e2ff7ff8 100644
+--- a/Source/AssetRipper.Export.Modules.Shader/UltraShaderConverter/USIL/USILInstructionType.cs
++++ b/Source/AssetRipper.Export.Modules.Shader/UltraShaderConverter/USIL/USILInstructionType.cs
+@@ -102,6 +102,7 @@
+ 		WorldSpaceViewDir,
+ 
+ 		// extra
+-		Comment
++		Comment,
++		LogicalNot // proven comparison-mask complement; not an arbitrary integer NOT
+ 	}
+ }
+diff --git a/Source/AssetRipper.Export.Modules.Shader/UltraShaderConverter/USIL/USILOperand.cs b/Source/AssetRipper.Export.Modules.Shader/UltraShaderConverter/USIL/USILOperand.cs
+index c7ee0a3a..a8a44a3d 100644
+--- a/Source/AssetRipper.Export.Modules.Shader/UltraShaderConverter/USIL/USILOperand.cs
++++ b/Source/AssetRipper.Export.Modules.Shader/UltraShaderConverter/USIL/USILOperand.cs
+@@ -1,4 +1,4 @@
+-﻿using AssetRipper.Export.Modules.Shaders.UltraShaderConverter.UShader.DirectX;
++﻿using AssetRipper.Export.Modules.Shaders.UltraShaderConverter.UShader.DirectX;
+ using System.Globalization;
+ 
+ namespace AssetRipper.Export.Modules.Shaders.UltraShaderConverter.USIL
+@@ -128,6 +128,8 @@ namespace AssetRipper.Export.Modules.Shaders.UltraShaderConverter.USIL
+ 			}
+ 		}
+ 
++        private static string FormatFloat(float value) => float.IsFinite(value) ? value.ToString("0.0######", CultureInfo.InvariantCulture) : $"asfloat(0x{BitConverter.SingleToUInt32Bits(value):X8}u)";
++
+ 		public override string ToString()
+ 		{
+ 			return ToString(false);
+@@ -241,7 +243,7 @@ namespace AssetRipper.Export.Modules.Shaders.UltraShaderConverter.USIL
+ 							{
+ 								// todo: check if number can't possibly be expressed as float and write in hex.
+ 								// todo: float precision isn't correct atm. add precision check somewhere.
+-								body = $"{immValueFloat[0].ToString("0.0######", CultureInfo.InvariantCulture)}";
++								body = $"{FormatFloat(immValueFloat[0])}";
+ 							}
+ 							else //if (immValueFloat.Length > 1)
+ 							{
+@@ -251,11 +253,11 @@ namespace AssetRipper.Export.Modules.Shaders.UltraShaderConverter.USIL
+ 								{
+ 									if (i != immValueFloat.Length - 1)
+ 									{
+-										body += $"{immValueFloat[i].ToString("0.0######", CultureInfo.InvariantCulture)}, ";
++										body += $"{FormatFloat(immValueFloat[i])}, ";
+ 									}
+ 									else
+ 									{
+-										body += $"{immValueFloat[i].ToString("0.0######", CultureInfo.InvariantCulture)}";
++										body += $"{FormatFloat(immValueFloat[i])}";
+ 									}
+ 								}
+ 								body += ")";
+diff --git a/Source/AssetRipper.Export.Modules.Shader/UltraShaderConverter/USIL/USILOptimizerApplier.cs b/Source/AssetRipper.Export.Modules.Shader/UltraShaderConverter/USIL/USILOptimizerApplier.cs
+index 02c5f9bf..eb717563 100644
+--- a/Source/AssetRipper.Export.Modules.Shader/UltraShaderConverter/USIL/USILOptimizerApplier.cs
++++ b/Source/AssetRipper.Export.Modules.Shader/UltraShaderConverter/USIL/USILOptimizerApplier.cs
+@@ -33,7 +33,8 @@ namespace AssetRipper.Export.Modules.Shaders.UltraShaderConverter.USIL
+ 			new USILCompareOrderOptimizer(),
+ 			new USILAddNegativeOptimizer(),
+ 			new USILAndOptimizer(),
+-			new USILForLoopOptimizer(),
++			// Disabled: renames loop registers without reliably creating for-loop declarations.
++			// new USILForLoopOptimizer(),
+ 		};
+ 
+ 		public static void Apply(UShaderProgram shader, ShaderSubProgram shaderData)
+diff --git a/Source/AssetRipper.Export.Modules.Shader/UltraShaderConverter/UShader/DirectX/DirectXProgramToUSIL.cs b/Source/AssetRipper.Export.Modules.Shader/UltraShaderConverter/UShader/DirectX/DirectXProgramToUSIL.cs
+index 839a3038..499bd0a8 100644
+--- a/Source/AssetRipper.Export.Modules.Shader/UltraShaderConverter/UShader/DirectX/DirectXProgramToUSIL.cs
++++ b/Source/AssetRipper.Export.Modules.Shader/UltraShaderConverter/UShader/DirectX/DirectXProgramToUSIL.cs
+@@ -1,4 +1,4 @@
+-﻿using AssetRipper.Export.Modules.Shaders.UltraShaderConverter.DirectXDisassembler;
++using AssetRipper.Export.Modules.Shaders.UltraShaderConverter.DirectXDisassembler;
+ using AssetRipper.Export.Modules.Shaders.UltraShaderConverter.DirectXDisassembler.Blocks;
+ using AssetRipper.Export.Modules.Shaders.UltraShaderConverter.UShader.Function;
+ using AssetRipper.Export.Modules.Shaders.UltraShaderConverter.USIL;
+@@ -44,6 +44,8 @@ namespace AssetRipper.Export.Modules.Shaders.UltraShaderConverter.UShader.Direct
+ 				{ Opcode.imad, new InstHandler(HandleMad) },
+ 				{ Opcode.and, new InstHandler(HandleAnd) },
+ 				{ Opcode.or, new InstHandler(HandleOr) },
++                { Opcode.xor, new InstHandler(HandleXor) },
++                { Opcode.ineg, new InstHandler(HandleIntegerNegate) },
+ 				{ Opcode.not, new InstHandler(HandleNot) },
+ 				{ Opcode.ftoi, new InstHandler(HandleFtoi) },
+ 				{ Opcode.ftou, new InstHandler(HandleFtoi) },
+@@ -457,36 +459,16 @@ namespace AssetRipper.Export.Modules.Shaders.UltraShaderConverter.UShader.Direct
+ 
+ 		// there is a better way to check this, but this works too
+ 		private static int[] MapMask(int[] destMask, int[] srcMask)
+-		{
+-			if (srcMask == null || srcMask.Length == 0)
+-			{
+-				// immediates won't have a mask, so match them to destination values
+-				return destMask;
+-			}
+-			else if (destMask == null || destMask.Length == 0 || destMask.Length == 4)
+-			{
+-				// 0 shouldn't happen, but with mask 4 (xyzw) don't worry about mapping mask
+-				// some registers like OutputDepth don't have mask, so skip them too
+-				return srcMask;
+-			}
+-			else if (destMask.Length == 1)
+-			{
+-				// with mask size 1, all inputs are also only size 1
+-				return new int[] { srcMask[0] };
+-			}
+-			else //dest.mask.Length == (2 || 3)
+-			{
+-				// when mask size is 2 or 3, inputs will be size 4. map the masks correctly
+-				int[] mask = new int[destMask.Length];
+-				for (int i = 0; i < mask.Length; i++)
+-				{
+-					mask[i] = srcMask[destMask[i]];
+-				}
+-				return mask;
+-			}
+-		}
++        {
++            if (srcMask == null || srcMask.Length == 0) return destMask;
++            if (destMask == null || destMask.Length == 0) return srcMask;
++            // A scalar source selector is broadcast; a four-lane source
++            // swizzle is indexed by each destination lane, including .w.
++            if (srcMask.Length == 1) return Enumerable.Repeat(srcMask[0], destMask.Length).ToArray();
++            return destMask.Select(lane => srcMask[lane]).ToArray();
++        }
+ 
+-		private void HandleMov(SHDRInstruction inst)
++        private void HandleMov(SHDRInstruction inst)
+ 		{
+ 			SHDRInstructionOperand dest = inst.operands[0];
+ 			SHDRInstructionOperand src0 = inst.operands[1];
+@@ -762,6 +744,41 @@ namespace AssetRipper.Export.Modules.Shaders.UltraShaderConverter.UShader.Direct
+ 			Instructions.Add(usilInst);
+ 		}
+ 
++		private void HandleXor(SHDRInstruction inst)
++		{
++			SHDRInstructionOperand dest = inst.operands[0]; // The result of the operation.
++			SHDRInstructionOperand src0 = inst.operands[1]; // The components to OR with src1.
++			SHDRInstructionOperand src1 = inst.operands[2]; // The components to OR with src0.
++
++			USILOperand usilDest = new();
++			USILOperand usilSrc0 = new();
++			USILOperand usilSrc1 = new();
++
++			FillUSILOperand(dest, usilDest, dest.swizzle, false);
++			FillUSILOperand(src0, usilSrc0, MapMask(dest.swizzle, src0.swizzle), false);
++			FillUSILOperand(src1, usilSrc1, MapMask(dest.swizzle, src1.swizzle), false);
++
++			USILInstruction usilInst = new()
++			{
++				instructionType = USILInstructionType.Xor,
++				destOperand = usilDest,
++				srcOperands = new()
++				{
++					usilSrc0,
++					usilSrc1,
++				},
++			};
++
++			Instructions.Add(usilInst);
++		}
++
++        private void HandleIntegerNegate(SHDRInstruction inst) {
++            var dest=new USILOperand();var src=new USILOperand();
++            FillUSILOperand(inst.operands[0],dest,inst.operands[0].swizzle,true);
++            FillUSILOperand(inst.operands[1],src,MapMask(inst.operands[0].swizzle,inst.operands[1].swizzle),true);
++            src.negative=!src.negative;
++            Instructions.Add(new USILInstruction{instructionType=USILInstructionType.Move,destOperand=dest,srcOperands=new(){src}});
++        }
+ 		private void HandleNot(SHDRInstruction inst)
+ 		{
+ 			SHDRInstructionOperand dest = inst.operands[0]; // The address of the result of the operation.
+@@ -1236,8 +1253,8 @@ namespace AssetRipper.Export.Modules.Shaders.UltraShaderConverter.UShader.Direct
+ 
+ 			int[] mask = new int[] { 0, 1 };
+ 			FillUSILOperand(dest, usilDest, dest.swizzle, false);
+-			FillUSILOperand(src0, usilSrc0, mask, false);
+-			FillUSILOperand(src1, usilSrc1, mask, false);
++			FillUSILOperand(src0, usilSrc0, MapMask(mask, src0.swizzle), false);
++			FillUSILOperand(src1, usilSrc1, MapMask(mask, src1.swizzle), false);
+ 
+ 			USILInstruction usilInst = new()
+ 			{
+@@ -1266,8 +1283,8 @@ namespace AssetRipper.Export.Modules.Shaders.UltraShaderConverter.UShader.Direct
+ 
+ 			int[] mask = new int[] { 0, 1, 2 };
+ 			FillUSILOperand(dest, usilDest, dest.swizzle, false);
+-			FillUSILOperand(src0, usilSrc0, mask, false);
+-			FillUSILOperand(src1, usilSrc1, mask, false);
++			FillUSILOperand(src0, usilSrc0, MapMask(mask, src0.swizzle), false);
++			FillUSILOperand(src1, usilSrc1, MapMask(mask, src1.swizzle), false);
+ 
+ 			USILInstruction usilInst = new()
+ 			{
+@@ -1296,8 +1313,8 @@ namespace AssetRipper.Export.Modules.Shaders.UltraShaderConverter.UShader.Direct
+ 
+ 			int[] mask = new int[] { 0, 1, 2, 3 };
+ 			FillUSILOperand(dest, usilDest, dest.swizzle, false);
+-			FillUSILOperand(src0, usilSrc0, mask, false);
+-			FillUSILOperand(src1, usilSrc1, mask, false);
++			FillUSILOperand(src0, usilSrc0, MapMask(mask, src0.swizzle), false);
++			FillUSILOperand(src1, usilSrc1, MapMask(mask, src1.swizzle), false);
+ 
+ 			USILInstruction usilInst = new()
+ 			{
+@@ -1341,6 +1358,8 @@ namespace AssetRipper.Export.Modules.Shaders.UltraShaderConverter.UShader.Direct
+ 			{
+ 				instructionType = USILInstructionType.Sample,
+ 				destOperand = usilDest,
++                saturate = inst.saturated,
++                textureOffsets = SampleOffsets(inst, dimension),
+ 				srcOperands = new()
+ 				{
+ 					usilSrcAddress,
+@@ -1377,7 +1396,7 @@ namespace AssetRipper.Export.Modules.Shaders.UltraShaderConverter.UShader.Direct
+ 			FillUSILOperand(srcAddress, usilSrcAddress, MapMask(uvMask, srcAddress.swizzle), false);
+ 			FillUSILOperand(srcResource, usilSrcResource, MapMask(dest.swizzle, srcResource.swizzle), false);
+ 			FillUSILOperand(srcSampler, usilSrcSampler, mask, false);
+-			FillUSILOperand(srcReferenceValue, usilSrcReferenceValue, mask, false);
++			FillUSILOperand(srcReferenceValue, usilSrcReferenceValue, new[] {srcReferenceValue.swizzle[0]}, false);
+ 
+ 			USILInstruction usilInst = new()
+ 			{
+@@ -1388,6 +1407,8 @@ namespace AssetRipper.Export.Modules.Shaders.UltraShaderConverter.UShader.Direct
+ 					_ => USILInstructionType.SampleComparisonLODZero,//Throw exception?
+ 				},
+ 				destOperand = usilDest,
++                saturate = inst.saturated,
++                textureOffsets = SampleOffsets(inst, dimension),
+ 				srcOperands = new()
+ 				{
+ 					usilSrcAddress,
+@@ -1436,6 +1457,8 @@ namespace AssetRipper.Export.Modules.Shaders.UltraShaderConverter.UShader.Direct
+ 					_ => USILInstructionType.SampleLOD, //Throw exception?
+ 				},
+ 				destOperand = usilDest,
++                saturate = inst.saturated,
++                textureOffsets = SampleOffsets(inst, dimension),
+ 				srcOperands = new()
+ 				{
+ 					usilSrcAddress,
+@@ -1474,13 +1497,15 @@ namespace AssetRipper.Export.Modules.Shaders.UltraShaderConverter.UShader.Direct
+ 			FillUSILOperand(srcAddress, usilSrcAddress, MapMask(uvMask, srcAddress.swizzle), false);
+ 			FillUSILOperand(srcResource, usilSrcResource, MapMask(dest.swizzle, srcResource.swizzle), false);
+ 			FillUSILOperand(srcSampler, usilSrcSampler, mask, false);
+-			FillUSILOperand(srcXDerivatives, usilSrcXDerivatives, srcXDerivatives.swizzle, false);
+-			FillUSILOperand(srcYDerivatives, usilSrcYDerivatives, srcYDerivatives.swizzle, false);
++			FillUSILOperand(srcXDerivatives, usilSrcXDerivatives, MapMask(GetSampleGradientMask(dimension), srcXDerivatives.swizzle), false);
++			FillUSILOperand(srcYDerivatives, usilSrcYDerivatives, MapMask(GetSampleGradientMask(dimension), srcYDerivatives.swizzle), false);
+ 
+ 			USILInstruction usilInst = new()
+ 			{
+ 				instructionType = USILInstructionType.SampleDerivative,
+ 				destOperand = usilDest,
++                saturate = inst.saturated,
++                textureOffsets = SampleOffsets(inst, dimension),
+ 				srcOperands = new()
+ 				{
+ 					usilSrcAddress,
+@@ -2059,7 +2084,33 @@ namespace AssetRipper.Export.Modules.Shaders.UltraShaderConverter.UShader.Direct
+ 			Locals.Add(new USILLocal(outputStructName, outputName, USILLocalType.Vector4));
+ 		}
+ 
+-		private static int[] GetSampleLocationMask(ResourceDimension dimension)
++		private static int[] SampleOffsets(SHDRInstruction inst, ResourceDimension dimension)
++        {
++            int[] all = { inst.addrOffsetIU, inst.addrOffsetIV, inst.addrOffsetIW };
++            if (all.All(v => v == 0)) return Array.Empty<int>();
++            int count = dimension switch {
++                ResourceDimension.texture1d or ResourceDimension.texture1darray => 1,
++                ResourceDimension.texture2d or ResourceDimension.texture2darray => 2,
++                ResourceDimension.texture3d => 3,
++                _ => throw new NotSupportedException("Texel offsets on " + dimension)
++            };
++            if (all.Skip(count).Any(v => v != 0))
++                throw new InvalidDataException("Nonzero offset outside texture dimensions");
++            return all.Take(count).ToArray();
++        }
++
++        private static int[] GetSampleGradientMask(ResourceDimension dimension)
++        {
++            int count = dimension switch {
++                ResourceDimension.texture1d or ResourceDimension.texture1darray => 1,
++                ResourceDimension.texture2d or ResourceDimension.texture2darray => 2,
++                ResourceDimension.texture3d or ResourceDimension.texturecube or ResourceDimension.texturecubearray => 3,
++                _ => throw new NotSupportedException("Sample gradients on " + dimension)
++            };
++            return GetMaskOfSize(count);
++        }
++
++        private static int[] GetSampleLocationMask(ResourceDimension dimension)
+ 		{
+ 			switch (dimension)
+ 			{
+diff --git a/Source/AssetRipper.Export.Modules.Shader/UltraShaderConverter/UShader/Function/UShaderFunctionToHLSL.cs b/Source/AssetRipper.Export.Modules.Shader/UltraShaderConverter/UShader/Function/UShaderFunctionToHLSL.cs
+index f2e518a7..244d6365 100644
+--- a/Source/AssetRipper.Export.Modules.Shader/UltraShaderConverter/UShader/Function/UShaderFunctionToHLSL.cs
++++ b/Source/AssetRipper.Export.Modules.Shader/UltraShaderConverter/UShader/Function/UShaderFunctionToHLSL.cs
+@@ -1,4 +1,4 @@
+-﻿using AssetRipper.Export.Modules.Shaders.Extensions;
++using AssetRipper.Export.Modules.Shaders.Extensions;
+ using AssetRipper.Export.Modules.Shaders.UltraShaderConverter.USIL;
+ using System.Globalization;
+ using System.Text;
+@@ -34,7 +34,9 @@ namespace AssetRipper.Export.Modules.Shaders.UltraShaderConverter.UShader.Functi
+ 				{ USILInstructionType.MultiplyAdd, new InstHandler(HandleMultiplyAdd) },
+ 				{ USILInstructionType.And, new InstHandler(HandleAnd) },
+ 				{ USILInstructionType.Or, new InstHandler(HandleOr) },
++                { USILInstructionType.Xor, new InstHandler(HandleXor) },
+ 				{ USILInstructionType.Not, new InstHandler(HandleNot) },
++                { USILInstructionType.LogicalNot, new InstHandler(HandleLogicalNot) },
+ 				{ USILInstructionType.Minimum, new InstHandler(HandleMinimum) },
+ 				{ USILInstructionType.Maximum, new InstHandler(HandleMaximum) },
+ 				{ USILInstructionType.SquareRoot, new InstHandler(HandleSquareRoot) },
+@@ -60,6 +62,7 @@ namespace AssetRipper.Export.Modules.Shaders.UltraShaderConverter.UShader.Functi
+ 				{ USILInstructionType.SampleComparison, new InstHandler(HandleSample) },
+ 				{ USILInstructionType.SampleComparisonLODZero, new InstHandler(HandleSample) },
+ 				{ USILInstructionType.SampleLOD, new InstHandler(HandleSampleLOD) },
++                { USILInstructionType.SampleLODBias, new InstHandler(HandleSampleLOD) },
+ 				{ USILInstructionType.SampleDerivative, new InstHandler(HandleSampleDerivative) },
+ 				{ USILInstructionType.LoadResource, new InstHandler(HandleLoadResource) },
+ 				{ USILInstructionType.LoadResourceMultisampled, new InstHandler(HandleLoadResource) },
+@@ -218,6 +221,21 @@ namespace AssetRipper.Export.Modules.Shaders.UltraShaderConverter.UShader.Functi
+ 			AppendLine($"{comment}{inst.destOperand} = {value};");
+ 		}
+ 
++		private void HandleXor(USILInstruction inst)
++		{
++			List<USILOperand> srcOps = inst.srcOperands;
++			int op0UintSize = srcOps[0].GetValueCount();
++			int op1UintSize = srcOps[1].GetValueCount();
++			string value = $"uint{op0UintSize}({srcOps[0]}) ^ uint{op1UintSize}({srcOps[1]})";
++			string comment = CommentString(inst);
++			AppendLine($"{comment}{inst.destOperand} = {value};");
++		}
++
++		private void HandleLogicalNot(USILInstruction inst)
++		{
++			AppendLine($"{CommentString(inst)}{inst.destOperand} = !({inst.srcOperands[0]});");
++		}
++
+ 		private void HandleNot(USILInstruction inst)
+ 		{
+ 			List<USILOperand> srcOps = inst.srcOperands;
+@@ -433,104 +451,67 @@ namespace AssetRipper.Export.Modules.Shaders.UltraShaderConverter.UShader.Functi
+ 			AppendLine($"{comment}{inst.destOperand} = {value};");
+ 		}
+ 
+-		private void HandleSample(USILInstruction inst)
+-		{
+-			List<USILOperand> srcOps = inst.srcOperands;
+-			USILOperand textureOperand = srcOps[2];
+-			int samplerTypeIdx = inst.instructionType == USILInstructionType.Sample ? 3 : 4;
+-			bool samplerType = srcOps[samplerTypeIdx].immValueInt[0] == 1;
+-			string args = $"{srcOps[2]}, {srcOps[0]}";
+-			string value;
+-			if (!samplerType)
+-			{
+-				value = textureOperand.operandType switch
+-				{
+-					USILOperandType.Sampler2D => $"tex2D({args})",
+-					USILOperandType.Sampler3D => $"tex3D({args})",
+-					USILOperandType.SamplerCube => $"texCUBE({args})",
+-					USILOperandType.Sampler2DArray => $"UNITY_SAMPLE_TEX2DARRAY({args})",
+-					USILOperandType.SamplerCubeArray => $"UNITY_SAMPLE_TEXCUBEARRAY({args})",
+-					_ => $"texND({args})" // unknown real type
+-				};
+-			}
+-			else
+-			{
+-				args = $"{srcOps[2]}, {args}";
+-				value = textureOperand.operandType switch
+-				{
+-					USILOperandType.Sampler2D => $"UNITY_SAMPLE_TEX2D_SAMPLER({args})",
+-					USILOperandType.Sampler3D => $"UNITY_SAMPLE_TEX3D_SAMPLER({args})",
+-					USILOperandType.SamplerCube => $"UNITY_SAMPLE_TEXCUBE_SAMPLER({args})",
+-					USILOperandType.Sampler2DArray => $"UNITY_SAMPLE_TEX2DARRAY_SAMPLER({args})",
+-					USILOperandType.SamplerCubeArray => $"UNITY_SAMPLE_TEXCUBEARRAY_SAMPLER({args})",
+-					_ => $"texND({args})" // unknown real type
+-				};
+-			}
+-			string comment = CommentString(inst);
+-			AppendLine($"{comment}{inst.destOperand} = {value};");
+-		}
+-
+-		private void HandleSampleLOD(USILInstruction inst)
+-		{
+-			List<USILOperand> srcOps = inst.srcOperands;
+-			USILOperand textureOperand = srcOps[2];
+-			bool samplerType = srcOps[4].immValueInt[0] == 1;
+-			string args;
+-			if (srcOps[0].mask.Length == 2) // texture2d
+-			{
+-				args = $"{srcOps[2]}, float4({srcOps[0]}, 0, {srcOps[3]})";
+-			}
+-			else
+-			{
+-				args = $"{srcOps[2]}, float4({srcOps[0]}, {srcOps[3]})";
+-			}
+-
+-			string value;
+-			if (!samplerType)
+-			{
+-				value = textureOperand.operandType switch
+-				{
+-					USILOperandType.Sampler2D => $"tex2Dlod({args})",
+-					USILOperandType.Sampler3D => $"tex3Dlod({args})",
+-					USILOperandType.SamplerCube => $"texCUBElod({args})",
+-					USILOperandType.Sampler2DArray => $"UNITY_SAMPLE_TEX2DARRAY_LOD({args})",
+-					USILOperandType.SamplerCubeArray => $"UNITY_SAMPLE_TEXCUBEARRAY_LOD({args})",
+-					_ => $"texNDlod({args})" // unknown real type
+-				};
+-			}
+-			else
+-			{
+-				args = $"{srcOps[2]}, {args}";
+-				value = textureOperand.operandType switch
+-				{
+-					USILOperandType.Sampler2D => $"UNITY_SAMPLE_TEX2D_SAMPLER({args})",
+-					USILOperandType.Sampler3D => $"UNITY_SAMPLE_TEX3D_SAMPLER({args})",
+-					USILOperandType.SamplerCube => $"UNITY_SAMPLE_TEXCUBE_SAMPLER({args})",
+-					USILOperandType.Sampler2DArray => $"UNITY_SAMPLE_TEX2DARRAY_SAMPLER({args})",
+-					USILOperandType.SamplerCubeArray => $"UNITY_SAMPLE_TEXCUBEARRAY_SAMPLER({args})",
+-					_ => $"texND({args})" // unknown real type
+-				};
+-			}
+-			string comment = CommentString(inst);
+-			AppendLine($"{comment}{inst.destOperand} = {value};");
+-		}
+-
+-		private void HandleSampleDerivative(USILInstruction inst)
+-		{
+-			List<USILOperand> srcOps = inst.srcOperands;
+-			USILOperand textureOperand = srcOps[2];
+-			string value;
+-			string args = $"{srcOps[2]}, {srcOps[0]}, {srcOps[3]}, {srcOps[4]}";
+-			value = textureOperand.operandType switch
+-			{
+-				USILOperandType.Sampler2D => $"tex2Dgrad({args})",
+-				USILOperandType.Sampler3D => $"tex3Dgrad({args})",
+-				USILOperandType.SamplerCube => $"texCUBEgrad({args})",
+-				_ => $"texNDgrad({args})" // unknown real type
+-			};
+-			string comment = CommentString(inst);
+-			AppendLine($"{comment}{inst.destOperand} = {value};");
+-		}
++        private static string TextureOffset(USILInstruction inst)
++        {
++            var values = inst.textureOffsets;
++            if (values.Length == 0) return "";
++            if (values.Length > 3 || values.Any(v => v < -8 || v > 7))
++                throw new InvalidDataException("Invalid original texture offset");
++            return values.Length == 1 ? ", " + values[0] :
++                ", int" + values.Length + "(" + string.Join(", ", values) + ")";
++        }
++
++        private static string TextureName(USILOperand operand)
++        {
++            if (!operand.metadataNameAssigned || string.IsNullOrEmpty(operand.metadataName))
++                throw new InvalidDataException("Texture/sampler binding metadata is missing: " + operand);
++            return operand.ToString(true);
++        }
++
++        private void EmitTextureResult(USILInstruction inst, string value, bool scalar = false)
++        {
++            // Resource swizzle is already composed with the destination write
++            // mask by DirectXProgramToUSIL. It describes the returned channels,
++            // not a swizzle to apply to the texture object or UV coordinates.
++            var mask = inst.srcOperands[1].mask;
++            if (mask.Length == 0 || mask.Length > 4 || mask.Any(v => v < 0 || v > 3))
++                throw new InvalidDataException("Invalid texture result mask");
++            if (scalar) {
++                if (mask.Length > 1) value = "float" + mask.Length + "(" +
++                    string.Join(", ", Enumerable.Repeat(value, mask.Length)) + ")";
++            } else value += "." + new string(mask.Select(v => "xyzw"[v]).ToArray());
++            AppendLine($"{CommentString(inst)}{inst.destOperand} = {WrapSaturate(inst, value)};");
++        }
++
++        private void HandleSample(USILInstruction inst)
++        {
++            var operands = inst.srcOperands;
++            string texture = TextureName(operands[1]);
++            string sampler = "sampler" + TextureName(operands[2]);
++            bool comparison = inst.instructionType == USILInstructionType.SampleComparison ||
++                inst.instructionType == USILInstructionType.SampleComparisonLODZero;
++            string method = comparison ? (inst.instructionType == USILInstructionType.SampleComparisonLODZero ?
++                "SampleCmpLevelZero" : "SampleCmp") : "Sample";
++            string reference = comparison ? ", " + operands[3] : "";
++            EmitTextureResult(inst, $"{texture}.{method}({sampler}, {operands[0]}{reference}{TextureOffset(inst)})", comparison);
++        }
++
++        private void HandleSampleLOD(USILInstruction inst)
++        {
++            var operands = inst.srcOperands;
++            string texture = TextureName(operands[1]);
++            string sampler = "sampler" + TextureName(operands[2]);
++            string method = inst.instructionType == USILInstructionType.SampleLODBias ? "SampleBias" : "SampleLevel";
++            EmitTextureResult(inst, $"{texture}.{method}({sampler}, {operands[0]}, {operands[3]}{TextureOffset(inst)})");
++        }
++
++        private void HandleSampleDerivative(USILInstruction inst)
++        {
++            var operands = inst.srcOperands;
++            string texture = TextureName(operands[1]);
++            string sampler = "sampler" + TextureName(operands[2]);
++            EmitTextureResult(inst, $"{texture}.SampleGrad({sampler}, {operands[0]}, {operands[3]}, {operands[4]}{TextureOffset(inst)})");
++        }
+ 
+ 		private void HandleLoadResource(USILInstruction inst)
+ 		{
+diff --git a/Source/AssetRipper.Export.UnityProjects/Shaders/USCShaderExporter.cs b/Source/AssetRipper.Export.UnityProjects/Shaders/USCShaderExporter.cs
+index c71e82cc..436f4e38 100644
+--- a/Source/AssetRipper.Export.UnityProjects/Shaders/USCShaderExporter.cs
++++ b/Source/AssetRipper.Export.UnityProjects/Shaders/USCShaderExporter.cs
+@@ -1,4 +1,4 @@
+-﻿using AssetRipper.Assets;
++using AssetRipper.Assets;
+ using AssetRipper.Assets.Generics;
+ using AssetRipper.Export.Modules.Shaders.Exporters;
+ using AssetRipper.Export.Modules.Shaders.Exporters.DirectX;
+@@ -158,6 +158,25 @@ namespace AssetRipper.Export.UnityProjects.Shaders
+ 			writer.Write("}\n");
+ 		}
+ 
++        private static bool PreserveVariantsFor(IShader shader) => true;
++        private static HashSet<string> Keys(ShaderSubProgram p) => p.LocalKeywords.Concat(p.GlobalKeywords).ToHashSet();
++        private sealed record ProgramPair(ShaderSubProgram? Vertex, ShaderSubProgram? Fragment, string[] Keywords);
++        private static List<ProgramPair> PairPrograms(List<ShaderSubProgram>? vertices, List<ShaderSubProgram>? fragments, bool preserve) {
++            if (!preserve) return new(){new(vertices?.First(), fragments?.First(), Array.Empty<string>())};
++            var vs=(vertices ?? new()).GroupBy(p=>string.Join(" ",Keys(p).OrderBy(k=>k))).Select(g=>g.First()).ToList();
++            var fs=(fragments ?? new()).GroupBy(p=>string.Join(" ",Keys(p).OrderBy(k=>k))).Select(g=>g.First()).ToList();
++            var vk=vs.SelectMany(Keys).ToHashSet();var fk=fs.SelectMany(Keys).ToHashSet();
++            var shared=vk.Intersect(fk).ToHashSet();
++            var result=new List<ProgramPair>();
++            foreach(var v in vs) foreach(var f in fs) {
++                var a=Keys(v);var b=Keys(f);
++                if(!a.Intersect(shared).ToHashSet().SetEquals(b.Intersect(shared))) continue;
++                result.Add(new(v,f,a.Union(b).OrderBy(k=>k).ToArray()));
++            }
++            if(result.Count==0) throw new InvalidOperationException("No compatible original vertex/fragment variants");
++            return result.GroupBy(p=>string.Join(" ",p.Keywords)).Select(g=>g.First()).OrderByDescending(p=>p.Keywords.Length).ToList();
++        }
++
+ 		private static void ExportPassDecomp(ISerializedPass _this, ShaderWriter writer)
+ 		{
+ 			writer.WriteIndent(2);
+@@ -214,14 +233,26 @@ namespace AssetRipper.Export.UnityProjects.Shaders
+ 						}
+ 					}
+ 
+-					ShaderSubProgram? vertexSubProgram = null;
++					bool preserveVariants = PreserveVariantsFor(writer.Shader);
++                    var pairs = PairPrograms(vertexSubPrograms, fragmentSubPrograms, preserveVariants);
++                    var allKeywords = pairs.SelectMany(p => p.Keywords).Distinct().OrderBy(k=>k).ToArray();
++                    writer.WriteLine("CGPROGRAM");
++                    writer.WriteLine("#pragma target 4.5");
++                    if (preserveVariants) foreach(var keyword in allKeywords) writer.WriteLine($"#pragma shader_feature __ {keyword}");
++                    int pairIndex = 0;
++                    foreach (var pair in pairs) {
++                    if(preserveVariants) {
++                        string condition=allKeywords.Length==0 ? "1" : string.Join(" && ",allKeywords.Select(k=>pair.Keywords.Contains(k) ? $"defined({k})" : $"!defined({k})"));
++                        writer.WriteLine($"{(pairIndex++==0 ? "#if" : "#elif")} {condition}");
++                    }
++                    ShaderSubProgram? vertexSubProgram = null;
+ 					ShaderSubProgram? fragmentSubProgram = null;
+ 					USCShaderConverter? vertexConverter = null;
+ 					USCShaderConverter? fragmentConverter = null;
+ 
+ 					if (hasVertex)
+ 					{
+-						vertexSubProgram = vertexSubPrograms![0];
++						vertexSubProgram = pair.Vertex!;
+ 
+ 						byte[] trimmedProgramData = TrimShaderBytes(vertexSubProgram, writer.Version, writer.Platform);
+ 
+@@ -230,7 +261,7 @@ namespace AssetRipper.Export.UnityProjects.Shaders
+ 					}
+ 					if (hasFragment)
+ 					{
+-						fragmentSubProgram = fragmentSubPrograms![0];
++						fragmentSubProgram = pair.Fragment!;
+ 
+ 						byte[] trimmedProgramData = TrimShaderBytes(fragmentSubProgram, writer.Version, writer.Platform);
+ 
+@@ -239,7 +270,6 @@ namespace AssetRipper.Export.UnityProjects.Shaders
+ 					}
+ 
+ 					writer.WriteIndent(3);
+-					writer.WriteLine("CGPROGRAM");
+ 
+ 					if (hasVertex)
+ 					{
+@@ -362,7 +392,7 @@ namespace AssetRipper.Export.UnityProjects.Shaders
+ 						writer.WriteIndent(3);
+ 						writer.WriteLine("// Texture params for Vertex Shader");
+ 
+-						ExportPassTextureParamDefinitions(vertexSubProgram!, writer, declaredBufs, 3);
++						ExportPassTextureParamDefinitions(vertexSubProgram!, vertexConverter!.DxShader!, writer, declaredBufs, 3);
+ 					}
+ 
+ 					if (hasFragment)
+@@ -370,7 +400,7 @@ namespace AssetRipper.Export.UnityProjects.Shaders
+ 						writer.WriteIndent(3);
+ 						writer.WriteLine("// Texture params for Fragment Shader");
+ 
+-						ExportPassTextureParamDefinitions(fragmentSubProgram!, writer, declaredBufs, 3);
++						ExportPassTextureParamDefinitions(fragmentSubProgram!, fragmentConverter!.DxShader!, writer, declaredBufs, 3);
+ 					}
+ 
+ 					writer.WriteIndent(3);
+@@ -431,7 +461,9 @@ namespace AssetRipper.Export.UnityProjects.Shaders
+ 					}
+ 
+ 					writer.WriteIndent(3);
+-					writer.WriteLine("ENDCG");
++					}
++                    if(preserveVariants) writer.WriteLine("#else\n#error Original shader has no recovered variant for this keyword combination\n#endif");
++                    writer.WriteLine("ENDCG");
+ 				}
+ 				else
+ 				{
+@@ -504,42 +536,47 @@ namespace AssetRipper.Export.UnityProjects.Shaders
+ 			}
+ 		}
+ 
+-		private static void ExportPassTextureParamDefinitions(ShaderSubProgram _this, ShaderWriter writer, HashSet<string?> declaredBufs, int depth)
+-		{
+-			foreach (TextureParameter param in _this.TextureParameters)
+-			{
+-				string name = param.Name;
+-				if (!declaredBufs.Contains(name) && !UnityShaderConstants.BUILTIN_TEXTURE_NAMES.Contains(name))
+-				{
+-					writer.WriteIndent(depth);
+-					if (param.Dim == 2)
+-					{
+-						writer.WriteLine($"sampler2D {name};");
+-					}
+-					else if (param.Dim == 3)
+-					{
+-						writer.WriteLine($"sampler3D {name};");
+-					}
+-					else if (param.Dim == 4)
+-					{
+-						writer.WriteLine($"samplerCUBE {name};");
+-					}
+-					else if (param.Dim == 5)
+-					{
+-						writer.WriteLine($"UNITY_DECLARE_TEX2DARRAY({name});");
+-					}
+-					else if (param.Dim == 6)
+-					{
+-						writer.WriteLine($"UNITY_DECLARE_TEXCUBEARRAY({name});");
+-					}
+-					else
+-					{
+-						writer.WriteLine($"sampler2D {name}; // Unsure of real type ({param.Dim})");
+-					}
+-					declaredBufs.Add(name);
+-				}
+-			}
+-		}
++		private static string GetTextureDeclaration(TextureParameter param, IEnumerable<SHDRInstruction> instructions)
++        {
++            if (param.MultiSampled) throw new NotSupportedException("Multisampled texture declaration: " + param.Name);
++            var modes = instructions.Where(i => i.opcode == Opcode.dcl_sampler &&
++                i.declData != null && i.declData.samplerIndex == param.SamplerIndex)
++                .Select(i => i.declData!.samplerMode).Distinct().ToArray();
++            if (modes.Length > 1) throw new InvalidDataException("Conflicting original sampler modes: " + param.Name);
++            bool comparison = modes.Length == 1 && modes[0] == SamplerMode.Comparison;
++            string kind = param.Dim switch {
++                2 => "Texture2D", 3 => "Texture3D", 4 => "TextureCube",
++                5 => "Texture2DArray", 6 => "TextureCubeArray",
++                _ => throw new NotSupportedException("Unknown original texture dimension: " + param.Dim)
++            };
++            if (comparison && param.Dim == 3) throw new NotSupportedException("Comparison sampler on 3D texture");
++            string element = comparison ? "float" : "float4";
++            string sampler = comparison ? "SamplerComparisonState" : "SamplerState";
++            return $"{kind}<{element}> {param.Name}; {sampler} sampler{param.Name};";
++        }
++
++		private static void ExportPassTextureParamDefinitions(ShaderSubProgram program, DirectXCompiledShader dxShader,
++            ShaderWriter writer, HashSet<string?> declaredBufs, int depth)
++        {
++            foreach (TextureParameter param in program.TextureParameters)
++            {
++                string name = param.Name;
++                if (declaredBufs.Contains(name) ||
++                    (UnityShaderConstants.BUILTIN_TEXTURE_NAMES.Contains(name) && name != "_ShadowMapTexture")) continue;
++                // UnityCG supplies this one only inside its deprecated collector
++                // helpers; ordinary recovered lighting passes still need it.
++                if (name == "_ShadowMapTexture") {
++                    writer.WriteIndent(depth);
++                    writer.WriteLine("#if !defined(SHADOW_COLLECTOR_PASS) || defined(SHADOWMAPSAMPLER_DEFINED)");
++                }
++                writer.WriteIndent(depth);
++                writer.WriteLine(GetTextureDeclaration(param, dxShader.Shdr.shaderInstructions));
++                if (name == "_ShadowMapTexture") {
++                    writer.WriteIndent(depth); writer.WriteLine("#endif");
++                }
++                declaredBufs.Add(name);
++            }
++        }
+ 
+ 		private static void ExportSerializedProgramDecomp(ISerializedProgram _this, ShaderWriter writer, ShaderType type)
+ 		{
+@@ -640,6 +677,7 @@ namespace AssetRipper.Export.UnityProjects.Shaders
+ 					}
+ 				}
+ 
++				if (!PreserveVariantsFor(shader)) {
+ 				// skip instanced shaders
+ 				Utf8String INSTANCING_ON = "INSTANCING_ON"u8;
+ 				if (pass.NameIndices.ContainsKey(INSTANCING_ON))
+@@ -772,6 +810,8 @@ namespace AssetRipper.Export.UnityProjects.Shaders
+ 					matched = false;
+ 				}
+ 
++                }
++
+ 				if (matchedProgram != null)
+ 				{
+ 					if (matched)
+diff --git a/Source/AssetRipper.Export.UnityProjects/Shaders/UnityShaderConstants.cs b/Source/AssetRipper.Export.UnityProjects/Shaders/UnityShaderConstants.cs
+index 54c86833..d30e863c 100644
+--- a/Source/AssetRipper.Export.UnityProjects/Shaders/UnityShaderConstants.cs
++++ b/Source/AssetRipper.Export.UnityProjects/Shaders/UnityShaderConstants.cs
+@@ -41,7 +41,8 @@
+ 		// there's a lot so obviously incomplete
+ 		public static readonly HashSet<string?> INCLUDED_UNITY_PROP_NAMES = new()
+ 		{
+-			"unity_ObjectToWorld",
++			"unity_DeltaTime", "unity_OrthoParams", "unity_CameraProjection", "unity_CameraInvProjection", "unity_WorldToCamera", "unity_CameraToWorld",
++            "unity_ObjectToWorld",
+ 			"unity_WorldToObject",
+ 			"unity_MatrixVP",
+ 			"unity_MatrixV",
+diff --git a/Source/AssetRipper.SourceGenerated.Extensions/SerializedShaderFloatValueExtensions.cs b/Source/AssetRipper.SourceGenerated.Extensions/SerializedShaderFloatValueExtensions.cs
+index 7881bc3a..84966515 100644
+--- a/Source/AssetRipper.SourceGenerated.Extensions/SerializedShaderFloatValueExtensions.cs
++++ b/Source/AssetRipper.SourceGenerated.Extensions/SerializedShaderFloatValueExtensions.cs
+@@ -4,6 +4,14 @@ namespace AssetRipper.SourceGenerated.Extensions
+ {
+ 	public static class SerializedShaderFloatValueExtensions
+ 	{
++        public static string PropertyReferenceName(this ISerializedShaderFloatValue value)
++        {
++            string name = value.Has_Name_R_FastPropertyName()
++                ? value.Name_R_FastPropertyName.Name.String
++                : value.Name_R_Utf8String.String;
++            return string.IsNullOrEmpty(name) || name == "<noninit>" ? string.Empty : name;
++        }
++        public static bool HasPropertyReference(this ISerializedShaderFloatValue value) => value.PropertyReferenceName().Length != 0;
+ 		public static bool IsZero(this ISerializedShaderFloatValue value) => value.Val == 0.0f;
+ 		public static bool IsMax(this ISerializedShaderFloatValue value) => value.Val == 255.0f;
+ 	}
+diff --git a/Source/AssetRipper.SourceGenerated.Extensions/SerializedStencilOpExtensions.cs b/Source/AssetRipper.SourceGenerated.Extensions/SerializedStencilOpExtensions.cs
+index 11d1b825..3f5be192 100644
+--- a/Source/AssetRipper.SourceGenerated.Extensions/SerializedStencilOpExtensions.cs
++++ b/Source/AssetRipper.SourceGenerated.Extensions/SerializedStencilOpExtensions.cs
+@@ -1,4 +1,4 @@
+-﻿using AssetRipper.SourceGenerated.Extensions.Enums.Shader.SerializedShader;
++﻿using AssetRipper.SourceGenerated.Extensions.Enums.Shader.SerializedShader;
+ using AssetRipper.SourceGenerated.Subclasses.SerializedStencilOp;
+ 
+ namespace AssetRipper.SourceGenerated.Extensions
+@@ -11,7 +11,9 @@ namespace AssetRipper.SourceGenerated.Extensions
+ 		public static StencilComp CompValue(this ISerializedStencilOp stencilOp) => (StencilComp)stencilOp.Comp.Val;
+ 		public static bool IsDefault(this ISerializedStencilOp stencilOp)
+ 		{
+-			return stencilOp.PassValue().IsKeep()
++			return !stencilOp.Pass.HasPropertyReference() && !stencilOp.Fail.HasPropertyReference()
++                && !stencilOp.ZFail.HasPropertyReference() && !stencilOp.Comp.HasPropertyReference()
++                && stencilOp.PassValue().IsKeep()
+ 				&& stencilOp.FailValue().IsKeep()
+ 				&& stencilOp.ZFailValue().IsKeep()
+ 				&& stencilOp.CompValue().IsAlways();
+diff --git a/Source/AssetRipper.SourceGenerated.Extensions/VertexDataExtensions.cs b/Source/AssetRipper.SourceGenerated.Extensions/VertexDataExtensions.cs
+index 5ef64e76..2c58ba00 100644
+--- a/Source/AssetRipper.SourceGenerated.Extensions/VertexDataExtensions.cs
++++ b/Source/AssetRipper.SourceGenerated.Extensions/VertexDataExtensions.cs
+@@ -157,7 +157,7 @@ namespace AssetRipper.SourceGenerated.Extensions
+ 							{
+ 								byte[] buff = new byte[componentByteSize];
+ 								Buffer.BlockCopy(componentBytes, i * componentByteSize, buff, 0, componentByteSize);
+-								buff = buff.Reverse().ToArray();
++								Array.Reverse(buff);
+ 								Buffer.BlockCopy(buff, 0, componentBytes, i * componentByteSize, componentByteSize);
+ 							}
+ 						}
