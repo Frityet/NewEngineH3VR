@@ -1,6 +1,7 @@
 using AssetsTools.NET;
 using AssetsTools.NET.Extra;
 using H3VR.Converter;
+using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
 
@@ -18,6 +19,15 @@ try
     var repository = Repository.Find();
     await AssetRipperIntegration.ExportAsync(repository, config, firstExport, Path.Combine(root, "online.log"), CancellationToken.None);
     ValidateExport(firstExport);
+    var git = new ProcessStartInfo("git") { WorkingDirectory = repository, RedirectStandardOutput = true, UseShellExecute = false };
+    foreach (var argument in new[] { "config", "--local", "--get", "submodule." + AssetRipperIntegration.SubmodulePath + ".url" }) git.ArgumentList.Add(argument);
+    using (var process = Process.Start(git)!)
+    {
+        var url = await process.StandardOutput.ReadToEndAsync();
+        await process.WaitForExitAsync();
+        if (process.ExitCode != 0 || url.Trim() != AssetRipperIntegration.UpstreamUrl)
+            throw new InvalidDataException("First use did not register the pinned submodule in the checkout.");
+    }
 
     var offline = config with { Offline = true };
     if (!AssetRipperIntegration.CheckAvailability(offline, repository, out var detail))

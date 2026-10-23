@@ -194,6 +194,9 @@ public static class AssetRipperIntegration
     private static async Task EnsurePinnedSubmoduleAsync(string repository, CancellationToken cancellation)
     {
         var path = Path.Combine(repository, SubmodulePath);
+        // Register the trusted .gitmodules entry persistently. Supplying the URL only
+        // through -c makes Git treat it as initialized for that one invocation.
+        await RunProcessAsync("git", ["submodule", "init", "--", SubmodulePath], repository, null, cancellation);
         if (!Directory.Exists(path) || !File.Exists(Path.Combine(path, ".git")))
             await RunProcessAsync("git", ["-c", "protocol.file.allow=never", "-c",
                 "submodule.extern/AssetRipper.url=" + UpstreamUrl,
