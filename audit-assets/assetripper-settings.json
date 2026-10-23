@@ -1,0 +1,17 @@
+{
+  "IgnoreStreamingAssets": "on",
+  "DefaultVersion": "0.0.0a0",
+  "BundledAssetsExportMode": "DirectExport",
+  "ScriptContentLevel": "Level2",
+  "TargetVersion": "0.0.0a0",
+  "AudioExportFormat": "Default",
+  "ImageExportFormat": "Png",
+  "LightmapTextureExportFormat": "Yaml",
+  "SpriteExportMode": "Yaml",
+  "ShaderExportMode": "Dummy",
+  "TextExportMode": "Parse",
+  "ScriptLanguageVersion": "CSharp7_3",
+  "ScriptExportMode": "Hybrid",
+  "PreferOriginalTextureExtension": "on",
+  "ExportUnreadableAssets": "on"
+}

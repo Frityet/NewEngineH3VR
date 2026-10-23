@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>netstandard2.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <AssemblyName>NativeH3VR.Platform</AssemblyName>
+    <UnityManaged Condition="'$(UnityManaged)'==''">../../../.tools/unity2021-arm64-expanded/Unity.pkg.tmp/Payload/Unity/Unity.app/Contents/PlaybackEngines/MacStandaloneSupport/Variations/mono/Managed</UnityManaged>
+    <GameManaged Condition="'$(GameManaged)'==''">../../../build/composed/final/NativeH3VR.Game.dll</GameManaged>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="NativeH3VR.Game">
+      <HintPath>$(GameManaged)</HintPath>
+    </Reference>
+    <Reference Include="UnityEngine.CoreModule">
+      <HintPath>$(UnityManaged)/UnityEngine.CoreModule.dll</HintPath>
+    </Reference>
+    <Reference Include="UnityEngine.AudioModule">
+      <HintPath>$(UnityManaged)/UnityEngine.AudioModule.dll</HintPath>
+    </Reference>
+    <Reference Include="UnityEngine.VideoModule">
+      <HintPath>$(UnityManaged)/UnityEngine.VideoModule.dll</HintPath>
+    </Reference>
+  </ItemGroup>
+</Project>

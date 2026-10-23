@@ -1,0 +1,30 @@
+diff --git a/Source/AssetRipper.Export.Modules.Shader/UltraShaderConverter/USIL/Metadders/USILCBufferMetadder.cs b/Source/AssetRipper.Export.Modules.Shader/UltraShaderConverter/USIL/Metadders/USILCBufferMetadder.cs
+--- a/Source/AssetRipper.Export.Modules.Shader/UltraShaderConverter/USIL/Metadders/USILCBufferMetadder.cs
++++ b/Source/AssetRipper.Export.Modules.Shader/UltraShaderConverter/USIL/Metadders/USILCBufferMetadder.cs
+@@ -149,12 +149,25 @@
+                     }
+ 
+ 
+-					if (cbMasks.Count == param.RowCount && !param.IsMatrix)
++					// Hiding a swizzle is only safe when the instruction reads every
++					// component once and in identity order. A count-only check loses
++					// broadcasts such as `.yyyy` and permutations such as `.yx`.
++					if (!param.IsMatrix && IsIdentityComponentMask(cbMasks, param.RowCount))
+ 					{
+ 						operand.displayMask = false;
+ 					}
+ 				}
+ 			}
++		}
++
++		private static bool IsIdentityComponentMask(IReadOnlyList<int> mask, int width)
++		{
++			if (width <= 0 || mask.Count != width) return false;
++			for (int i = 0; i < width; i++)
++			{
++				if (mask[i] != i) return false;
++			}
++			return true;
+ 		}
+ 
+ 		private static int[] MatchMaskToConstantBuffer(int[] mask, int pos, int size)

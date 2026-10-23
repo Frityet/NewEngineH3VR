@@ -1,0 +1,8 @@
+<Project>
+  <PropertyGroup>
+    <RepositoryRoot>$(MSBuildThisFileDirectory)</RepositoryRoot>
+    <UnityContents Condition="'$(UnityContents)' == '' and '$(UNITY_CONTENTS)' != ''">$(UNITY_CONTENTS)</UnityContents>
+    <UnityContents Condition="'$(UnityContents)' == '' and Exists('$(RepositoryRoot).tools/unity2021-arm64-expanded/Unity.pkg.tmp/Payload/Unity/Unity.app/Contents')">$(RepositoryRoot).tools/unity2021-arm64-expanded/Unity.pkg.tmp/Payload/Unity/Unity.app/Contents</UnityContents>
+    <UnityContents Condition="'$(UnityContents)' == ''">/Applications/Unity/Unity.app/Contents</UnityContents>
+  </PropertyGroup>
+</Project>

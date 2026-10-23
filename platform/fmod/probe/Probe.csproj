@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>disable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../../../.tools/fmod/source/fmod_dsp.cs" Link="fmod_dsp.cs" />
+    <Compile Include="../../../.tools/fmod/source/fmod.cs" Link="fmod.cs" />
+    <Compile Include="../../../.tools/fmod/source/fmod_studio.cs" Link="fmod_studio.cs" />
+  </ItemGroup>
+</Project>

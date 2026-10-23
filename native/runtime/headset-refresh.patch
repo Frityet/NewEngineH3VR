@@ -1,0 +1,148 @@
+--- a/native/IVHMDDisplay.h
++++ b/native/IVHMDDisplay.h
+@@ -11,6 +11,8 @@
+ @end
+ 
+ FOUNDATION_EXPORT NSArray<NSDictionary *> *IVHMDDisplayInventory(void);
++// Startup/settings readback; keep private mode queries out of tracking/frame polls.
++FOUNDATION_EXPORT NSArray<NSDictionary *> *IVHMDDisplayModeInventory(void);
+ 
+ @interface IVHMDDisplaySession : NSObject
+ - (nullable instancetype)initWithVendor:(uint32_t)vendor
+--- a/native/IVHMDDisplay.m
++++ b/native/IVHMDDisplay.m
+@@ -1,6 +1,8 @@
+ #import "IVHMDDisplay.h"
+ #import <AppKit/AppKit.h>
+ #include <math.h>
++#include <dlfcn.h>
++#include <objc/runtime.h>
+ 
+ // These declarations describe private selectors; no private classes are linked.
+ // macOS 27 was validated with an Index on Apple M5 Max. Other OS versions must
+@@ -44,18 +46,82 @@
+                                 @"isAwake", @"isAvailable"]);
+ }
+ 
+-NSArray<NSDictionary *> *IVHMDDisplayInventory(void) {
++// Read-only ABI already exercised by hmd-display-probe. Never resolve or call
++// the private mode transaction functions here: those broke physical output.
++static NSDictionary *IVReadHMDModes(id device) {
++    if (NSProcessInfo.processInfo.operatingSystemVersion.majorVersion != 27) return @{};
++    typedef CFDictionaryRef (*CopyCapabilities)(CFTypeRef);
++    typedef int32_t (*CopyCurrent)(CFTypeRef, uintptr_t, CFTypeRef *);
++    typedef uint32_t (*Dimension)(CFTypeRef);
++    typedef double (*Refresh)(CFTypeRef);
++    typedef CFTypeID (*TypeID)(void);
++    CopyCapabilities capabilities = (CopyCapabilities)dlsym(RTLD_DEFAULT, "SLSHMDCopyCapabilities");
++    CopyCurrent current = (CopyCurrent)dlsym(RTLD_DEFAULT, "SLSHMDModeConfigurationCopyCurrentCGSDisplayMode");
++    Dimension width = (Dimension)dlsym(RTLD_DEFAULT, "SLDisplayModeGetPixelWidth");
++    Dimension height = (Dimension)dlsym(RTLD_DEFAULT, "SLDisplayModeGetPixelHeight");
++    Refresh refresh = (Refresh)dlsym(RTLD_DEFAULT, "SLDisplayModeGetRefreshRate");
++    TypeID modeType = (TypeID)dlsym(RTLD_DEFAULT, "SLDisplayModeGetTypeID");
++    const CFStringRef *key = dlsym(RTLD_DEFAULT, "kSLSHMDCapabilityCGDisplayModes");
++    if (!capabilities || !current || !width || !height || !refresh || !modeType || !key || !*key) return @{};
++    unsigned count = 0;
++    Ivar *ivars = class_copyIvarList(NSClassFromString(@"NSHMDDevice"), &count);
++    CFTypeRef hmd = NULL;
++    for (unsigned i = 0; i < count; i++) {
++        const char *encoding = ivar_getTypeEncoding(ivars[i]);
++        if (ivar_getOffset(ivars[i]) == 8 && encoding && encoding[0] == '^' && strstr(encoding, "SLSHMD")) {
++            memcpy(&hmd, (const uint8_t *)(__bridge const void *)device + 8, sizeof(hmd));
++            break;
++        }
++    }
++    free(ivars);
++    if (!hmd) return @{};
++    NSDictionary *(^describe)(CFTypeRef) = ^NSDictionary *(CFTypeRef mode) {
++        if (!mode || CFGetTypeID(mode) != modeType()) return nil;
++        double hz = refresh(mode);
++        if (!isfinite(hz) || hz <= 0) return nil;
++        return @{@"width":@(width(mode)), @"height":@(height(mode)), @"hz":@(hz)};
++    };
++    NSMutableDictionary *result = NSMutableDictionary.new;
++    NSMutableArray *modes = NSMutableArray.new;
++    CFDictionaryRef caps = capabilities(hmd);
++    if (caps && CFGetTypeID(caps) == CFDictionaryGetTypeID()) {
++        CFTypeRef list = CFDictionaryGetValue(caps, *key);
++        if (list && CFGetTypeID(list) == CFArrayGetTypeID()) {
++            for (CFIndex i = 0; i < CFArrayGetCount(list); i++) {
++                NSDictionary *mode = describe(CFArrayGetValueAtIndex(list, i));
++                if (mode && ![modes containsObject:mode]) [modes addObject:mode];
++            }
++        }
++    }
++    if (caps) CFRelease(caps);
++    result[@"modes"] = modes;
++    CFTypeRef selected = NULL;
++    int32_t status = current(hmd, 0, &selected);
++    if (!status && selected) {
++        NSDictionary *mode = describe(selected);
++        if (mode) [result addEntriesFromDictionary:mode];
++    }
++    if (selected) CFRelease(selected);
++    return result;
++}
++
++static NSArray<NSDictionary *> *IVHMDInventory(BOOL includeModes) {
+     NSMutableArray *result = [NSMutableArray array];
+     for (IVPrivateHMDDevice *device in IVDevices()) {
+         if (!IVDeviceSupported(device)) continue;
+-        [result addObject:@{@"name": device.name ?: @"Head-mounted display",
++        NSMutableDictionary *entry = [@{@"name": device.name ?: @"Head-mounted display",
+                             @"vendor": @(device.vendorID), @"model": @(device.productID),
+                             @"builtin": @NO, @"mirrored": @NO, @"native_hmd": @YES,
+                             @"attached": @(device.isAttached), @"awake": @(device.isAwake),
+-                            @"advisory_available": @(device.isAvailable)}];
++                            @"advisory_available": @(device.isAvailable)} mutableCopy];
++        if (includeModes && device.isAttached) [entry addEntriesFromDictionary:IVReadHMDModes(device)];
++        [result addObject:entry];
+     }
+     return result;
+ }
++
++NSArray<NSDictionary *> *IVHMDDisplayInventory(void) { return IVHMDInventory(NO); }
++NSArray<NSDictionary *> *IVHMDDisplayModeInventory(void) { return IVHMDInventory(YES); }
+ 
+ static NSError *IVHMDError(NSInteger code, NSString *message, NSError *underlying) {
+     NSMutableDictionary *info = [@{NSLocalizedDescriptionKey:message} mutableCopy];
+--- a/native/openxr/IVXRRuntime.m
++++ b/native/openxr/IVXRRuntime.m
+@@ -6,6 +6,7 @@
+ #import "IVXRFrameTrace.h"
+ #import "IVXRNativeHome.h"
+ #import "IVXRControllerPoses.h"
++#import "HeadsetFrameRate.h"
+ #include <math.h>
+ #include <openxr/openxr_reflection.h>
+ #include <simd/simd.h>
+@@ -788,7 +789,7 @@
+   s.swapchains = NSMutableArray.new;
+   s.period = IVXRFramePeriodForTarget(getenv("VR_OPENXR_TARGET_HZ"));
+   if(!s.period) {
+-    fprintf(stderr,"OpenXR: VR_OPENXR_TARGET_HZ must be exactly 90 or 120\n");
++    fprintf(stderr,"OpenXR: VR_OPENXR_TARGET_HZ must be exactly 80, 90, 120 or 144\n");
+     return XR_ERROR_VALIDATION_FAILURE;
+   }
+   (void)IVXRProcessFrameTrace();
+@@ -826,6 +827,8 @@
+     return XR_ERROR_GRAPHICS_DEVICE_INVALID;
+   else
+     s.headless = YES;
++  s.period = NH3VRHeadsetFramePeriod(getenv("VR_OPENXR_TARGET_HZ"),
++      s.simulation || s.headless, s.calibration);
+   [i.sessions addObject:s];
+   *out = IVXR_HANDLE(XrSession, IVXRRegister(s));
+   IVXRSetSessionState(s, XR_SESSION_STATE_IDLE);
+--- a/native/openxr/IVXRFrameTrace.m
++++ b/native/openxr/IVXRFrameTrace.m
+@@ -32,7 +32,9 @@
+ 
+ int64_t IVXRFramePeriodForTarget(const char *value) {
+     if(!value||!strcmp(value,"90"))return 11111111;
++    if(!strcmp(value,"80"))return 12500000;
+     if(!strcmp(value,"120"))return 8333333;
++    if(!strcmp(value,"144"))return 6944444;
+     return 0;
+ }
+ uint64_t IVXRFrameTraceNow(void) {

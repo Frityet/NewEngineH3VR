@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>netstandard2.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <UnityRoot>../../.tools/unity2021-arm64-expanded/Unity.pkg.tmp/Payload/Unity/Unity.app/Contents</UnityRoot>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../../script/NativeAssetIntegrity.cs" />
+    <Compile Include="../../script/NativePortBuild.cs" />
+    <Compile Include="../../script/NativeBundleBuild.cs" />
+    <Compile Include="../../shaders/ForceComputeImports.cs" />
+    <Compile Include="../../shaders/NativeOriginalVariantFilter.cs" />
+    <Reference Include="$(UnityRoot)/Managed/*.dll" />
+    <Reference Include="$(UnityRoot)/Managed/UnityEngine/*.dll" />
+  </ItemGroup>
+</Project>
