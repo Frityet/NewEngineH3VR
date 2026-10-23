@@ -8,9 +8,11 @@ public static class PipelineTests
     public static IEnumerable<(string Name, Action Run)> Cases()
     {
         yield return ("external extraction receipt resumes only when source inputs remain identical", ExtractResume);
+        yield return ("extract receipt resumes after Unity, shader, and target settings are added", ExtractResumeAfterOptionsAdded);
         yield return ("external extraction fingerprint covers StreamingAssets inputs", () => MutationIsRejected("streaming"));
         yield return ("external extraction fingerprint covers native plugin inputs", () => MutationIsRejected("plugin"));
-        yield return ("external extraction fingerprint covers shader overlay inputs", () => MutationIsRejected("shader"));
+        yield return ("project fingerprint covers shader overlay inputs", ShaderMutationChangesProjectFingerprint);
+        yield return ("managed fingerprint covers Unity inputs but ignores later project settings", ManagedFingerprintSelection);
         yield return ("workspace lock excludes concurrent conversion and can be reacquired", WorkspaceLock);
         yield return ("baseline records only null MonoScript slots by source object and asset", BaselineNullScripts);
         yield return ("build receipt tracks generated StreamingAssets bundle bytes", BuildReceiptTracksBundles);
@@ -40,7 +42,6 @@ public static class PipelineTests
         {
             "streaming" => (Path.Combine(fixture.GameData, "StreamingAssets/content.bundle"), "changed-streaming-bundle"),
             "plugin" => (Path.Combine(fixture.GameData, "Plugins/steam_api64.dll"), "changed-native-plugin"),
-            "shader" => (Path.Combine(fixture.Shaders, "Assets/Includes/Lighting.cginc"), "changed-shader-include"),
             _ => throw new ArgumentOutOfRangeException(nameof(kind))
         };
         File.WriteAllText(path, updated);
@@ -48,6 +49,47 @@ public static class PipelineTests
         var error = Capture(() => pipeline.Run("extract", CancellationToken.None).GetAwaiter().GetResult());
         Check(error is InvalidDataException && error.Message.Contains("inputs", StringComparison.OrdinalIgnoreCase), $"changed {kind} bytes did not invalidate the previous extraction receipt");
         Check(SafeFiles.Hash(path) == expectedSourceHash && File.ReadAllText(path) == updated, $"refused resume modified changed {kind} source bytes");
+    }
+
+    private static void ExtractResumeAfterOptionsAdded()
+    {
+        using var fixture = new Fixture();
+        fixture.Pipeline().Run("extract", CancellationToken.None).GetAwaiter().GetResult();
+        var config = fixture.Config() with
+        {
+            UnityEditor = Path.Combine(fixture.rootPath, "UnityEditor", "Unity"),
+            ShaderSources = fixture.Shaders,
+            BuildTarget = "StandaloneLinux64"
+        };
+        new Pipeline(fixture.Repository, config).Run("extract", CancellationToken.None).GetAwaiter().GetResult();
+        Check(File.Exists(Path.Combine(fixture.Workspace, ".conversion/extract.json")),
+            "adding editor/shader/target options invalidated the completed extract receipt");
+    }
+
+    private static void ShaderMutationChangesProjectFingerprint()
+    {
+        using var fixture = new Fixture();
+        fixture.CreateUnityInputs();
+        var pipeline = fixture.Pipeline();
+        var before = pipeline.FingerprintForTests("project");
+        File.WriteAllText(Path.Combine(fixture.Shaders, "Assets/Includes/Lighting.cginc"), "changed-shader-include");
+        var after = pipeline.FingerprintForTests("project");
+        Check(before != after, "shader overlay changes were omitted from the project-stage fingerprint");
+    }
+
+    private static void ManagedFingerprintSelection()
+    {
+        using var fixture = new Fixture();
+        fixture.CreateUnityInputs();
+        var pipeline = fixture.Pipeline();
+        var before = pipeline.FingerprintForTests("managed");
+        File.WriteAllText(Path.Combine(fixture.Shaders, "Assets/Includes/Lighting.cginc"), "later-project-shader");
+        var config = fixture.Config() with { BuildTarget = "StandaloneLinux64" };
+        var afterProjectOptions = new Pipeline(fixture.Repository, config).FingerprintForTests("managed");
+        Check(before == afterProjectOptions, "managed-stage fingerprint included shader or target settings that begin at project preparation");
+        File.WriteAllText(Path.Combine(fixture.EngineAssemblies, "UnityEngine.CoreModule.dll"), "updated-engine-assembly");
+        var afterUnityChange = new Pipeline(fixture.Repository, config).FingerprintForTests("managed");
+        Check(before != afterUnityChange, "managed-stage fingerprint ignored Unity engine inputs");
     }
 
     private static void WorkspaceLock()
@@ -127,6 +169,8 @@ public static class PipelineTests
         public string Recovered => Path.Combine(root, "recovered");
         public string Shaders => Path.Combine(root, "shaders");
         public string Workspace => Path.Combine(root, "workspace");
+        public string UnityData => Path.Combine(root, "UnityEditor", "Data");
+        public string EngineAssemblies => Path.Combine(UnityData, "Managed", "UnityEngine");
 
         public Fixture()
         {
@@ -150,16 +194,24 @@ public static class PipelineTests
 
         public Pipeline Pipeline()
         {
-            var config = new ConversionConfig
-            {
-                GameDirectory = GameDirectory,
-                UnityEditor = Path.Combine(root, "UnityEditor"),
-                Workspace = Workspace,
-                RecoveredProject = Recovered,
-                ShaderSources = Shaders,
-                BuildTarget = "StandaloneWindows64"
-            };
-            return new Pipeline(Repository, config);
+            return new Pipeline(Repository, Config());
+        }
+
+        public ConversionConfig Config() => new()
+        {
+            GameDirectory = GameDirectory,
+            UnityEditor = Path.Combine(root, "UnityEditor", "Unity"),
+            Workspace = Workspace,
+            RecoveredProject = Recovered,
+            ShaderSources = Shaders,
+            BuildTarget = "StandaloneWindows64"
+        };
+
+        public void CreateUnityInputs()
+        {
+            Write(Path.Combine(root, "UnityEditor/Unity"), "synthetic editor executable");
+            Write(Path.Combine(EngineAssemblies, "UnityEngine.CoreModule.dll"), "synthetic engine assembly");
+            Write(Path.Combine(UnityData, "MonoBleedingEdge/lib/mono/4.7.1-api/mscorlib.dll"), "synthetic framework assembly");
         }
 
         public Dictionary<string, string> InputHashes()

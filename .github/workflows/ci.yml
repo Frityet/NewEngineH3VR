@@ -17,3 +17,14 @@ jobs:
       - run: dotnet run --project tests/H3VR.Converter.Tests -c Release --no-build
       - run: dotnet run --project tools/OpenXRPatch.Tests -c Release --no-build
       - run: dotnet run --project src/H3VR.Converter -c Release --no-build -- check-publication
+  assetripper:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      # Start without a recursive checkout: the converter must initialize its pin itself.
+      - run: dotnet run --project tools/AssetRipper.Worker.Tests -c Release
+      - run: dotnet format whitespace tools/AssetRipper.Worker --folder --verify-no-changes
+      - run: dotnet format whitespace tools/AssetRipper.Worker.Tests --folder --verify-no-changes

@@ -16,6 +16,7 @@ var cases = new List<(string Name, Action Run)>
         var root = Path.Combine(Path.GetTempPath(), "h3vr-boundary");
         Throws(() => SafeFiles.RequireSeparate(root, Path.Combine(root, "project")));
         Throws(() => SafeFiles.RequireSeparate(Path.Combine(root, "project"), root));
+        Throws(() => SafeFiles.RequireSeparate(Path.GetPathRoot(root)!, root));
         SafeFiles.RequireSeparate(root, root + "-separate");
     }),
     ("integration path rejects traversal", () => {
@@ -46,6 +47,13 @@ var cases = new List<(string Name, Action Run)>
 cases.AddRange(ProjectMigrationTests.Cases());
 cases.AddRange(BundlePlanTests.Cases());
 cases.AddRange(PipelineTests.Cases());
+cases.AddRange(InstallationDiscoveryTests.Cases());
+cases.AddRange(AssetRipperIntegrationTests.Cases());
+cases.AddRange(ShaderToolCacheTests.Cases());
+cases.AddRange(ShaderRecoveryTests.Cases());
+cases.AddRange(CliTests.Cases());
+cases.AddRange(ApplicationTests.Cases());
+cases.AddRange(PublicationTests.Cases());
 var failures = 0;
 foreach (var (name, run) in cases)
 {

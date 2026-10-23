@@ -1,4 +1,5 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup><OutputType>Exe</OutputType></PropertyGroup>
   <ItemGroup><ProjectReference Include="../../src/H3VR.Converter/H3VR.Converter.csproj" /></ItemGroup>
+  <ItemGroup><PackageReference Include="Spectre.Console.Testing" Version="0.57.2" /></ItemGroup>
 </Project>

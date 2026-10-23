@@ -16,7 +16,7 @@ public sealed class Pipeline(string repository, ConversionConfig config)
     public static readonly string[] Steps = ["extract", "managed", "project", "validate", "build"];
     private string Receipts => Path.Combine(config.Workspace, ".conversion");
 
-    private string Fingerprint()
+    private string CommonFingerprint()
     {
         using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
         void Add(string value) => hash.AppendData(Encoding.UTF8.GetBytes(value + "\n"));
@@ -25,7 +25,10 @@ public sealed class Pipeline(string repository, ConversionConfig config)
         {
             foreach (var file in SafeFiles.Files(path).Where(p => include?.Invoke(p) ?? true).Order(StringComparer.Ordinal)) FileInput(file);
         }
-        Add(JsonSerializer.Serialize(config)); Add(ConversionConfig.TargetVersion);
+        Add("h3vr-converter-common-inputs-v2");
+        Add(Path.GetFullPath(config.GameDirectory));
+        Add(config.RecoveredProject is null ? "internal-recovery" : Path.GetFullPath(config.RecoveredProject));
+        Add(ConversionConfig.TargetVersion);
         // Hash actual input bytes. File timestamps alone miss replacements with preserved dates.
         Tree(config.GameData);
         foreach (var file in Directory.GetFiles(config.GameDirectory).Where(p => p.EndsWith(".json", StringComparison.OrdinalIgnoreCase) || Path.GetFileName(p).Equals("steam_api64.dll", StringComparison.OrdinalIgnoreCase)).Order(StringComparer.Ordinal)) FileInput(file);
@@ -33,9 +36,31 @@ public sealed class Pipeline(string repository, ConversionConfig config)
             Tree(Path.Combine(repository, directory), p => !p.Split(Path.DirectorySeparatorChar).Any(x => x is "obj" or "bin") && Path.GetExtension(p) is ".cs" or ".csproj" or ".patch");
         foreach (var file in new[] { "Directory.Build.props", "global.json" }) FileInput(Path.Combine(repository, file));
         if (config.RecoveredProject is not null) Tree(config.RecoveredProject);
-        if (config.ShaderSources is not null) Tree(config.ShaderSources, p => Path.GetExtension(p).ToLowerInvariant() is ".shader" or ".cginc" or ".hlsl" or ".compute" or ".glslinc" or ".meta");
+        return Convert.ToHexStringLower(hash.GetHashAndReset());
+    }
+
+    private string Fingerprint(string step, string common)
+    {
+        using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+        void Add(string value) => hash.AppendData(Encoding.UTF8.GetBytes(value + "\n"));
+        void FileInput(string path) { Add(Path.GetFullPath(path)); Add(SafeFiles.Hash(path)); }
+        void Tree(string path) { foreach (var file in SafeFiles.Files(path).Order(StringComparer.Ordinal)) FileInput(file); }
+        Add("h3vr-converter-step-inputs-v2");
+        Add(step);
+        Add(common);
+
+        if (step is "managed" or "project" or "validate" or "build") AddUnityInputs();
+        if (step is "project" or "validate" or "build")
+        {
+            Add(JsonSerializer.Serialize(config with { Offline = false, ToolCacheDirectory = null }));
+            if (config.ShaderSources is not null)
+                foreach (var file in SafeFiles.Files(config.ShaderSources)
+                    .Where(p => Path.GetExtension(p).ToLowerInvariant() is ".shader" or ".cginc" or ".hlsl" or ".compute" or ".glslinc" or ".meta")
+                    .Order(StringComparer.Ordinal)) FileInput(file);
+        }
         if (config.IntegrationManifest is not null)
         {
+            if (step is not ("project" or "validate" or "build")) return Convert.ToHexStringLower(hash.GetHashAndReset());
             FileInput(config.IntegrationManifest);
             using var manifest = JsonDocument.Parse(File.ReadAllText(config.IntegrationManifest));
             var files = manifest.RootElement.EnumerateObject().Single(p => p.Name.Equals("files", StringComparison.OrdinalIgnoreCase)).Value;
@@ -46,7 +71,17 @@ public sealed class Pipeline(string repository, ConversionConfig config)
             }
         }
         return Convert.ToHexStringLower(hash.GetHashAndReset());
+
+        void AddUnityInputs()
+        {
+            Add(Path.GetFullPath(config.UnityEditor));
+            FileInput(config.UnityEditor);
+            Tree(config.EngineAssemblies);
+            Tree(Path.Combine(config.UnityData, "MonoBleedingEdge/lib/mono/4.7.1-api"));
+        }
     }
+
+    internal string FingerprintForTests(string step) => Fingerprint(step, CommonFingerprint());
 
     public static void Status(ConversionConfig config)
     {
@@ -70,10 +105,11 @@ public sealed class Pipeline(string repository, ConversionConfig config)
         Directory.CreateDirectory(Receipts);
         using var lease = new FileStream(Path.Combine(Receipts, "lock"), FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
         Console.WriteLine("Fingerprinting local inputs before conversion/resume…");
-        var fingerprint = Fingerprint();
+        var commonFingerprint = CommonFingerprint();
         foreach (var step in Steps)
         {
             cancellation.ThrowIfCancellationRequested();
+            var fingerprint = Fingerprint(step, commonFingerprint);
             var receiptFile = Path.Combine(Receipts, step + ".json");
             if (File.Exists(receiptFile))
             {
@@ -107,22 +143,21 @@ public sealed class Pipeline(string repository, ConversionConfig config)
     {
         if (config.RecoveredProject is null)
         {
-            if (config.AssetRipperUrl is null) throw new InvalidDataException("Set RecoveredProject or start AssetRipper 2.0 locally and set AssetRipperUrl.");
             var recovery = Path.Combine(config.Workspace, "recovery");
             if (Directory.Exists(recovery)) throw new IOException("An incomplete recovery exists. Inspect it and choose a fresh workspace before rerunning extraction.");
-            Directory.CreateDirectory(recovery);
-            using var client = new HttpClient { BaseAddress = new Uri(config.AssetRipperUrl.TrimEnd('/') + "/"), Timeout = TimeSpan.FromHours(6) };
-            async Task Post(string endpoint, Dictionary<string, string> data)
+            var candidate = Path.Combine(config.Workspace, "recovery-candidate-" + Guid.NewGuid().ToString("N"));
+            try
             {
-                using var response = await client.PostAsync(endpoint, new FormUrlEncodedContent(data), cancellation);
-                response.EnsureSuccessStatusCode();
+                await AssetRipperIntegration.ExportAsync(repository, config, candidate, Path.Combine(Receipts, "assetripper.log"), cancellation);
+                if (!File.Exists(Path.Combine(candidate, "ExportedProject/ProjectSettings/ProjectVersion.txt")) ||
+                    !Directory.Exists(Path.Combine(candidate, "ExportedProject/Assets")))
+                    throw new InvalidDataException("AssetRipper did not produce an ExportedProject. Inspect .conversion/assetripper.log.");
+                Directory.Move(candidate, recovery);
             }
-            await Post("Settings/Update", new() { ["ScriptExportMode"] = "Hybrid", ["ScriptContentLevel"] = "Level2", ["ShaderExportMode"] = "Dummy", ["ImageExportFormat"] = "Png", ["AudioExportFormat"] = "Default", ["BundledAssetsExportMode"] = "DirectExport", ["TargetVersion"] = "0.0.0a0", ["ExportUnreadableAssets"] = "on", ["PreferOriginalTextureExtension"] = "on" });
-            await Post("LoadFolder", new() { ["path"] = config.GameDirectory });
-            await Post("Export/UnityProject", new() { ["path"] = recovery });
+            finally { if (Directory.Exists(candidate)) Directory.Delete(candidate, true); }
         }
         var version = Path.Combine(config.Export, "ProjectSettings/ProjectVersion.txt");
-        if (!File.Exists(version) || !Directory.Exists(Path.Combine(config.Export, "Assets"))) throw new InvalidDataException("AssetRipper did not produce an ExportedProject. Inspect its service log.");
+        if (!File.Exists(version) || !Directory.Exists(Path.Combine(config.Export, "Assets"))) throw new InvalidDataException("Recovery must contain ExportedProject/Assets and ProjectSettings/ProjectVersion.txt.");
         // External recovered input is already fully fingerprinted. Internally generated
         // recovery is immutable output and must be verified on every resumed run.
         return config.RecoveredProject is null ? SafeFiles.Files(config.Export).ToList() : [version];

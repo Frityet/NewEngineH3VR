@@ -1,6 +1,10 @@
 # Only authored converter sources are eligible. Game data and generated outputs stay local.
 /*
 !/.gitignore
+!/.gitmodules
+!/extern/
+/extern/*
+!/extern/AssetRipper
 !/.gitattributes
 !/.editorconfig
 !/LICENSE

@@ -24,7 +24,8 @@ public static partial class SafeFiles
     {
         parent = Canonical(parent); child = Canonical(child);
         var comparison = OperatingSystem.IsLinux() ? StringComparison.Ordinal : StringComparison.OrdinalIgnoreCase;
-        return child.Equals(parent, comparison) || child.StartsWith(parent + Path.DirectorySeparatorChar, comparison);
+        var prefix = Path.EndsInDirectorySeparator(parent) ? parent : parent + Path.DirectorySeparatorChar;
+        return child.Equals(parent, comparison) || child.StartsWith(prefix, comparison);
     }
     public static void RequireSeparate(string source, string destination)
     {

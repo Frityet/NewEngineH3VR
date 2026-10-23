@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Net;
+using System.Net.Sockets;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -17,7 +18,7 @@ public sealed record ShaderRecoveryOptions(
     string GameData,
     string OutputDirectory,
     string AssetRipperExecutable,
-    string ServiceUrl = "http://127.0.0.1:58948/",
+    string? ServiceUrl = null,
     bool StartAssetRipper = true);
 
 public sealed record ShaderRecoveryResult(
@@ -64,11 +65,14 @@ public static class ShaderRecovery
         if (!File.Exists(ripper)) throw new FileNotFoundException("AssetRipper executable is missing.", ripper);
         if (Directory.Exists(output) && Directory.EnumerateFileSystemEntries(output).Any())
             throw new IOException($"Refusing to overwrite non-empty recovery output: {output}");
-        if (IsWithin(output, gameData) || IsWithin(gameData, output))
-            throw new IOException("Recovery output and installed game data must be separate directories.");
-        if (!Uri.TryCreate(options.ServiceUrl, UriKind.Absolute, out var serviceUri) ||
-            serviceUri.Scheme != Uri.UriSchemeHttp || !IPAddress.TryParse(serviceUri.Host, out var address) || !IPAddress.IsLoopback(address))
-            throw new ArgumentException("ServiceUrl must be an HTTP loopback URL.");
+        SafeFiles.RequireSeparate(gameData, output);
+        RejectSymlinks(gameData);
+        if (Directory.Exists(output)) RejectSymlinks(output);
+        if (!options.StartAssetRipper && string.IsNullOrWhiteSpace(options.ServiceUrl))
+            throw new ArgumentException("An explicit ServiceUrl is required when StartAssetRipper is false.");
+        var serviceUri = options.StartAssetRipper
+            ? string.IsNullOrWhiteSpace(options.ServiceUrl) ? ReserveEphemeralLoopbackUri() : ReserveRequestedLoopbackUri(ValidateServiceUrl(options.ServiceUrl))
+            : ValidateServiceUrl(options.ServiceUrl!);
         await RequireAssetRipperVersion(ripper, cancellationToken);
 
         Directory.CreateDirectory(output);
@@ -82,43 +86,7 @@ public static class ShaderRecovery
         using var inventory = JsonDocument.Parse(await File.ReadAllTextAsync(inventoryPath, cancellationToken));
         if (inputFiles == 0 || shaderObjects == 0) throw new InvalidDataException("No serialized shader assets were found in the installed game.");
 
-        Process? server = null;
-        try
-        {
-            if (options.StartAssetRipper)
-            {
-                server = Process.Start(new ProcessStartInfo(ripper)
-                {
-                    WorkingDirectory = Path.GetDirectoryName(ripper)!,
-                    UseShellExecute = false,
-                    ArgumentList = { "--port", serviceUri.Port.ToString(), "--launch-browser", "false" },
-                    RedirectStandardOutput = true,
-                    RedirectStandardError = true,
-                    CreateNoWindow = true
-                }) ?? throw new InvalidOperationException("Could not start AssetRipper.");
-            }
-            await WaitForService(serviceUri, server, cancellationToken);
-            using var settingsDocument = JsonDocument.Parse(AssetRipperSettings);
-            var settingsForm = string.Join("&", settingsDocument.RootElement.EnumerateObject()
-                .Select(p => Uri.EscapeDataString(p.Name) + "=" + Uri.EscapeDataString(p.Value.ToString())));
-            await PostForm(serviceUri, "Settings/Update", settingsForm, cancellationToken);
-
-            var assets = Directory.EnumerateFiles(inputs, "*.assets", SearchOption.TopDirectoryOnly)
-                .OrderBy(p => p, StringComparer.Ordinal).ToArray();
-            cancellationToken.ThrowIfCancellationRequested();
-            var loadForm = string.Join("&", assets.Select(p => "Path=" + Uri.EscapeDataString(p)));
-            await PostForm(serviceUri, "LoadFile", loadForm, cancellationToken);
-            await PostForm(serviceUri, "Export", "Path=" + Uri.EscapeDataString(export), cancellationToken);
-        }
-        finally
-        {
-            if (server is { HasExited: false })
-            {
-                server.Kill(entireProcessTree: true);
-                await server.WaitForExitAsync(CancellationToken.None);
-            }
-            server?.Dispose();
-        }
+        await RunExportService(ripper, serviceUri, options.StartAssetRipper, inputs, export, output, cancellationToken);
 
         var projectAssets = Path.Combine(export, "ExportedProject", "Assets");
         var shaderFiles = Directory.Exists(projectAssets)
@@ -237,31 +205,95 @@ public static class ShaderRecovery
         return Convert.ToHexStringLower(SHA256.HashData(stream));
     }
 
-    private static async Task WaitForService(Uri service, Process? server, CancellationToken cancellationToken)
+    private static async Task RunExportService(string executable, Uri service, bool startServer, string inputs, string export,
+        string output, CancellationToken cancellationToken)
     {
-        using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(2) };
-        var deadline = DateTime.UtcNow.AddSeconds(45);
-        Exception? last = null;
-        while (DateTime.UtcNow < deadline)
+        Process? server = null;
+        StreamWriter? log = null;
+        Task stdout = Task.CompletedTask, stderr = Task.CompletedTask;
+        var logGate = new object();
+        try
         {
+            if (startServer)
+            {
+                var logPath = Path.Combine(output, "assetripper.log");
+                log = new StreamWriter(new FileStream(logPath, FileMode.CreateNew, FileAccess.Write, FileShare.Read), new UTF8Encoding(false)) { AutoFlush = true };
+                var start = new ProcessStartInfo(executable)
+                {
+                    WorkingDirectory = Path.GetDirectoryName(executable)!,
+                    UseShellExecute = false,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    CreateNoWindow = true
+                };
+                start.ArgumentList.Add("--port"); start.ArgumentList.Add(service.Port.ToString(System.Globalization.CultureInfo.InvariantCulture));
+                start.ArgumentList.Add("--launch-browser"); start.ArgumentList.Add("false");
+                server = Process.Start(start) ?? throw new InvalidOperationException("Could not start AssetRipper.");
+                stdout = PumpLog(server.StandardOutput, "stdout", log, logGate);
+                stderr = PumpLog(server.StandardError, "stderr", log, logGate);
+            }
+
+            await WaitForService(service, server, cancellationToken);
+            EnsureProcessAlive(server, "before export settings");
+            using var settingsDocument = JsonDocument.Parse(AssetRipperSettings);
+            var settingsForm = string.Join("&", settingsDocument.RootElement.EnumerateObject()
+                .Select(p => Uri.EscapeDataString(p.Name) + "=" + Uri.EscapeDataString(p.Value.ToString())));
+            await PostForm(service, "Settings/Update", settingsForm, cancellationToken);
+            EnsureProcessAlive(server, "after export settings");
+
+            var assets = Directory.EnumerateFiles(inputs, "*.assets", SearchOption.TopDirectoryOnly)
+                .OrderBy(p => p, StringComparer.Ordinal).ToArray();
             cancellationToken.ThrowIfCancellationRequested();
-            if (server?.HasExited == true) throw new InvalidOperationException("AssetRipper exited before its local service became ready.");
-            try { using var response = await client.GetAsync(service, cancellationToken); if ((int)response.StatusCode < 500) return; }
-            catch (Exception e) when (e is HttpRequestException or TaskCanceledException) { last = e; }
-            await Task.Delay(500, cancellationToken);
+            var loadForm = string.Join("&", assets.Select(p => "Path=" + Uri.EscapeDataString(p)));
+            await PostForm(service, "LoadFile", loadForm, cancellationToken);
+            EnsureProcessAlive(server, "after asset loading");
+            await PostForm(service, "Export", "Path=" + Uri.EscapeDataString(export), cancellationToken);
+            EnsureProcessAlive(server, "after export");
         }
-        throw new TimeoutException("AssetRipper local service did not become ready." + (last is null ? "" : " " + last.Message));
+        finally
+        {
+            if (server is not null)
+            {
+                await KillAndDrain(server, stdout, stderr);
+                server.Dispose();
+                await Task.WhenAll(stdout, stderr);
+            }
+            if (log is not null) await log.DisposeAsync();
+        }
     }
 
     private static async Task RequireAssetRipperVersion(string executable, CancellationToken cancellationToken)
     {
-        var start = new ProcessStartInfo(executable) { UseShellExecute = false, RedirectStandardOutput = true, RedirectStandardError = true };
+        var start = new ProcessStartInfo(executable)
+        {
+            UseShellExecute = false,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            CreateNoWindow = true
+        };
         start.ArgumentList.Add("--version");
         using var process = Process.Start(start) ?? throw new InvalidOperationException("Could not query AssetRipper version.");
-        var stdout = process.StandardOutput.ReadToEndAsync(cancellationToken);
-        var stderr = process.StandardError.ReadToEndAsync(cancellationToken);
-        await process.WaitForExitAsync(cancellationToken);
-        var version = (await stdout) + " " + (await stderr);
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeout.Token);
+        var stdout = process.StandardOutput.ReadToEndAsync(linked.Token);
+        var stderr = process.StandardError.ReadToEndAsync(linked.Token);
+        string version;
+        try
+        {
+            await Task.WhenAll(stdout, stderr, process.WaitForExitAsync(linked.Token));
+            version = (await stdout) + " " + (await stderr);
+        }
+        catch (OperationCanceledException)
+        {
+            await KillAndDrain(process, stdout, stderr);
+            if (cancellationToken.IsCancellationRequested) throw;
+            throw new TimeoutException("AssetRipper --version did not complete within 30 seconds.");
+        }
+        catch
+        {
+            await KillAndDrain(process, stdout, stderr);
+            throw;
+        }
         if (process.ExitCode != 0 || !version.Contains("1.0.15", StringComparison.Ordinal))
             throw new InvalidDataException("Shader source recovery requires AssetRipper 1.0.15; reported version: " + version.Trim());
     }
@@ -274,9 +306,91 @@ public static class ShaderRecovery
         response.EnsureSuccessStatusCode();
     }
 
-    private static bool IsWithin(string candidate, string parent)
+    private static async Task WaitForService(Uri service, Process? server, CancellationToken cancellationToken)
     {
-        var relative = Path.GetRelativePath(parent, candidate);
-        return relative == "." || (!Path.IsPathRooted(relative) && relative != ".." && !relative.StartsWith(".." + Path.DirectorySeparatorChar, StringComparison.Ordinal));
+        using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(2) };
+        var deadline = DateTime.UtcNow.AddSeconds(60);
+        Exception? last = null;
+        while (DateTime.UtcNow < deadline)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            EnsureProcessAlive(server, "while waiting for the local service");
+            try
+            {
+                using var response = await client.GetAsync(service, cancellationToken);
+                EnsureProcessAlive(server, "when the local service responded");
+                if ((int)response.StatusCode < 500) return;
+            }
+            catch (Exception e) when (e is HttpRequestException or TaskCanceledException)
+            {
+                if (cancellationToken.IsCancellationRequested) throw;
+                last = e;
+            }
+            await Task.Delay(300, cancellationToken);
+        }
+        throw new TimeoutException("AssetRipper local service did not become ready within 60 seconds." + (last is null ? "" : " " + last.Message));
     }
+
+    private static void EnsureProcessAlive(Process? process, string phase)
+    {
+        if (process?.HasExited == true)
+            throw new InvalidOperationException($"The owned AssetRipper process exited {phase} (code {process.ExitCode}). Inspect assetripper.log.");
+    }
+
+    private static async Task PumpLog(StreamReader reader, string streamName, StreamWriter log, object gate)
+    {
+        while (await reader.ReadLineAsync() is { } line)
+            lock (gate) log.WriteLine($"[{streamName}] {line}");
+    }
+
+    private static async Task KillAndDrain(Process process, Task stdout, Task stderr)
+    {
+        try { if (!process.HasExited) process.Kill(entireProcessTree: true); }
+        catch (Exception e) when (e is InvalidOperationException or System.ComponentModel.Win32Exception) { }
+        try { await process.WaitForExitAsync(CancellationToken.None); }
+        catch (Exception e) when (e is InvalidOperationException or System.ComponentModel.Win32Exception) { }
+        try { await Task.WhenAll(stdout, stderr); } catch (Exception) { }
+    }
+
+    private static Uri ReserveEphemeralLoopbackUri()
+    {
+        using var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        var port = ((IPEndPoint)listener.LocalEndpoint).Port;
+        listener.Stop();
+        return new UriBuilder(Uri.UriSchemeHttp, IPAddress.Loopback.ToString(), port, "/").Uri;
+    }
+
+    private static Uri ReserveRequestedLoopbackUri(Uri requested)
+    {
+        var address = IPAddress.Parse(requested.Host);
+        using var listener = new TcpListener(address, requested.Port);
+        try { listener.Start(); }
+        catch (SocketException e) { throw new InvalidOperationException($"The requested AssetRipper port {requested.Port} is already occupied; refusing to reuse another service. Choose another loopback port.", e); }
+        finally { listener.Stop(); }
+        return requested;
+    }
+
+    private static Uri ValidateServiceUrl(string value)
+    {
+        if (!Uri.TryCreate(value, UriKind.Absolute, out var uri) || uri.Scheme != Uri.UriSchemeHttp || uri.Port <= 0 ||
+            !IPAddress.TryParse(uri.Host, out var address) || !IPAddress.IsLoopback(address))
+            throw new ArgumentException("ServiceUrl must be an HTTP loopback URL with an explicit nonzero port.");
+        return uri;
+    }
+
+    private static void RejectSymlinks(string root)
+    {
+        var pending = new Stack<DirectoryInfo>();
+        pending.Push(new DirectoryInfo(root));
+        while (pending.Count > 0)
+        {
+            foreach (var entry in pending.Pop().EnumerateFileSystemInfos())
+            {
+                if (entry.LinkTarget is not null) throw new InvalidDataException("Shader recovery does not accept symlinked input/output children: " + entry.FullName);
+                if (entry is DirectoryInfo directory) pending.Push(directory);
+            }
+        }
+    }
+
 }

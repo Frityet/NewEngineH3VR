@@ -9,6 +9,15 @@ a headset playtest.
 - The .NET solution builds with warnings treated as errors. Synthetic tests cover
   path boundaries, copy isolation, serialized script migration, original asset
   bundle addresses, input fingerprints, workspace locking and publication rules.
+- CLI/TUI checks cover flag parsing, optional JSON precedence, path origins,
+  discovery, generated help, redirected/ANSI terminal handling, cancellation and
+  read-only status/doctor commands. The wizard was also exercised in a real
+  terminal through review and cancellation without creating a workspace.
+- The pinned AssetRipper 2.0.0 C# worker builds against its upstream submodule.
+  A wholly synthetic TextAsset exports successfully, preserving its exact bytes,
+  project version and path-ID map. The same test passes using the verified cache
+  in offline mode. This is a small export test, not a fresh full-game recovery.
+  CI runs it from a checkout without an initialized submodule to test first use.
 - The OpenXR patcher has a synthetic Cecil integration test. Against the local
   game, it blocks 10 native imports, forwards 47 methods and records 100 methods
   with explicit unsupported behavior. The migration preserves 30,388 serialized
