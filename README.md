@@ -45,9 +45,7 @@ these build commands until the required recovery inputs exist.
 | `platform/` | Steamworks, FMOD, video, audio and gameplay integration tools |
 | `audit-managed/`, `audit-assets/`, `audit-vr/` | Local extraction, migration and validation tools |
 | `shaders/` | Shader recovery tools and exporter patches; no recovered shader programs |
-| `*-probe/` | Authored probe scripts; generated Unity projects and assets stay local |
 | `docs/` | Setup and publication policy |
-| `docs/history/` | Dated development evidence, not fresh-install instructions |
 | `config/public-files.json` | Explicitly reviewed publication inventory |
 
 ## Development
@@ -63,13 +61,13 @@ The ignore file defaults to excluding new files. Add new authored files to the
 publication manifest and its matching ignore exceptions only after checking
 provenance. The publication check reads **staged blobs**, rejects unexpected
 files, symlinks, binary data and asset extensions, and must pass before pushing.
-See [the publication policy](docs/PUBLICATION.md) and
-[cleanup validation](docs/CLEANUP_VALIDATION.md).
+See [the publication policy](docs/PUBLICATION.md).
 
-Earlier physical playtests accepted the indoor range, wrist menu, quickbelt and
-a Take and Hold session. This source cleanup has not received a new game or
-headset playtest. Historical results and their limits are in
-[the development record](docs/history/DEVELOPMENT.md).
+Standalone Unity probe projects and historical development reports are excluded.
+The compiler, bundle, asset and native-plugin checks remain because they reject
+broken conversion outputs. `platform/gameplay-probe` is currently built by the
+staging pipeline and supplies demo startup and optional in-player acceptance
+checks; it is not one of the removed standalone Unity projects.
 
 The repository retains its existing GPL-3.0 license. Third-party tools and SDKs
 retain their own licenses; the project license does not license H3VR content.

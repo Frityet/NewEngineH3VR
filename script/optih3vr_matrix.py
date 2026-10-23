@@ -3,7 +3,7 @@
 
 Never infer frame rates from startup/load or total process duration. Runtime window
 telemetry is optional for acceptance, mandatory for performance comparisons. See
-docs/history/OPTIH3VR_MATRIX.md for the process-bound JSON marker contract.
+the evidence validation below for the process-bound JSON marker contract.
 """
 
 from pathlib import Path

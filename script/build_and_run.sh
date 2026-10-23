@@ -16,7 +16,7 @@ fi
 APP_BUNDLE="$ROOT_DIR/dist/NewEngineH3VR.app"
 APP_BINARY="$APP_BUNDLE/Contents/MacOS/NewEngineH3VRPlayer"
 if [[ ! -f "$PROJECT/Assets/Plugins/NativeH3VR.Game.dll" ]]; then
-  echo "Recovered project is not prepared. See reports/STATUS.md." >&2
+  echo "Recovered project is not prepared. See docs/SETUP.md." >&2
   exit 1
 fi
 case "$MODE" in

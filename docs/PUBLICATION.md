@@ -5,7 +5,7 @@ files listed in `config/public-files.json`. The publication checker independentl
 checks the staged tree, including file modes, UTF-8 content and permitted types.
 Run it after staging and before every commit intended for publication.
 
-Included: authored adapters, migration/extraction scripts, diagnostic source,
+Included: authored adapters, migration/extraction scripts, conversion validation source,
 build configuration, documentation, and patches to separately obtained tools.
 The AssetRipper patches modify the exporter; they do not contain recovered game
 shader bytecode. The recovery settings file is configuration, not game data.
@@ -14,6 +14,8 @@ Excluded: recovered/decompiled game source, original or patched game assemblies,
 SDK/tool trees, copied upstream exporter source files, historical vendored shader
 packages, Unity scenes/materials/prefabs, shader programs/includes/bytecode,
 textures, video/audio, data dumps, generated manifests/reports, builds and apps.
+Standalone top-level Unity probe projects and historical development reports are
+also excluded; required conversion validation code remains.
 Generated `.cs` files are not automatically allowed simply because they are text.
 
 No base-game content is intentionally included. The gate detects file-policy
