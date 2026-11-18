@@ -33,6 +33,17 @@ limit and can be cancelled. An exporter exception invalidates the entire export,
 even if its service returned success and some files were written. Failed output
 is retained for diagnosis and must not be treated as an overlay.
 
+Input manifest schema 2 records each source file's SHA-256, the serialized bundle
+entry index (null for a standalone assets file), each Shader's signed path ID,
+and the hash of the shader-only copy. Together these identify the original
+serialized objects in the same local Steam input; a bundle entry index is scoped
+to that exact source hash. They do not identify which exported shader file came
+from each object. The current AssetRipper exports omit that link. Exact matching
+also needs both exporters to record object-to-export GUID/path relationships;
+names alone are ambiguous and are not sufficient to select an overlay. Even an
+exact identity match would still need shader semantic, Unity/Metal and visual
+validation.
+
 ## Exporter provenance
 
 The provisioning command clones AssetRipper at commit

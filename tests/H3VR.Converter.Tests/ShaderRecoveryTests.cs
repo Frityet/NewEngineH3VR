@@ -8,6 +8,15 @@ public static class ShaderRecoveryTests
     {
         yield return ("shader recovery rejects output aliased under game data through a symlink parent", SymlinkParentOverlap);
         yield return ("shader recovery rejects symlink children before probing exporter", SymlinkInputChild);
+        yield return ("shader identities preserve signed path IDs and reject duplicates", ShaderIdentity);
+    }
+
+    private static void ShaderIdentity()
+    {
+        var ids = ShaderRecovery.ShaderPathIds(new long[] { 37, -22, 0, long.MaxValue }, "synthetic");
+        Check(ids.SequenceEqual(new long[] { -22, 0, 37, long.MaxValue }), "identity IDs changed or were not sorted");
+        var error = Capture(() => ShaderRecovery.ShaderPathIds(new long[] { 2, 2 }, "synthetic"));
+        Check(error is InvalidDataException, "duplicate IDs were accepted");
     }
 
     private static void SymlinkParentOverlap()

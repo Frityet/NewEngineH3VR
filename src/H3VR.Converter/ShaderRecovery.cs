@@ -149,7 +149,7 @@ public static class ShaderRecovery
                 using var reader = new AssetsFileReader(input);
                 var assets = new AssetsFile();
                 assets.Read(reader);
-                extracted = WriteShaderOnlyCopy(assets, output, index, baseName, records, beforeHash, relative);
+                extracted = WriteShaderOnlyCopy(assets, output, index, baseName, records, beforeHash, relative, null);
             }
             else if (IsUnityFs(path))
             {
@@ -163,7 +163,7 @@ public static class ShaderRecovery
                         cancellationToken.ThrowIfCancellationRequested();
                         var instance = manager.LoadAssetsFileFromBundle(bundle, entry, false);
                         if (instance?.file is null) continue;
-                        extracted += WriteShaderOnlyCopy(instance.file, output, index * 1000 + entry, baseName, records, beforeHash, relative);
+                        extracted += WriteShaderOnlyCopy(instance.file, output, index * 1000 + entry, baseName, records, beforeHash, relative, entry);
                     }
                 }
                 finally { manager.UnloadAllAssetsFiles(true); manager.UnloadAllBundleFiles(); }
@@ -173,23 +173,32 @@ public static class ShaderRecovery
             totalShaders += extracted;
             index++;
         }
-        var manifest = new { schemaVersion = 1, gameDataPath = gameData, inputFiles = records.Count, shaderObjects = totalShaders, files = records };
+        var manifest = new { schemaVersion = 2, gameDataPath = gameData, inputFiles = records.Count, shaderObjects = totalShaders, files = records };
         File.WriteAllText(manifestPath, JsonSerializer.Serialize(manifest, new JsonSerializerOptions { WriteIndented = true }) + "\n");
         return (records.Count, totalShaders);
     }
 
     private static int WriteShaderOnlyCopy(AssetsFile assets, string output, int ordinal, string baseName,
-        List<object> records, string sourceHash, string sourcePath)
+        List<object> records, string sourceHash, string sourcePath, int? bundleEntry)
     {
         var shaderInfos = assets.AssetInfos.Where(info => info.GetTypeId(assets) == (int)AssetClassID.Shader).ToArray();
         if (shaderInfos.Length == 0) return 0;
         var targetName = $"{ordinal:D6}-{baseName}.assets";
+        var pathIds = ShaderPathIds(shaderInfos.Select(info => info.PathId), sourcePath);
         foreach (var info in assets.AssetInfos.ToArray())
             if (info.GetTypeId(assets) != (int)AssetClassID.Shader) info.SetRemoved();
-        using (var outputStream = File.Create(Path.Combine(output, targetName)))
+        var targetPath = Path.Combine(output, targetName);
+        using (var outputStream = new FileStream(targetPath, FileMode.CreateNew, FileAccess.Write))
         using (var writer = new AssetsFileWriter(outputStream)) assets.Write(writer, 0);
-        records.Add(new { source = sourcePath, copy = targetName, shaderCount = shaderInfos.Length, sha256 = sourceHash });
+        records.Add(new { source = sourcePath, bundleEntry, copy = targetName, shaderCount = shaderInfos.Length, pathIds, sha256 = sourceHash, copySha256 = HashFile(targetPath) });
         return shaderInfos.Length;
+    }
+
+    internal static long[] ShaderPathIds(IEnumerable<long> ids, string source)
+    {
+        var sorted = ids.Order().ToArray();
+        if (sorted.Distinct().Count() != sorted.Length) throw new InvalidDataException("Duplicate shader path IDs in " + source);
+        return sorted;
     }
 
     private static bool IsUnityFs(string path)
