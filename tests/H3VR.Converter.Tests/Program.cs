@@ -111,6 +111,7 @@ cases.AddRange(InstallationDiscoveryTests.Cases());
 cases.AddRange(AssetRipperIntegrationTests.Cases());
 cases.AddRange(ShaderToolCacheTests.Cases());
 cases.AddRange(ShaderRecoveryTests.Cases());
+cases.AddRange(ShaderKeywordTests.Cases());
 cases.AddRange(CliTests.Cases());
 cases.AddRange(ApplicationTests.Cases());
 cases.AddRange(PublicationTests.Cases());

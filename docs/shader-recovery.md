@@ -91,13 +91,21 @@ candidate to measure import, shader and material failures. The rendering
 gate still requires compiling and exercising the original reachable variants
 on Metal.
 
-Use `--repair-exclusive-keywords` alongside `--overlay-candidate` to restore
-mutually exclusive light and shadow keyword groups from the original variant
-metadata. Save the generic class database at `cache/legacy-unity-classdata.tpk`
-or supply `--class-database` with its local path. The tested database has SHA-256
+Use `--repair-exclusive-keywords` alongside `--overlay-candidate` to recover
+keyword groups from the original paired Direct3D vertex and fragment programs.
+The linker checks that their keyword sets match every generated guard. It
+recovers required choices, optional choices and constants. When those groups
+cannot express the entire variant table, the linker preserves verified
+required lighting modes and keeps the explicit guards for unsupported
+combinations. The compiler can still reject some combinations in those passes.
+Save the generic class database at `cache/legacy-unity-classdata.tpk` or
+supply `--class-database` with its local path. The tested database has SHA-256
 `129e1f80f930415db6779fe6089afa75280cb51462bcee812beab6cd81a764c6`.
-`shader-overlay-candidate.json` records the database hash, changed passes and
-before and after shader hashes. [Pinned class database](https://github.com/nesrak1/UABEA/blob/057e2f6ae67ebc94a38faca9f946f8577162fa99/ReleaseFiles/classdata.tpk)
+`shader-overlay-candidate.json` records the database hash, changed passes,
+recovered groups, whether the groups describe the exact variant domain, and
+before and after shader hashes. Unity can choose a closest variant when a
+material enables multiple keywords from one group. The compiler result alone
+does not establish the same visual choice as Unity 5.6. [Pinned class database](https://github.com/nesrak1/UABEA/blob/057e2f6ae67ebc94a38faca9f946f8577162fa99/ReleaseFiles/classdata.tpk)
 
 The receipt intentionally labels the result `raw-export-unvalidated`. Passing
 this raw export to the converter as `ShaderSources` is not supported. In
