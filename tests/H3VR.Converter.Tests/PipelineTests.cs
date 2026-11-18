@@ -128,6 +128,8 @@ public static class PipelineTests
         File.WriteAllText(Path.Combine(fixture.Shaders, "Assets/Includes/Lighting.cginc"), "changed-shader-include");
         var after = pipeline.FingerprintForTests("project");
         Check(before != after, "shader overlay changes were omitted from the project-stage fingerprint");
+        File.WriteAllText(Path.Combine(fixture.Shaders, SourceStaging.ShaderVariantCatalogName), "{\"schemaVersion\":1}");
+        Check(after != pipeline.FingerprintForTests("project"), "variant catalog was omitted from the project-stage fingerprint");
     }
 
     private static void ExtractionUsesScopedTooling()

@@ -67,7 +67,8 @@ public sealed partial class Pipeline(string repository, ConversionConfig config)
             if (config.ShaderSources is not null)
                 foreach (var file in SafeFiles.Files(config.ShaderSources)
                     .Where(p => Path.GetExtension(p).ToLowerInvariant() is ".shader" or ".cginc" or ".hlsl" or ".compute" or ".glslinc" or ".meta" ||
-                                Path.GetFileName(p) is ComputeShaderOverlay.ReceiptName or GraphicsShaderOverlay.ReceiptName)
+                                Path.GetFileName(p) is ComputeShaderOverlay.ReceiptName or GraphicsShaderOverlay.ReceiptName
+                                    or SourceStaging.ShaderVariantCatalogName)
                     .Order(StringComparer.Ordinal)) FileInput(file);
         }
         if (config.IntegrationManifest is not null)
