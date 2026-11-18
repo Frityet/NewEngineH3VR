@@ -17,6 +17,23 @@ public static class PipelineTests
         yield return ("baseline records only null MonoScript slots by source object and asset", BaselineNullScripts);
         yield return ("build receipt tracks generated StreamingAssets bundle bytes", BuildReceiptTracksBundles);
         yield return ("failed bundle plan remains inspectable after candidate cleanup", FailedBundlePlanSurvivesCleanup);
+        yield return ("cold extraction receipt tracks provenance maps", ColdReceiptTracksMaps);
+    }
+
+    private static void ColdReceiptTracksMaps()
+    {
+        using var fixture = new Fixture();
+        var recovery = Path.Combine(fixture.Workspace, "synthetic-recovery");
+        Directory.CreateDirectory(Path.Combine(recovery, "ExportedProject"));
+        Directory.CreateDirectory(Path.Combine(recovery, "AuxiliaryFiles"));
+        var shader = Path.Combine(recovery, "AuxiliaryFiles", "shader-identity-v2.json");
+        var paths = Path.Combine(recovery, "AuxiliaryFiles", "path_id_map.json");
+        File.WriteAllText(shader, "synthetic identity"); File.WriteAllText(paths, "synthetic paths");
+        var files = Pipeline.ColdRecoveryOutputFiles(recovery).ToDictionary(p => p, SafeFiles.Hash);
+        var receipt = new StepReceipt("extract", "synthetic", DateTimeOffset.UtcNow, files);
+        Check(Pipeline.ReceiptOutputsMatch(receipt), "unchanged map not accepted");
+        File.WriteAllText(shader, "altered identity");
+        Check(!Pipeline.ReceiptOutputsMatch(receipt), "altered identity map was accepted");
     }
 
     private static void ExtractResume()

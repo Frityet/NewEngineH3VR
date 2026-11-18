@@ -14,6 +14,7 @@ var secondExport = Path.Combine(root, "export-offline");
 var config = new ConversionConfig { GameDirectory = input, ToolCacheDirectory = Path.Combine(root, "cache") };
 try
 {
+    ValidateSyntheticShaderIdentity();
     CreateSyntheticTextAsset(Path.Combine(input, "synthetic.assets"), "2021.3.45f1", "SyntheticHello", "ASSET-RIPPER-FIXTURE-TEST");
 
     var repository = Repository.Find();
@@ -55,14 +56,40 @@ finally
     if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
 }
 
+void ValidateSyntheticShaderIdentity()
+{
+    var output = Path.Combine(root, "identity-fixture");
+    var shader = Path.Combine(output, "ExportedProject", "Assets", "Synthetic.shader");
+    Directory.CreateDirectory(Path.GetDirectoryName(shader)!);
+    Directory.CreateDirectory(Path.Combine(output, "AuxiliaryFiles"));
+    File.WriteAllText(shader, "synthetic shader");
+    var guid = new string('a', 32);
+    File.WriteAllText(shader + ".meta", "fileFormatVersion: 2\nguid: " + guid + "\n");
+    var record = new ShaderIdentity("source", "synthetic", ["fixture"], -7, guid, "Assets/Synthetic.shader", "DummyShaderTextExporter");
+    var recorder = new ShaderIdentityRecorder(); recorder.Add(record); recorder.Write(output);
+    using var json = JsonDocument.Parse(File.ReadAllText(Path.Combine(output, "AuxiliaryFiles", "shader-identity-v2.json")));
+    if (json.RootElement.GetProperty("shaders")[0].GetProperty("PathId").GetInt64() != -7) throw new InvalidDataException("Synthetic identity lost its signed path ID.");
+    var duplicate = new ShaderIdentityRecorder(); duplicate.Add(record); duplicate.Add(record);
+    try { duplicate.Write(output); throw new Exception("Duplicate shader identity was accepted."); } catch (InvalidDataException) { }
+    var ambiguous = new ShaderIdentityRecorder(); ambiguous.Add(record); ambiguous.Add(record with { Guid = new string('b', 32), ExportPath = "Assets/Other.shader" });
+    try { ambiguous.Write(output); throw new Exception("Ambiguous original shader identity was accepted."); } catch (InvalidDataException) { }
+    File.WriteAllText(shader + ".meta", "guid: " + new string('b', 32) + "\n");
+    try { recorder.Write(output); throw new Exception("Mismatched shader GUID was accepted."); } catch (InvalidDataException) { }
+    Console.WriteLine("PASS synthetic shader identities preserve path IDs and reject duplicates or metadata mismatches.");
+}
+
 void ValidateExport(string export)
 {
     var project = Path.Combine(export, "ExportedProject");
     var projectVersion = Path.Combine(project, "ProjectSettings", "ProjectVersion.txt");
     var pathMapPath = Path.Combine(export, "AuxiliaryFiles", "path_id_map.json");
+    var shaderMap = Path.Combine(export, "AuxiliaryFiles", "shader-identity-v2.json");
     var textAssetPath = Path.Combine(project, "Assets", "TextAsset", "SyntheticHello.txt");
     if (!File.Exists(projectVersion) || !File.Exists(pathMapPath) || !File.Exists(textAssetPath))
         throw new InvalidDataException("AssetRipper output missed ProjectVersion.txt, path_id_map.json, or the synthetic TextAsset.");
+    using (var identities = JsonDocument.Parse(File.ReadAllText(shaderMap)))
+        if (identities.RootElement.GetProperty("shaders").GetArrayLength() != 0)
+            throw new InvalidDataException("Text-only fixture should not produce shader identities.");
     if (!File.ReadAllText(projectVersion).Contains("2021.3.45f1", StringComparison.Ordinal))
         throw new InvalidDataException("Exported ProjectVersion.txt did not preserve the fixture engine version.");
     if (File.ReadAllText(textAssetPath) != "ASSET-RIPPER-FIXTURE-TEST")

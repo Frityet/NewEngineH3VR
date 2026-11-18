@@ -169,6 +169,7 @@ public static class AssetRipperIntegration
         {
             "tools/AssetRipper.Worker/AssetRipper.Worker.csproj",
             "tools/AssetRipper.Worker/Program.cs",
+            "tools/AssetRipper.Worker/ShaderIdentityRecorder.cs",
             "Directory.Build.props",
             "global.json"
         };

@@ -161,7 +161,16 @@ public sealed class Pipeline(string repository, ConversionConfig config)
         if (!File.Exists(version) || !Directory.Exists(Path.Combine(config.Export, "Assets"))) throw new InvalidDataException("Recovery must contain ExportedProject/Assets and ProjectSettings/ProjectVersion.txt.");
         // External recovered input is already fully fingerprinted. Internally generated
         // recovery is immutable output and must be verified on every resumed run.
-        return config.RecoveredProject is null ? SafeFiles.Files(config.Export).ToList() : [version];
+        if (config.RecoveredProject is not null) return [version];
+        return ColdRecoveryOutputFiles(Path.Combine(config.Workspace, "recovery"));
+    }
+
+    internal static List<string> ColdRecoveryOutputFiles(string recovery)
+    {
+        var identityMap = Path.Combine(recovery, "AuxiliaryFiles", "shader-identity-v2.json");
+        var pathMap = Path.Combine(recovery, "AuxiliaryFiles", "path_id_map.json");
+        if (!File.Exists(identityMap) || !File.Exists(pathMap)) throw new InvalidDataException("Cold extraction did not produce its required provenance maps.");
+        return SafeFiles.Files(Path.Combine(recovery, "ExportedProject")).Concat([identityMap, pathMap]).ToList();
     }
 
     private async Task<List<string>> Managed(CancellationToken cancellation)

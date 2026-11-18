@@ -32,13 +32,15 @@ configuration.ExportSettings.ExportUnreadableAssets = true;
 configuration.ExportSettings.PreferOriginalTextureExtension = true;
 configuration.ProcessingSettings.BundledAssetsExportMode = BundledAssetsExportMode.DirectExport;
 
-var exporter = new ExportHandler(configuration);
+var identities = new ShaderIdentityRecorder();
+var exporter = new IdentityExportHandler(configuration, identities);
 Logger.Add(new ConsoleLogger());
 exporter.LoadProcessAndExport([gameDirectory], outputDirectory, LocalFileSystem.Instance);
 if (!Directory.Exists(Path.Combine(outputDirectory, "ExportedProject", "Assets")))
     throw new InvalidDataException("AssetRipper finished without producing ExportedProject/Assets.");
 if (!File.Exists(Path.Combine(outputDirectory, "AuxiliaryFiles", "path_id_map.json")))
     throw new InvalidDataException("AssetRipper finished without producing AuxiliaryFiles/path_id_map.json; bundle address resolution cannot continue.");
+identities.Write(outputDirectory);
 return 0;
 
 static bool SafeIsWithin(string candidate, string parent)
