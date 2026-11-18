@@ -20,7 +20,7 @@ dotnet run --project src/H3VR.Converter -- recover-shaders \
   --game "/path/to/H3VR" --output "/path/to/private-raw-shaders"
 ```
 
-The converter provisions the exporter on first use under `~/.cache/h3vr-converter`, then reuses a verified cache keyed by source commit, patch, provisioning recipe and host runtime. `--cache` changes the location; `--offline` requires an existing verified cache and skips provisioning. The output defaults to the conversion workspace path plus `-shaders`. This raw export does **not** automatically supply the validated `--shaders` overlay required by project preparation.
+The converter provisions the exporter on first use in the checkout's ignored `cache/` directory, then verifies its source commit, patch, provisioning recipe and host runtime on reuse. Use `--cache` to specify an external path and `--offline` to require a verified cached tool build. The output defaults to the conversion workspace path plus `-shaders`. Project preparation requires a validated `--shaders` overlay.
 
 The command creates `shader-inputs/`, `assetripper-export/`,
 `shader-input-manifest.json`, `shader-export-identities.json`,
@@ -58,7 +58,7 @@ leaves the upstream GPL-3.0-only license and corresponding patch beside the
 executable. For development, the standalone provisioning tool is also available:
 
 ```sh
-dotnet run --project tools/ShaderExporter -- provision "$HOME/.local/share/H3VR/assetripper-shader"
+dotnet run --project tools/ShaderExporter -- provision cache/assetripper-shader-manual
 ```
 
 The command prints the executable path. It refuses to overwrite an existing

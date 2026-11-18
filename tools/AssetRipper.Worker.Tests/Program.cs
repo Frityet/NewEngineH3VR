@@ -37,7 +37,7 @@ try
     ValidateExport(secondExport);
     Console.WriteLine("PASS synthetic TextAsset exported through online build and verified offline cache.");
 
-    var worker = Directory.EnumerateFiles(AssetRipperIntegration.DefaultCacheDirectory(config), "AssetRipper.Worker.dll", SearchOption.AllDirectories).Single();
+    var worker = Directory.EnumerateFiles(AssetRipperIntegration.DefaultCacheDirectory(config, repository), "AssetRipper.Worker.dll", SearchOption.AllDirectories).Single();
     File.AppendAllText(worker, "tampered fixture");
     if (AssetRipperIntegration.CheckAvailability(offline, repository, out _))
         throw new InvalidDataException("A modified worker was accepted by the integrity check.");

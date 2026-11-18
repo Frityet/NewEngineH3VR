@@ -70,6 +70,25 @@ public sealed record ConversionConfig
     [JsonIgnore]
     public string EngineAssemblies => Path.Combine(UnityData, "Managed", "UnityEngine");
 
+    internal string CacheDirectory(string repository) =>
+        ToolCacheDirectory ?? DefaultCacheDirectory(repository);
+
+    private static string DefaultCacheDirectory(string repository) =>
+        Path.Combine(Path.GetFullPath(repository), "cache");
+
+    internal void ValidateToolCache(string repository, params string?[] inputs)
+    {
+        var cache = Path.TrimEndingDirectorySeparator(Path.GetFullPath(CacheDirectory(repository)));
+        var comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+        if (!cache.Equals(DefaultCacheDirectory(repository), comparison))
+            SafeFiles.RequireSeparate(repository, cache);
+        else if (new DirectoryInfo(cache).LinkTarget is not null)
+            throw new InvalidDataException("The checkout's cache must be a real directory. Use --cache to choose another location.");
+
+        foreach (var input in inputs.OfType<string>())
+            SafeFiles.RequireSeparate(input, cache);
+    }
+
     public void Validate(string repository, string through = "validate")
     {
         RequireColdRecovery(through);
@@ -85,9 +104,7 @@ public sealed record ConversionConfig
             throw new InvalidDataException("BuildTarget must be StandaloneWindows64, StandaloneOSX or StandaloneLinux64.");
         if (through is not ("extract" or "managed") && BuildTarget != "StandaloneWindows64" && IntegrationManifest is null)
             throw new InvalidDataException("Non-Windows builds require a compatible platform integration manifest; Windows native plugins cannot run on other platforms.");
-        if (ToolCacheDirectory is not null)
-            foreach (var input in new[] { GameDirectory, string.IsNullOrEmpty(UnityEditor) ? null : UnityData, repository, Workspace, RecoveredProject, ShaderSources }.OfType<string>())
-                SafeFiles.RequireSeparate(input, ToolCacheDirectory);
+        ValidateToolCache(repository, GameDirectory, string.IsNullOrEmpty(UnityEditor) ? null : UnityData, Workspace, RecoveredProject, ShaderSources);
         if (RecoveredProject is not null && !Directory.Exists(Path.Combine(RecoveredProject, "Assets")))
             throw new InvalidDataException("RecoveredProject must contain Assets. Recovery input is never modified.");
     }

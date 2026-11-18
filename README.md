@@ -52,7 +52,7 @@ dotnet run --project src/H3VR.Converter -- --game "/path/to/H3VR" --through extr
 dotnet run --project src/H3VR.Converter -- recover-shaders --game "/path/to/H3VR" --output "/path/to/raw-shaders"
 ```
 
-`--target macos` makes the Apple Silicon selection explicit. See `--help` for comparison and other conversion targets. `--cache` changes the tool cache from `~/.cache/h3vr-converter`; `--offline` requires already cached AssetRipper tools and prevents their provisioning. It does not change Unity Package Manager or other .NET restore behavior. `--no-color` and `NO_COLOR` disable ANSI colors. `--tui` requires an interactive terminal.
+`--target macos` makes the Apple Silicon selection explicit. See `--help` for comparison and other conversion targets. NativeH3VR stores verified tool builds in the checkout's ignored `cache/` directory. Use `--cache` to specify an external path and `--offline` to require a verified cached tool build. Unity Package Manager and .NET restore use their own settings. `--no-color` and `NO_COLOR` disable ANSI colors. `--tui` requires an interactive terminal.
 
 Saved JSON setups remain optional: `init /path/to/settings.json` creates one, and `--config /path/to/settings.json` loads it. Flags override saved values. Flag paths resolve against your current directory; JSON paths resolve against the file's directory. The former `AssetRipperUrl` setting is obsolete and ignored.
 

@@ -9,7 +9,7 @@ public static class InstallationDiscoveryTests
         yield return ("Steam library discovery follows escaped multi-library VDF paths and filters H3VR", SteamLibraries);
         yield return ("Unity discovery returns only the pinned Hub version and explicit editor", UnityEditors);
         yield return ("Unity editor path normalization accepts executable and install folders", EditorNormalization);
-        yield return ("default converter paths are stable per-user locations", DefaultPaths);
+        yield return ("default conversion workspace is a stable per-user location", DefaultWorkspace);
     }
 
     private static void SteamLibraries()
@@ -65,11 +65,10 @@ public static class InstallationDiscoveryTests
             "folder without a Unity executable was accepted");
     }
 
-    private static void DefaultPaths()
+    private static void DefaultWorkspace()
     {
         var home = Path.Combine(Path.GetTempPath(), "unity-user-home");
         Check(InstallationDiscovery.DefaultWorkspace(home) == Path.Combine(home, "H3VR-Unity2021"), "workspace default is not user-local");
-        Check(InstallationDiscovery.DefaultToolCache(home) == Path.Combine(home, ".cache", "h3vr-converter"), "tool cache default is not a persistent per-user cache");
     }
 
     private static void InstallGame(string library, string marker)

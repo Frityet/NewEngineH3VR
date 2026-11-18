@@ -14,6 +14,7 @@ public static class ApplicationTests
         yield return ("status does not require or create game and Unity paths", StatusIsReadOnly);
         yield return ("offline doctor checks extraction without probing or creating Unity and cache paths", DoctorExtractIsReadOnly);
         yield return ("extract validation does not require a Unity editor", ExtractNeedsNoEditor);
+        yield return ("tool cache defaults to the checkout and excludes other input paths", CheckoutCache);
         yield return ("cache and offline changes do not invalidate conversion receipts", CacheSettingsDoNotInvalidateReceipt);
     }
 
@@ -87,8 +88,8 @@ public static class ApplicationTests
             editors.Append(Path.Combine(temp.Root, "Unity-two")).ToArray());
         Check(multiple.GameDirectory.Length == 0 && multiple.UnityEditor.Length == 0,
             "application silently chose among multiple game/editor candidates");
-        Check(unique.Workspace == InstallationDiscovery.DefaultWorkspace() && unique.ToolCacheDirectory == InstallationDiscovery.DefaultToolCache(),
-            "missing workspace/cache did not receive per-user defaults");
+        Check(unique.Workspace == InstallationDiscovery.DefaultWorkspace() && unique.ToolCacheDirectory is null,
+            "workspace discovery did not keep the optional cache override unset");
     }
 
     private static void StatusIsReadOnly()
@@ -187,6 +188,31 @@ public static class ApplicationTests
         var second = first with { ToolCacheDirectory = Path.Combine(temp.Root, "cache-b"), Offline = true };
         new Pipeline(repo, second).Run("extract", CancellationToken.None).GetAwaiter().GetResult();
         Check(File.Exists(Path.Combine(workspace, ".conversion/extract.json")), "receipt disappeared when cache-only settings changed");
+    }
+
+    private static void CheckoutCache()
+    {
+        using var temp = new Temp();
+        var repository = Path.Combine(temp.Root, "checkout");
+        var local = Path.Combine(repository, "cache");
+        var game = Path.Combine(temp.Root, "steam-install");
+        var workspace = Path.Combine(temp.Root, "workspace");
+        Directory.CreateDirectory(repository);
+        Directory.CreateDirectory(game);
+        var config = new ConversionConfig();
+        Check(config.CacheDirectory(repository) == local, "the default cache must be rooted at the supplied checkout");
+        Check(AssetRipperIntegration.DefaultCacheDirectory(config, repository) == Path.Combine(local, "assetripper2"),
+            "the worker cache resolved outside the default directory");
+        config.ValidateToolCache(repository, game, workspace);
+        Check(!Directory.Exists(local), "validation must not create the cache");
+        (config with { ToolCacheDirectory = Path.Combine(temp.Root, "external") }).ValidateToolCache(repository, game, workspace);
+        foreach (var invalid in new[] { repository, Path.Combine(repository, "src"), Path.Combine(game, "tool-cache"), workspace })
+            Check(Capture(() => (config with { ToolCacheDirectory = invalid }).ValidateToolCache(repository, game, workspace)) is InvalidDataException,
+                "overlapping cache was accepted: " + invalid);
+        if (OperatingSystem.IsWindows()) return;
+        Directory.CreateSymbolicLink(local, game);
+        Check(Capture(() => config.ValidateToolCache(repository, game, workspace)) is InvalidDataException,
+            "a symlink redirected the checkout cache to the installed game");
     }
 
     private static void Write(string path, string text)

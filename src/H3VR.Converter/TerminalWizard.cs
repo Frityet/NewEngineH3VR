@@ -143,7 +143,7 @@ public static class TerminalWizard
         Add("Target", TargetName(config.BuildTarget));
         Add("Integration", config.IntegrationManifest ?? "(not set)");
         Add("AssetRipper", "Managed automatically");
-        Add("Tool cache", config.ToolCacheDirectory ?? "(default)");
+        Add("Tool cache", config.ToolCacheDirectory ?? "cache/ in this checkout");
         Add("Offline", config.Offline ? "on" : "off");
         Add("Through", through);
         console.Write(table);

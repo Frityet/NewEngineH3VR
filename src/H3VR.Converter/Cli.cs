@@ -58,7 +58,7 @@ public sealed class ConversionOptions : CommandSettings
     public string? Integration { get; init; }
 
     [CommandOption("--cache <PATH>")]
-    [Description("Tool download and build cache directory.")]
+    [Description("Tool download and build cache directory. Defaults to cache/ in this checkout.")]
     public string? Cache { get; init; }
 
     [CommandOption("--offline")]

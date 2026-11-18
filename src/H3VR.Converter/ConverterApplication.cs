@@ -94,8 +94,7 @@ public sealed class ConverterApplication(string repository, IAnsiConsole console
     {
         GameDirectory = config.GameDirectory.Length == 0 && games.Count == 1 ? games[0] : config.GameDirectory,
         UnityEditor = config.UnityEditor.Length == 0 && editors.Count == 1 ? editors[0] : config.UnityEditor,
-        Workspace = config.Workspace.Length == 0 ? InstallationDiscovery.DefaultWorkspace() : config.Workspace,
-        ToolCacheDirectory = config.ToolCacheDirectory ?? InstallationDiscovery.DefaultToolCache()
+        Workspace = config.Workspace.Length == 0 ? InstallationDiscovery.DefaultWorkspace() : config.Workspace
     };
 
     private async Task<string> ChooseDiscovered(string label, string current, IReadOnlyList<string> candidates, CancellationToken cancellation)
@@ -131,14 +130,14 @@ public sealed class ConverterApplication(string repository, IAnsiConsole console
         if (!File.Exists(Path.Combine(config.ManagedInput, "Assembly-CSharp.dll")))
             throw new InvalidDataException("Set --game to your installed H3VR directory.");
         var output = new ConversionConfig { Workspace = options.Output ?? config.Workspace + "-shaders" }.ResolvePaths(Environment.CurrentDirectory).Workspace;
-        foreach (var input in new[] { repository, config.GameDirectory, config.ToolCacheDirectory!, config.Workspace })
+        var cache = config.CacheDirectory(repository);
+        foreach (var input in new[] { repository, config.GameDirectory, cache, config.Workspace })
             SafeFiles.RequireSeparate(input, output);
-        foreach (var input in new[] { repository, config.GameDirectory, config.Workspace })
-            SafeFiles.RequireSeparate(input, config.ToolCacheDirectory!);
+        config.ValidateToolCache(repository, config.GameDirectory, config.Workspace);
         if (Directory.Exists(output) && Directory.EnumerateFileSystemEntries(output).Any())
             throw new IOException("Shader output must be empty: " + output);
-        console.WriteLine("Preparing the pinned shader exporter in " + config.ToolCacheDirectory);
-        var exporter = await ShaderToolCache.EnsureAsync(config.ToolCacheDirectory!, config.Offline, cancellation);
+        console.WriteLine("Preparing the pinned shader exporter in " + cache);
+        var exporter = await ShaderToolCache.EnsureAsync(cache, config.Offline, cancellation);
         // The exporter writes next to its executable, even with a different
         // working directory. Run an isolated copy so the verified cache remains immutable.
         var runtimeCopy = output + ".exporter-" + Guid.NewGuid().ToString("N");
@@ -164,7 +163,7 @@ public sealed class ConverterApplication(string repository, IAnsiConsole console
         Add("Target", config.BuildTarget);
         Add("Recovery", config.RecoveredProject ?? "AssetRipper 2.0.0 (automatic)");
         Add("Shaders", config.ShaderSources ?? "Not set");
-        Add("Cache", config.ToolCacheDirectory!);
+        Add("Cache", config.CacheDirectory(repository));
         Add("Tool provisioning", config.Offline ? "Cached tools only" : "Download and build when needed");
         Add("Through", through);
         console.Write(table);

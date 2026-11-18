@@ -12,9 +12,6 @@ public static class InstallationDiscovery
     public static string DefaultWorkspace(string? homeDirectory = null) =>
         Path.Combine(ResolveHome(homeDirectory), "H3VR-Unity2021");
 
-    public static string DefaultToolCache(string? homeDirectory = null) =>
-        Path.Combine(ResolveHome(homeDirectory), ".cache", "h3vr-converter");
-
     public static IReadOnlyList<string> DiscoverGameDirectories(string? homeDirectory = null, IEnumerable<string>? steamRoots = null)
     {
         var roots = (steamRoots ?? StandardSteamRoots(ResolveHome(homeDirectory))).Select(Path.GetFullPath).Distinct(PathComparer()).ToList();

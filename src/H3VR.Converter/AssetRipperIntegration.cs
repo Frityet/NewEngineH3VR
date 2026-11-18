@@ -15,14 +15,14 @@ public static class AssetRipperIntegration
     private const int CacheSchema = 1;
     private const string WorkerDll = "AssetRipper.Worker.dll";
 
-    public static string DefaultCacheDirectory(ConversionConfig config) => Path.Combine(
-        config.ToolCacheDirectory ?? InstallationDiscovery.DefaultToolCache(), "assetripper2");
+    public static string DefaultCacheDirectory(ConversionConfig config, string repository) =>
+        Path.Combine(config.CacheDirectory(repository), "assetripper2");
 
     /// <summary>Read-only check; does not initialize the submodule or create cache files.</summary>
     public static bool CheckAvailability(ConversionConfig config, string repository, out string detail)
     {
         var fingerprint = Fingerprint(repository);
-        var cache = Path.Combine(DefaultCacheDirectory(config), fingerprint);
+        var cache = Path.Combine(DefaultCacheDirectory(config, repository), fingerprint);
         if (TryVerifyCache(cache, fingerprint, out _))
         {
             detail = "Verified AssetRipper worker cache is available.";
@@ -69,7 +69,7 @@ public static class AssetRipperIntegration
     {
         repository = Path.GetFullPath(repository);
         var fingerprint = Fingerprint(repository);
-        var cacheRoot = DefaultCacheDirectory(config);
+        var cacheRoot = DefaultCacheDirectory(config, repository);
         var cache = Path.Combine(cacheRoot, fingerprint);
 
         var executable = await GetWorkerAsync(repository, config, cache, fingerprint, cancellation);
