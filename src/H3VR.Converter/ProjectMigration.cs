@@ -86,11 +86,14 @@ public sealed class ProjectMigration(ConversionConfig config, string candidate)
             }
         }
         AddBuiltInUguiBindings(bindings, bindingRows, dlls, assemblyTypes, originalTypes);
+        var shaderOverlay = ApplyShaderOverlay(root, assets, out var computeGuids);
         var recoveredGuids = recovered.Select(r => r.Guid).Where(g => !string.IsNullOrEmpty(g)).ToHashSet(StringComparer.Ordinal);
         var referenceCounts = new Dictionary<string, int>(); var unresolved = new HashSet<string>();
         foreach (var path in SafeFiles.Files(assets).Where(IsUnitySerializedText))
         {
-            var text = File.ReadAllText(path, Encoding.UTF8); if (!text.Contains("m_Script:", StringComparison.Ordinal)) continue;
+            var text = File.ReadAllText(path, Encoding.UTF8);
+            if (!text.Contains("m_Script:", StringComparison.Ordinal) && (computeGuids.Count == 0 || !text.Contains("7200000", StringComparison.Ordinal)))
+                continue;
             var count = 0;
             var changed = ScriptPattern.Replace(text, match =>
             {
@@ -98,7 +101,9 @@ public sealed class ProjectMigration(ConversionConfig config, string candidate)
                 if (!bindings.TryGetValue(key, out var target)) { if (key.Item1 == 11500000) unresolved.Add(key.Item2); return match.Value; }
                 count++; return $"m_Script: {{fileID: {target.FileId}, guid: {target.Guid}, type: 3}}";
             });
-            if (count > 0) { File.WriteAllText(path, changed, new UTF8Encoding(false)); referenceCounts[Path.GetRelativePath(root, path)] = count; }
+            if (computeGuids.Count > 0) changed = ComputeShaderOverlay.RewriteReferences(changed, computeGuids);
+            if (changed != text) File.WriteAllText(path, changed, new UTF8Encoding(false));
+            if (count > 0) referenceCounts[Path.GetRelativePath(root, path)] = count;
         }
         var unresolvedRecovered = unresolved.Intersect(recoveredGuids, StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
         if (unresolvedRecovered.Length > 0)
@@ -110,7 +115,6 @@ public sealed class ProjectMigration(ConversionConfig config, string candidate)
         foreach (var name in new[] { "System.Runtime.CompilerServices.Unsafe.dll", "System.Runtime.InteropServices.dll" })
             MoveCandidatePath(root, "Assets/Plugins/" + name, archive);
         RemoveUguiDuplicate(root);
-        var shaderOverlay = ApplyShaderOverlay(root, assets);
         RejectDummyShaders(assets);
         CopySteamWindowsPlugins(root, assets);
         CopySteamVrActions(root, assets);
@@ -285,8 +289,9 @@ public sealed class ProjectMigration(ConversionConfig config, string candidate)
     }
     private static IEnumerable<TypeDefinition> Flatten(TypeDefinition type) { yield return type; foreach (var n in type.NestedTypes) foreach (var x in Flatten(n)) yield return x; }
 
-    private string ApplyShaderOverlay(string root, string assets)
+    private string ApplyShaderOverlay(string root, string assets, out HashSet<string> computeGuids)
     {
+        computeGuids = [];
         if (config.ShaderSources is null) return "not configured";
         var overlayRoot = Path.GetFullPath(config.ShaderSources); if (!Directory.Exists(overlayRoot)) throw new DirectoryNotFoundException("ShaderSources directory does not exist.");
         SafeFiles.RequireSeparate(overlayRoot, root); RejectLinks(overlayRoot);
@@ -314,7 +319,7 @@ public sealed class ProjectMigration(ConversionConfig config, string candidate)
             // Existing recovered metadata also carries the source AssetBundle group; keep it intact when its GUID matches.
             if (!File.Exists(targetMeta)) File.Copy(sourceMeta, targetMeta);
         }
-        var includes = SafeFiles.Files(sourceAssets).Where(p => new[] { ".cginc", ".hlsl", ".compute", ".glslinc" }.Contains(Path.GetExtension(p).ToLowerInvariant())).ToArray();
+        var includes = SafeFiles.Files(sourceAssets).Where(p => new[] { ".cginc", ".hlsl", ".glslinc" }.Contains(Path.GetExtension(p).ToLowerInvariant())).ToArray();
         foreach (var source in includes)
         {
             var relative = Path.GetRelativePath(sourceAssets, source).Replace('\\', '/');
@@ -330,7 +335,8 @@ public sealed class ProjectMigration(ConversionConfig config, string candidate)
             foreach (Match include in Regex.Matches(File.ReadAllText(destination), "(?m)^[ \t]*#include(?:_with_pragmas)?\\s*[<\"](Assets/[^>\"]+)[>\"]"))
                 if (!File.Exists(SafeFiles.Inside(root, include.Groups[1].Value))) throw new InvalidDataException("Shader overlay is missing an include: " + include.Groups[1].Value);
         }
-        return $"{shaders.Length} source shaders copied with matching metadata and {includes.Length} include/compute files";
+        computeGuids = ComputeShaderOverlay.Stage(config, sourceAssets, assets);
+        return $"{shaders.Length} source shaders, {includes.Length} includes and {computeGuids.Count} translated compute shaders";
     }
 
     private static void RejectDummyShaders(string assets)

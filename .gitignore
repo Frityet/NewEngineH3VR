@@ -55,6 +55,8 @@
 !/runtime/Platform/Fmod/fmod-output.cpp
 !/tools/PlatformPatch/build-native.py
 !/tools/ShaderExporter/link-exports.py
+!/tools/ShaderExporter/keyword_repair.py
+!/tools/ShaderExporter/recover-compute.py
 **/bin/
 **/obj/
 **/__pycache__/

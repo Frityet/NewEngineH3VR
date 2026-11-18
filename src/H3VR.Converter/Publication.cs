@@ -71,6 +71,7 @@ public static class Publication
         if (path is "runtime/Platform/README.md" or "runtime/Platform/Steam/legacy_api.cpp" or
             "runtime/Platform/Fmod/bridge.cpp" or "runtime/Platform/Fmod/fmod-output.cpp" or
             "tools/PlatformPatch/build-native.py" or "tools/ShaderExporter/link-exports.py" or
+            "tools/ShaderExporter/keyword_repair.py" or "tools/ShaderExporter/recover-compute.py" or
             "runtime/UnityMetal/MetalOpenXR.h" or "runtime/UnityMetal/MetalOpenXR.mm")
             return true;
         if ((Path.GetDirectoryName(path) is "runtime/UnityMetal" or "tests/UnityMetal") && Path.GetExtension(path) == ".py")

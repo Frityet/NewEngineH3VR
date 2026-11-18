@@ -125,18 +125,48 @@ def find_links(recovery, workspace, steam):
     }
 
 
-def stage_candidate(result, recovery, workspace, destination):
+def matched_shaders(result, recovery, repair_keywords):
+    if not repair_keywords:
+        for row in result["links"]:
+            yield row, None
+        return
+
+    from keyword_repair import load_objects
+
+    receipt = json.loads((recovery / "recovery-receipt.json").read_text())
+    inventory_path = child(recovery, receipt["inputManifest"])
+    check_hash(inventory_path, result["shaderInputManifestSha256"])
+    inventory = json.loads(inventory_path.read_text())
+    inputs = {(row["source"], row["bundleEntry"]): row for row in inventory["files"]}
+    groups = {}
+    for row in result["links"]:
+        original = inputs[(row["source"], row["bundleEntry"])]
+        groups.setdefault(original["copy"], []).append((row, original["copySha256"]))
+    input_root = child(recovery, "shader-inputs")
+    for copy_name, shaders in groups.items():
+        copy = child(input_root, copy_name)
+        check_hash(copy, shaders[0][1])
+        original_assets = load_objects(copy)
+        for row, _ in shaders:
+            yield row, original_assets[row["PathId"]]
+
+
+def stage_candidate(result, recovery, workspace, destination, repair_keywords):
     project = workspace / "recovery/ExportedProject"
     raw = recovery / "assetripper-export/ExportedProject"
     if result["unmappedProjectPaths"] or not result["links"]:
         raise ValueError("The raw source cannot be staged until all project shaders have identities")
     if destination.exists() or any(destination.is_relative_to(root) for root in (recovery, workspace)):
         raise ValueError("Choose a new candidate shader overlay outside both workspaces")
+    if repair_keywords:
+        from keyword_repair import repair
+
     destination.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix=".shader-candidate-", dir=destination.parent) as temporary:
         candidate = Path(temporary) / "candidate"
         candidate.mkdir()
-        for row in result["links"]:
+        patches = []
+        for row, original in matched_shaders(result, recovery, repair_keywords):
             target = candidate / row["projectPath"]
             metadata = Path(str(target) + ".meta")
             target.parent.mkdir(parents=True, exist_ok=True)
@@ -144,7 +174,14 @@ def stage_candidate(result, recovery, workspace, destination):
             shutil.copyfile(child(project, row["projectPath"] + ".meta"), metadata)
             check_hash(target, row["rawSha256"])
             check_hash(metadata, row["projectMetaSha256"])
-        (candidate / "shader-overlay-candidate.json").write_text(json.dumps(result, indent=2) + "\n")
+            if original is not None:
+                patched, passes = repair(target.read_bytes().decode("utf-8"), original)
+                if passes:
+                    target.write_bytes(patched.encode("utf-8"))
+                    patches.append({"path": row["projectPath"], "before": row["rawSha256"],
+                                    "after": digest(target), "passes": passes})
+        candidate_receipt = dict(result, keywordRepairs=patches)
+        (candidate / "shader-overlay-candidate.json").write_text(json.dumps(candidate_receipt, indent=2) + "\n")
         candidate.rename(destination)
 
 
@@ -155,7 +192,11 @@ def main():
     parser.add_argument("--steam-install", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--overlay-candidate", type=Path, help="Stage identity-matched raw shaders for private diagnosis")
+    parser.add_argument("--repair-exclusive-keywords", action="store_true",
+                        help="Use original Direct3D variants to repair proven one-of keyword groups")
     args = parser.parse_args()
+    if args.repair_exclusive_keywords and not args.overlay_candidate:
+        parser.error("--repair-exclusive-keywords requires --overlay-candidate")
     recovery, workspace, steam = (path.resolve() for path in (args.recovery, args.workspace, args.steam_install))
     output = args.output.resolve()
     if output.is_relative_to(steam) or output.is_relative_to(workspace / "recovery"):
@@ -171,8 +212,8 @@ def main():
             candidate = args.overlay_candidate.resolve()
             if candidate.is_relative_to(steam):
                 raise ValueError("Candidate overlay must be outside Steam")
-            stage_candidate(result, recovery, workspace, candidate)
-    except (OSError, KeyError, ValueError) as error:
+            stage_candidate(result, recovery, workspace, candidate, args.repair_exclusive_keywords)
+    except (ImportError, OSError, KeyError, ValueError) as error:
         parser.exit(1, str(error) + "\n")
     linked = len(result["links"])
     missing = len(result["unmappedProjectPaths"])

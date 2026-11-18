@@ -34,9 +34,9 @@ limit and can be cancelled. An exporter exception invalidates the entire export,
 even if its service returned success and some files were written. Failed output
 is retained for diagnosis and must not be treated as an overlay.
 
-Input manifest schema 2 records each source file's SHA-256, the serialized bundle
-entry index (null for a standalone assets file), each Shader's signed path ID,
-and the hash of the shader-only copy. Together these identify the original
+Input manifest schema 3 records each source file's SHA-256, the serialized bundle
+entry index (null for a standalone assets file), the serialized member name, each
+Shader's signed path ID, and the hash of the shader-only copy. Together these identify the original
 serialized objects in the same local Steam input; a bundle entry index is scoped
 to that exact source hash. The two export identity manifests associate the
 original objects with exported paths and the recovered project GUIDs. An exact
@@ -91,10 +91,11 @@ candidate to measure import, shader and material failures. The rendering
 gate still requires compiling and exercising the original reachable variants
 on Metal.
 
-The raw exporter covers Unity `Shader` objects. Steam build `25002541` also
-contains eleven serialized `ComputeShader` objects with 22 Direct3D kernels.
-Unity's Metal validation checks for these Windows-only programs and for
-compiler errors or missing entry points in recovered compute sources.
+Use `--repair-exclusive-keywords` alongside `--overlay-candidate` to restore
+mutually exclusive light and shadow keyword groups from the original variant
+metadata. This option uses Python 3.13 with `UnityPy==1.25.4` and `lz4==4.4.5`.
+It records each changed pass and its before and after file hashes in
+`shader-overlay-candidate.json`.
 
 The receipt intentionally labels the result `raw-export-unvalidated`. Passing
 this raw export to the converter as `ShaderSources` is not supported. In
@@ -110,3 +111,29 @@ some shader families); its full validated overlay is not reconstructable from
 the game directory by this bootstrap. A fresh installation still needs a
 separate review and validation pass before an overlay can be trusted. Do not
 replace every shader with one fallback shader to make the project compile.
+
+## Compute shader recovery
+
+The raw exporter covers Unity `Shader` objects. Steam build `25002541` also
+contains eleven serialized `ComputeShader` objects with 22 Direct3D kernels.
+Use Python 3.13 with `PyYAML==6.0.3`, a local build of `dxil-spirv` at
+`a781dce9b5f2dd076f419d7f98dcc2dcf5f011d5`, and SPIRV-Cross from Vulkan SDK
+`1.4.357.0`. [dxil-spirv build instructions](https://github.com/HansKristian-Work/dxil-spirv/tree/a781dce9b5f2dd076f419d7f98dcc2dcf5f011d5) · [SPIRV-Cross](https://github.com/KhronosGroup/SPIRV-Cross)
+
+```sh
+python3 tools/ShaderExporter/recover-compute.py \
+  --workspace "/path/to/private-workspace" \
+  --overlay "/path/to/private-shader-overlay" \
+  --dxbc-compiler "/path/to/dxil-spirv" \
+  --spirv-cross "/path/to/spirv-cross"
+```
+
+The command adds `Assets/ComputeShader` to the existing local overlay.
+It verifies the serialized exports against the extraction receipt, translates
+the original DXBC through SPIR-V and restores the resource and constant
+names from the same Unity metadata. It records the tool, source and output
+hashes, each kernel and its original thread-group size. The importer verifies
+that receipt, keeps the original GUIDs and changes the serialized references
+to use Unity's compute source importer. Missing bindings and unsupported
+layouts stop the translation. Unity's Metal validation checks for Windows-only
+programs, compiler errors and missing entry points.

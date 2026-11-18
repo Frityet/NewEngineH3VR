@@ -55,7 +55,8 @@ public sealed class Pipeline(string repository, ConversionConfig config)
             Add(JsonSerializer.Serialize(config with { Offline = false, ToolCacheDirectory = null }));
             if (config.ShaderSources is not null)
                 foreach (var file in SafeFiles.Files(config.ShaderSources)
-                    .Where(p => Path.GetExtension(p).ToLowerInvariant() is ".shader" or ".cginc" or ".hlsl" or ".compute" or ".glslinc" or ".meta")
+                    .Where(p => Path.GetExtension(p).ToLowerInvariant() is ".shader" or ".cginc" or ".hlsl" or ".compute" or ".glslinc" or ".meta" ||
+                                Path.GetFileName(p) == ComputeShaderOverlay.ReceiptName)
                     .Order(StringComparer.Ordinal)) FileInput(file);
         }
         if (config.IntegrationManifest is not null)

@@ -15,6 +15,7 @@ public static class ProjectMigrationTests
         yield return ("OpenXR input staging copies the manifest and every referenced binding", SteamVrActions);
         yield return ("missing referenced controller bindings fail closed", MissingSteamVrBinding);
         yield return ("shader overlay rejects dummy exports", RejectDummyShader);
+        yield return ("compute overlays preserve local asset identity and rebind Unity importer references", ReplaceComputeShader);
         yield return ("integration applies a hash-pinned OpenXR provider", ApplyIntegration);
         yield return ("integration rejects traversal and hash mismatch", RejectUnsafeIntegration);
     }
@@ -89,6 +90,57 @@ public static class ProjectMigrationTests
         var error = Capture(() => new ProjectMigration(fixture.Config(fixture.Shaders), fixture.Candidate).Run());
         Check(error is InvalidDataException && error.Message.Contains("Dummy shader", StringComparison.Ordinal), "rejects known placeholder shader content");
         Check(!File.Exists(Path.Combine(fixture.Candidate, "Assets/Bad.shader")), "does not copy the rejected shader");
+    }
+
+    private static void ReplaceComputeShader()
+    {
+        using var fixture = new Fixture();
+        fixture.CreateManaged("NativeH3VR.Game", "Assembly-CSharp", "H3VR", "Fixture");
+        fixture.WriteSteamActions("{\"default_bindings\":[{\"binding_url\":\"fixture.json\"}]}", ("fixture.json", "{}"));
+        const string guid = "34fa6b0930ae46b8966df6dac490fd24";
+        const string source = "Assets/ComputeShader/Readback.asset";
+        const string compute = "Assets/ComputeShader/Readback.compute";
+        const string dependency = "Assets/Depends.asset";
+        var original = Path.Combine(fixture.Recovered, source);
+        var meta = $"fileFormatVersion: 2\nguid: {guid}\nNativeFormatImporter:\n  mainObjectFileID: 7200000\n";
+        fixture.WriteRecovered(source, "--- !u!72 &7200000\nComputeShader:\n  fixture: true\n", guid);
+        File.WriteAllText(original + ".meta", meta);
+        SafeFiles.Copy(original, Path.Combine(fixture.Candidate, source));
+        SafeFiles.Copy(original + ".meta", Path.Combine(fixture.Candidate, source) + ".meta");
+        fixture.WriteCandidate(dependency, $"probe: {{fileID: 7200000, guid: {guid}, type: 2}}\n");
+        var extract = new StepReceipt("extract", "synthetic-extraction", DateTimeOffset.UtcNow,
+            new() { [original] = SafeFiles.Hash(original), [original + ".meta"] = SafeFiles.Hash(original + ".meta") });
+        SafeFiles.AtomicJson(Path.Combine(fixture.Root, ".conversion/extract.json"), extract);
+
+        var assets = Path.Combine(fixture.Shaders, "Assets");
+        var overlayCompute = Path.Combine(fixture.Shaders, compute);
+        Directory.CreateDirectory(Path.GetDirectoryName(overlayCompute)!);
+        File.WriteAllText(Path.Combine(assets, "Fixture.shader"), "Shader \"Fixture\" { }");
+        File.WriteAllText(Path.Combine(assets, "Fixture.shader.meta"), $"fileFormatVersion: 2\nguid: {new string('2', 32)}\n");
+        File.WriteAllText(overlayCompute, "#pragma kernel Readback\n[numthreads(1, 1, 1)]\nvoid Readback() { }\n");
+        File.WriteAllText(overlayCompute + ".meta", $"fileFormatVersion: 2\nguid: {guid}\nComputeShaderImporter:\n  externalObjects: {{}}\n");
+        var receipt = Path.Combine(assets, "ComputeShader", ComputeShaderOverlay.ReceiptName);
+        void WriteReceipt(string computeHash) => SafeFiles.AtomicJson(receipt, new
+        {
+            schemaVersion = 1, extractionFingerprint = extract.Fingerprint,
+            files = new[] { new {
+                source = "Readback.asset", sourceSha256 = extract.Files[original], sourceMetaSha256 = extract.Files[original + ".meta"],
+                compute = "Readback.compute", computeSha256 = computeHash, computeMetaSha256 = SafeFiles.Hash(overlayCompute + ".meta"),
+                kernels = new[] { new { name = "Readback" } }
+            } }
+        });
+        WriteReceipt("wrong");
+        var config = fixture.Config(fixture.Shaders);
+        Check(Capture(() => ComputeShaderOverlay.Stage(config, assets, Path.Combine(fixture.Candidate, "Assets"))) is InvalidDataException,
+            "a compute overlay with changed bytes is rejected");
+        WriteReceipt(SafeFiles.Hash(overlayCompute));
+        new ProjectMigration(config, fixture.Candidate).Run();
+        Check(File.Exists(Path.Combine(fixture.Candidate, compute)) && !File.Exists(Path.Combine(fixture.Candidate, source)),
+            "the translated source replaces the old serialized compute asset in the candidate");
+        Check(GuidFrom(File.ReadAllText(Path.Combine(fixture.Candidate, compute) + ".meta")) == guid &&
+              File.ReadAllText(Path.Combine(fixture.Candidate, dependency)).Contains($"guid: {guid}, type: 3", StringComparison.Ordinal),
+            "the compute GUID and fileID survive the move to the source importer");
+        Check(SafeFiles.Hash(original) == extract.Files[original], "the immutable extraction was preserved");
     }
 
     private static void ApplyIntegration()

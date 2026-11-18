@@ -30,6 +30,11 @@ Unity test scene and native mod-host fixture use independently authored assets.
   three passed the same probe after adjusting mutually exclusive keyword
   groups according to the original programs. Full material and scene
   validation remains pending. [Shader recovery](shader-recovery.md)
+- All 22 kernels translated from the extracted Direct3D compute programs
+  compiled on Apple M5 Max Metal with their original thread-group sizes.
+  Metal dispatch/readback verified a 128-entry histogram clear and linear
+  interpolation over 64 texture voxels. The actual game effects still
+  require integration testing. [Compute recovery](shader-recovery.md#compute-shader-recovery)
 
 ## Reproduce the Unity fixture
 
@@ -50,11 +55,10 @@ vertical marker orientation. [Trace analysis command](platform-integrations.md)
 
 ## Open gates
 
-The stock player and its production mod bundle still need a compatible,
-identity-matched shader overlay. That includes eleven Direct3D-only compute
-assets whose 22 original kernels need compatible Metal programs. A successful
-Unity validation reports the Metal device and records any shader changes
-applied by Unity's source upgrader. The next Unity build must preserve original
+The stock player and its production mod bundle still need complete validation
+of the identity-matched shader overlay. A successful Unity validation reports
+the Metal device and records any shader changes applied by Unity's source
+upgrader. The next Unity build must preserve original
 scene/script bindings and bundle addresses, verify the assembled app
 signature, and run through Steam authorization and stock startup. Actual
 gameplay, seeded Atlas acceptance and performance on the stock, Facility
