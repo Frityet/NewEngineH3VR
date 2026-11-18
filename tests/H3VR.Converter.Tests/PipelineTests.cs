@@ -12,7 +12,7 @@ public static class PipelineTests
         yield return ("external extraction fingerprint covers StreamingAssets inputs", () => MutationIsRejected("streaming"));
         yield return ("external extraction fingerprint covers native plugin inputs", () => MutationIsRejected("plugin"));
         yield return ("project fingerprint covers shader overlay inputs", ShaderMutationChangesProjectFingerprint);
-        yield return ("managed fingerprint covers Unity inputs but ignores later project settings", ManagedFingerprintSelection);
+        yield return ("managed fingerprint covers Unity and target but ignores shaders", ManagedFingerprintSelection);
         yield return ("workspace lock excludes concurrent conversion and can be reacquired", WorkspaceLock);
         yield return ("baseline records only null MonoScript slots by source object and asset", BaselineNullScripts);
         yield return ("build receipt tracks generated StreamingAssets bundle bytes", BuildReceiptTracksBundles);
@@ -84,9 +84,11 @@ public static class PipelineTests
         var pipeline = fixture.Pipeline();
         var before = pipeline.FingerprintForTests("managed");
         File.WriteAllText(Path.Combine(fixture.Shaders, "Assets/Includes/Lighting.cginc"), "later-project-shader");
-        var config = fixture.Config() with { BuildTarget = "StandaloneLinux64" };
+        var config = fixture.Config();
         var afterProjectOptions = new Pipeline(fixture.Repository, config).FingerprintForTests("managed");
-        Check(before == afterProjectOptions, "managed-stage fingerprint included shader or target settings that begin at project preparation");
+        Check(before == afterProjectOptions, "managed-stage fingerprint included shader settings that begin at project preparation");
+        var targetChange = new Pipeline(fixture.Repository, config with { BuildTarget = "StandaloneOSX" }).FingerprintForTests("managed");
+        Check(before != targetChange, "managed-stage fingerprint ignored the target-specific adapter");
         File.WriteAllText(Path.Combine(fixture.EngineAssemblies, "UnityEngine.CoreModule.dll"), "updated-engine-assembly");
         var afterUnityChange = new Pipeline(fixture.Repository, config).FingerprintForTests("managed");
         Check(before != afterUnityChange, "managed-stage fingerprint ignored Unity engine inputs");

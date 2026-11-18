@@ -44,6 +44,24 @@ var cases = new List<(string Name, Action Run)>
     }),
     ("target Unity version is the experiment version", () => Check(ConversionConfig.TargetVersion == "2021.3.45f2", "wrong target"))
 };
+cases.Add(("player receipt records manifest build and managed hashes without account data", () => {
+    var root = Path.Combine(Path.GetTempPath(), "h3vr-receipt-" + Guid.NewGuid().ToString("N"));
+    try {
+        var apps = Path.Combine(root, "steamapps"); var game = Path.Combine(apps, "common", "H3VR");
+        Directory.CreateDirectory(game);
+        File.WriteAllText(Path.Combine(apps, "appmanifest_450540.acf"), "\"AppState\"\n{\n\"appid\" \"450540\"\n\"installdir\" \"H3VR\"\n\"buildid\" \"25002541\"\n\"LastOwner\" \"private\"\n}");
+        var app = Path.Combine(root, "Player.app", "Contents");
+        Directory.CreateDirectory(Path.Combine(app, "MacOS"));
+        Directory.CreateDirectory(Path.Combine(app, "Resources", "Data", "Managed"));
+        File.WriteAllText(Path.Combine(app, "Info.plist"), "<plist><dict><key>CFBundleExecutable</key><string>Player</string></dict></plist>");
+        File.WriteAllText(Path.Combine(app, "MacOS", "Player"), "executable");
+        var dll = Path.Combine(app, "Resources", "Data", "Managed", "Assembly-CSharp.dll"); File.WriteAllText(dll, "synthetic");
+        var receipt = File.ReadAllText(PlayerReceipt.Write(Path.GetDirectoryName(app)!, game));
+        Check(receipt.Contains("25002541") && receipt.Contains(SafeFiles.Hash(dll)) && !receipt.Contains("private"), "receipt lacks identity/hash or leaks account data");
+        File.WriteAllText(Path.Combine(apps, "appmanifest_450540.acf"), "\"appid\" \"999\"\n\"installdir\" \"H3VR\"\n\"buildid\" \"1\"");
+        Throws(() => PlayerReceipt.SteamBuildId(game));
+    } finally { if (Directory.Exists(root)) Directory.Delete(root, true); }
+}));
 cases.AddRange(ProjectMigrationTests.Cases());
 cases.AddRange(BundlePlanTests.Cases());
 cases.AddRange(PipelineTests.Cases());

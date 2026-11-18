@@ -58,6 +58,21 @@ namespace H3VRConverter
                     PlayerSettings.SetUseDefaultGraphicsAPIs(target, false);
                     PlayerSettings.SetGraphicsAPIs(target, new[] { GraphicsDeviceType.Direct3D11 });
                 }
+                else if (target == BuildTarget.StandaloneOSX)
+                {
+                    // Unity 2021.3 documents architecture 1 as ARM64.
+                    PlayerSettings.SetArchitecture(BuildTargetGroup.Standalone, 1);
+                    PlayerSettings.SetScriptingBackend(BuildTargetGroup.Standalone, ScriptingImplementation.Mono2x);
+                    PlayerSettings.SetUseDefaultGraphicsAPIs(target, false);
+                    PlayerSettings.SetGraphicsAPIs(target, new[] { GraphicsDeviceType.Metal });
+                    PlayerSettings.companyName = "NativeH3VR";
+                    PlayerSettings.productName = "NativeH3VR";
+                    PlayerSettings.SetApplicationIdentifier(BuildTargetGroup.Standalone, "local.nativeh3vr.player");
+                    if (PlayerSettings.GetArchitecture(BuildTargetGroup.Standalone) != 1 ||
+                        PlayerSettings.GetScriptingBackend(BuildTargetGroup.Standalone) != ScriptingImplementation.Mono2x ||
+                        !PlayerSettings.GetGraphicsAPIs(target).SequenceEqual(new[] { GraphicsDeviceType.Metal }))
+                        throw new InvalidOperationException("Could not select Apple Silicon, Mono and Metal for the macOS player.");
+                }
                 var scenes = EditorBuildSettings.scenes.Where(s => s.enabled).Select(s => s.path).ToArray();
                 if (scenes.Length == 0) throw new InvalidOperationException("No enabled build scenes. Recovery must preserve original scene order.");
                 var baseline = JsonUtility.FromJson<Baseline>(File.ReadAllText("ProjectSettings/H3VRBaseline.json"));

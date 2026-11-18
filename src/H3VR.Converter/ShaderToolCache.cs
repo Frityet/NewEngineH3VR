@@ -28,7 +28,9 @@ public static class ShaderToolCache
         var commit = ShaderExporter.UpstreamCommit;
         var patchHash = SafeFiles.HashText(ShaderExporter.ReadSourcePatch());
         var rid = CurrentRuntimeIdentifier();
-        var key = $"{commit}-{patchHash}-{rid}";
+        // Include the provisioning recipe version as well as the upstream patch.
+        // A publish can succeed while omitting runtime dependencies.
+        var key = $"{commit}-{patchHash}-recipe4-{rid}";
         var destination = Path.Combine(root, key);
         var locks = Path.Combine(root, ".locks");
         Directory.CreateDirectory(locks);

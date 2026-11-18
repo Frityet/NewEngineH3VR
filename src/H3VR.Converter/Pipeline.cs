@@ -49,7 +49,7 @@ public sealed class Pipeline(string repository, ConversionConfig config)
         Add(step);
         Add(common);
 
-        if (step is "managed" or "project" or "validate" or "build") AddUnityInputs();
+        if (step is "managed" or "project" or "validate" or "build") { AddUnityInputs(); Add(config.BuildTarget); }
         if (step is "project" or "validate" or "build")
         {
             Add(JsonSerializer.Serialize(config with { Offline = false, ToolCacheDirectory = null }));
@@ -176,7 +176,9 @@ public sealed class Pipeline(string repository, ConversionConfig config)
             await Processes.Run("dotnet", ["run", "--project", Path.Combine(repository, "tools/ManagedRetarget"), "-c", "Release", "--", config.ManagedInput, retargeted, config.EngineAssemblies, Path.Combine(compat, "NativeH3VR.Compat.dll")], repository, cancellation: cancellation);
             await VerifyManaged(retargeted, cancellation);
             var adapter = Path.Combine(candidate, "adapter");
-            await Processes.Run("dotnet", ["build", Path.Combine(repository, "runtime/OpenXR/NativeH3VR.OpenXR.csproj"), "-c", "Release", "-o", adapter, "-p:UnityEngineAssemblies=" + config.EngineAssemblies, "-p:GameManaged=" + retargeted], repository, cancellation: cancellation);
+            var adapterArgs = new List<string> { "build", Path.Combine(repository, "runtime/OpenXR/NativeH3VR.OpenXR.csproj"), "-c", "Release", "-o", adapter, "-p:UnityEngineAssemblies=" + config.EngineAssemblies, "-p:GameManaged=" + retargeted };
+            if (config.BuildTarget == "StandaloneOSX") adapterArgs.Add("-p:NativeH3VRMetal=true");
+            await Processes.Run("dotnet", adapterArgs, repository, cancellation: cancellation);
             var patched = Path.Combine(candidate, "patched");
             await Processes.Run("dotnet", ["run", "--project", Path.Combine(repository, "tools/OpenXRPatch"), "-c", "Release", "--", retargeted, Path.Combine(adapter, "NativeH3VR.OpenXR.dll"), patched, "--unity-engine", config.EngineAssemblies], repository, cancellation: cancellation);
             await VerifyManaged(patched, cancellation);
@@ -246,6 +248,16 @@ public sealed class Pipeline(string repository, ConversionConfig config)
         if (build)
         {
             if (!File.Exists(output) && !Directory.Exists(output)) throw new InvalidDataException("Unity reported success without creating the player.");
+            if (config.BuildTarget == "StandaloneOSX")
+            {
+                if (!OperatingSystem.IsMacOS()) throw new PlatformNotSupportedException("The macOS player must be signed and verified on macOS.");
+                var playerReceipt = PlayerReceipt.Write(output, config.GameDirectory);
+                using var playerMetadata = JsonDocument.Parse(File.ReadAllText(playerReceipt));
+                var executable = playerMetadata.RootElement.GetProperty("playerExecutable").GetString()!;
+                await Processes.Run("lipo", ["-verify_arch", "arm64", Path.Combine(output, "Contents/MacOS", executable)], repository, cancellation: cancellation);
+                await Processes.Run("codesign", ["--force", "--deep", "--sign", "-", output], repository, cancellation: cancellation);
+                await Processes.Run("codesign", ["--verify", "--deep", "--strict", output], repository, cancellation: cancellation);
+            }
             if (Directory.Exists(bundleOutput)) Directory.Delete(bundleOutput, true);
             return BuildOutputFiles(Path.Combine(config.Workspace, "player"), Path.Combine(config.Project, "Assets/StreamingAssets"))
                 .Concat([report, logfile]).ToList();

@@ -76,7 +76,7 @@ public static class ShaderExporter
             var executable = Path.Combine(buildOutput, executableName);
             if (!File.Exists(executable))
                 throw new FileNotFoundException("AssetRipper publish completed without its application host.", executable);
-            foreach (var dependency in new[] { "System.CommandLine.dll", "AssetRipper.Text.Html.dll", "Cpp2IL.Core.dll" })
+            foreach (var dependency in new[] { "System.CommandLine.dll", "AssetRipper.Text.Html.dll", "AssetRipper.IO.Endian.dll", "AssetRipper.SourceGenerated.dll", "ICSharpCode.Decompiler.dll", "Cpp2IL.Core.dll" })
                 if (!File.Exists(Path.Combine(buildOutput, dependency)))
                     throw new FileNotFoundException($"AssetRipper publish omitted required runtime dependency {dependency}.", Path.Combine(buildOutput, dependency));
 
@@ -161,6 +161,9 @@ public static class ShaderExporter
             marker,
             "\t\t<PackageReference Include=\"System.CommandLine\" Version=\"2.0.0-beta4.22272.1\" />",
             "\t\t<PackageReference Include=\"AssetRipper.Text.Html\" Version=\"1.0.0\" />",
+            "\t\t<PackageReference Include=\"AssetRipper.IO.Endian\" Version=\"1.1.0\" />",
+            "\t\t<PackageReference Include=\"AssetRipper.SourceGenerated\" Version=\"1.0.14\" />",
+            "\t\t<PackageReference Include=\"ICSharpCode.Decompiler\" Version=\"8.2.0.7535\" />",
             "\t\t<PackageReference Include=\"NativeFileDialogs.Net\" Version=\"1.1.0\" />",
             "\t\t<PackageReference Include=\"AsmResolver.DotNet\" Version=\"5.5.1\" />",
             "\t\t<PackageReference Include=\"AssetRipper.Gee.External.Capstone\" Version=\"2.3.2\" />",
