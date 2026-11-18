@@ -13,6 +13,7 @@ internal static class ShaderKeywordTests
         yield return ("irregular SpeedTree variants still require a geometry mode", SpeedTreeGeometry);
         yield return ("a generated variant guard must assign each declared keyword once", CompleteGuard);
         yield return ("split shaders preserve each program guard and keep entry point directives in ShaderLab", SplitPrograms);
+        yield return ("verified instancing variants rebind only the recognized engine layout", InstancingBindings);
     }
 
     private static void ExactProduct()
@@ -125,6 +126,64 @@ internal static class ShaderKeywordTests
             result = result.SelectMany(row => choices.Select(choice => choice | row)).ToHashSet();
         }
         return result;
+    }
+
+    private static void InstancingBindings()
+    {
+        const string body = """
+            #pragma vertex vert
+            #pragma fragment frag
+            #include "UnityCG.cginc"
+            CBUFFER_START(UnityDrawCallInfo)
+                int unity_BaseInstanceID;
+            CBUFFER_END
+            CBUFFER_START(UnityInstancing_PerDraw0)
+                float4x4 unity_ObjectToWorldArray[500];
+                float4x4 unity_WorldToObjectArray[500];
+            CBUFFER_END
+            CBUFFER_START(UnityDrawCallInfo)
+            CBUFFER_END
+            CBUFFER_START(UnityInstancing_PerDraw0)
+            CBUFFER_END
+            v2f vert(appdata_full v)
+            {
+                tmp7.y = v.sv_instanceid.x + unity_BaseInstanceID;
+                tmp7.y = float1(int1(tmp7.y) << 2);
+                o.position = unity_ObjectToWorldArray[((int)(tmp7.y) + 3) / 4]._m03_m13_m23_m33;
+                o.normal = unity_WorldToObjectArray[((int)(tmp7.y) + 2) / 4]._m02_m12_m22;
+                o.sv_instanceid.x = v.sv_instanceid.x;
+                return o;
+            }
+            """;
+        const string disabled = "#if !defined(INSTANCING_ON)";
+        const string enabled = "#elif defined(INSTANCING_ON)";
+        const string fallback = "#else\n#error Original shader has no recovered variant\n#endif";
+        var repaired = Repair(body);
+        Check(repaired is not null && repaired.Bindings is { VariantCount: 1, InstanceIdReads: 2,
+            ObjectToWorldReads: 1, WorldToObjectReads: 1 });
+        Check(repaired!.Source.StartsWith($"{disabled}\n{body}\n{enabled}", StringComparison.Ordinal));
+        var active = repaired.Source[(repaired.Source.IndexOf(enabled, StringComparison.Ordinal) + enabled.Length)..];
+        Check(!active.Contains("CBUFFER_START(UnityDrawCallInfo)", StringComparison.Ordinal));
+        Check(!active.Contains("CBUFFER_START(UnityInstancing_PerDraw0)", StringComparison.Ordinal));
+        Check(active.Contains("UNITY_GET_INSTANCE_ID(v) + unity_BaseInstanceID", StringComparison.Ordinal));
+        Check(active.Contains("unity_Builtins0Array[((int)(tmp7.y) + 3) / 4].unity_ObjectToWorldArray._m03_m13_m23_m33", StringComparison.Ordinal));
+        Check(active.Contains("NATIVEH3VR_INSTANCE_INVERSE_ARRAY[((int)(tmp7.y) + 2) / 4].unity_WorldToObjectArray._m02_m12_m22", StringComparison.Ordinal));
+        Check(active.EndsWith(fallback, StringComparison.Ordinal));
+        Check(Repair(body.Replace("[500]", "[499]", StringComparison.Ordinal)) is null);
+        Check(Repair(body.Replace("UnityCG.cginc", "LocalCG.cginc", StringComparison.Ordinal)) is null);
+        Check(Repair(body.Replace("((int)(tmp7.y) + 3) / 4", "unrelatedIndex", StringComparison.Ordinal)) is null);
+
+        InstancingBindingRepair.Result? Repair(string enabledBody)
+        {
+            var second = disabled.Length + body.Length + 2;
+            var tail = second + enabled.Length + enabledBody.Length + 2;
+            var source = $"{disabled}\n{body}\n{enabled}\n{enabledBody}\n{fallback}";
+            var pass = new ShaderProgramSplitter.Program(
+                [new(0, disabled["#if ".Length..], disabled.Length, second),
+                    new(1, enabled["#elif ".Length..], second + enabled.Length, tail)],
+                tail + "#else".Length, source.Length - "#endif".Length, source.Length);
+            return InstancingBindingRepair.Rewrite(source, 0, pass, new() { ["INSTANCING_ON"] = 1 });
+        }
     }
 
     private static void Check(bool condition)

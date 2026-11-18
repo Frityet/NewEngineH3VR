@@ -14,7 +14,7 @@ internal sealed partial class KeywordRepair : IDisposable
     private readonly AssetsFileInstance original;
 
     internal sealed record PassRepair(string Name, int PassIndex, int VariantCount, ShaderKeywordPlan Keywords,
-        ShaderProgramSplitter.Include[] Includes);
+        ShaderProgramSplitter.Include[] Includes, InstancingBindingRepair.Audit? InstancingBindings);
     private sealed record Edit(int Start, int End, string Replacement, PassRepair Repair);
     private sealed record ProgramKeywords(int Kind, HashSet<string> Keywords);
 
@@ -99,11 +99,20 @@ internal sealed partial class KeywordRepair : IDisposable
 
         var plan = ShaderKeywordPlan.Create(names, paired);
         var directives = plan.ChangesDeclarations ? string.Join("\n", plan.Directives()) + "\n" : declarations.Value;
-        var split = ShaderProgramSplitter.Split(source, guarded, names, overlay, guid, index);
+        var bindingRepair = InstancingBindingRepair.Rewrite(source, header.Index + header.Length, guarded, positions);
+        var splitSource = bindingRepair?.Source ?? source;
+        var splitProgram = bindingRepair is null ? guarded
+            : ReadGuards(splitSource, 0, splitSource.Length, positions)
+                ?? throw new InvalidDataException("An instancing rewrite changed the original variant guards.");
+        var split = ShaderProgramSplitter.Split(splitSource, splitProgram, names, overlay, guid, index);
         if (split is not null)
-            return new(declarations.Index, guarded.End, directives + split.Source, new(name, index, paired.Count, plan, split.Includes));
+            return new(declarations.Index, guarded.End, directives + split.Source,
+                new(name, index, paired.Count, plan, split.Includes, bindingRepair?.Bindings));
+        if (bindingRepair is not null)
+            return new(declarations.Index, guarded.End, directives + bindingRepair.Source,
+                new(name, index, paired.Count, plan, [], bindingRepair.Bindings));
         return plan.ChangesDeclarations
-            ? new(declarations.Index, declarations.Index + declarations.Length, directives, new(name, index, paired.Count, plan, []))
+            ? new(declarations.Index, declarations.Index + declarations.Length, directives, new(name, index, paired.Count, plan, [], null))
             : null;
     }
 
