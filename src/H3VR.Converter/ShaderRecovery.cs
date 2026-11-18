@@ -100,11 +100,13 @@ public static class ShaderRecovery
             : [];
         var accepted = shaderFiles.Where(IsSourceShader).ToArray();
         if (accepted.Length == 0) throw new InvalidDataException("AssetRipper produced no non-dummy .shader source files.");
+        var toolManifest = Path.Combine(Path.GetDirectoryName(ripper)!, "h3vr-shader-tool-cache.json");
 
         var receipt = new
         {
-            schemaVersion = 1,
+            schemaVersion = 2,
             exporter = "AssetRipper 1.0.15-compatible local build",
+            exporterStartedLocally = options.StartAssetRipper,
             generatedUtc = DateTimeOffset.UtcNow,
             gameDataPath = gameData,
             shaderObjects,
@@ -113,6 +115,12 @@ public static class ShaderRecovery
             validationState = "raw-export-unvalidated",
             limitation = "No Unity compilation, original-program equivalence, variant coverage, Metal pipeline, or visual validation is implied.",
             inputManifest = Path.GetFileName(inventoryPath),
+            inputManifestSha256 = HashFile(inventoryPath),
+            exporterExecutableSha256 = HashFile(ripper),
+            exporterToolManifestSha256 = File.Exists(toolManifest) ? HashFile(toolManifest) : null,
+            exporterToolManifest = File.Exists(toolManifest) ? JsonSerializer.Deserialize<JsonElement>(File.ReadAllText(toolManifest)) : (JsonElement?)null,
+            exportedFilesSha256 = shaderFiles.OrderBy(p => p, StringComparer.Ordinal).ToDictionary(
+                p => Path.GetRelativePath(export, p).Replace('\\', '/'), HashFile, StringComparer.Ordinal),
             sha256 = accepted.OrderBy(p => p, StringComparer.Ordinal).ToDictionary(
                 p => Path.GetRelativePath(export, p).Replace('\\', '/'),
                 p => Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(p))).ToLowerInvariant(),

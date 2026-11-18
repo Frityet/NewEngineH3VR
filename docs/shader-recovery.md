@@ -43,6 +43,11 @@ also needs both exporters to record object-to-export GUID/path relationships;
 names alone are ambiguous and are not sufficient to select an overlay. Even an
 exact identity match would still need shader semantic, Unity/Metal and visual
 validation.
+The schema 2 recovery receipt hashes that input manifest, the exporter executable,
+every exported shader and, when available, the verified tool manifest (which
+includes the pinned source commit, patch and cached file hashes). It also records
+whether the converter started the exporter locally; an externally supplied
+service is not authenticated by the local executable hash.
 
 ## Exporter provenance
 
