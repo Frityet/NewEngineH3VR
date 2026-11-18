@@ -30,7 +30,7 @@ public static class ShaderToolCache
         var rid = CurrentRuntimeIdentifier();
         // Include the provisioning recipe version as well as the upstream patch.
         // A publish can succeed while omitting runtime dependencies.
-        var key = $"{commit}-{patchHash}-recipe4-{rid}";
+        var key = $"{commit}-{patchHash}-recipe5-{rid}";
         var destination = Path.Combine(root, key);
         var locks = Path.Combine(root, ".locks");
         Directory.CreateDirectory(locks);

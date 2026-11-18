@@ -88,6 +88,12 @@ public static class ShaderRecovery
 
         await RunExportService(ripper, serviceUri, options.StartAssetRipper, inputs, export, output, cancellationToken);
 
+        // The upstream web middleware can return HTTP 200 after logging an
+        // exception, leaving a partial export that otherwise looks successful.
+        var logPath = Path.Combine(output, "assetripper.log");
+        if (options.StartAssetRipper && File.Exists(logPath) && ExportLogHasException(File.ReadAllText(logPath)))
+            throw new InvalidDataException("AssetRipper logged an exception and may have produced a partial export. Inspect " + logPath);
+
         var projectAssets = Path.Combine(export, "ExportedProject", "Assets");
         var shaderFiles = Directory.Exists(projectAssets)
             ? Directory.EnumerateFiles(projectAssets, "*.shader", SearchOption.AllDirectories).ToArray()
@@ -116,6 +122,9 @@ public static class ShaderRecovery
             JsonSerializer.Serialize(receipt, new JsonSerializerOptions { WriteIndented = true }), cancellationToken);
         return new ShaderRecoveryResult(output, inputs, inputFiles, shaderObjects, accepted.Length, "raw-export-unvalidated");
     }
+
+    internal static bool ExportLogHasException(string log) =>
+        System.Text.RegularExpressions.Regex.IsMatch(log, @"(?m)^\[std(?:out|err)\] (?:System\.)?\S*Exception(?::|\s)");
 
     private static (int InputFiles, int ShaderObjects) ExtractShaderAssets(string gameData, string output, string manifestPath, CancellationToken cancellationToken)
     {

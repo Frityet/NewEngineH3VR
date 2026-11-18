@@ -62,6 +62,11 @@ cases.Add(("player receipt records manifest build and managed hashes without acc
         Throws(() => PlayerReceipt.SteamBuildId(game));
     } finally { if (Directory.Exists(root)) Directory.Delete(root, true); }
 }));
+cases.Add(("shader export rejects upstream exceptions even when HTTP succeeds", () => {
+    Check(ShaderRecovery.ExportLogHasException("[stdout] System.IO.FileNotFoundException: missing\n"), "missed exporter exception");
+    Check(ShaderRecovery.ExportLogHasException("[stderr] System.TypeInitializationException: failed\n"), "missed initialization exception");
+    Check(!ShaderRecovery.ExportLogHasException("[stdout] Export : complete\n"), "rejected clean log");
+}));
 cases.AddRange(ProjectMigrationTests.Cases());
 cases.AddRange(BundlePlanTests.Cases());
 cases.AddRange(PipelineTests.Cases());

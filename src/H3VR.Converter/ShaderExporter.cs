@@ -76,7 +76,7 @@ public static class ShaderExporter
             var executable = Path.Combine(buildOutput, executableName);
             if (!File.Exists(executable))
                 throw new FileNotFoundException("AssetRipper publish completed without its application host.", executable);
-            foreach (var dependency in new[] { "System.CommandLine.dll", "AssetRipper.Text.Html.dll", "AssetRipper.IO.Endian.dll", "AssetRipper.SourceGenerated.dll", "ICSharpCode.Decompiler.dll", "Cpp2IL.Core.dll" })
+            foreach (var dependency in new[] { "System.CommandLine.dll", "AssetRipper.Text.Html.dll", "AssetRipper.IO.Endian.dll", "AssetRipper.SourceGenerated.dll", "ICSharpCode.Decompiler.dll", "K4os.Compression.LZ4.dll", "Cpp2IL.Core.dll" })
                 if (!File.Exists(Path.Combine(buildOutput, dependency)))
                     throw new FileNotFoundException($"AssetRipper publish omitted required runtime dependency {dependency}.", Path.Combine(buildOutput, dependency));
 
@@ -164,6 +164,7 @@ public static class ShaderExporter
             "\t\t<PackageReference Include=\"AssetRipper.IO.Endian\" Version=\"1.1.0\" />",
             "\t\t<PackageReference Include=\"AssetRipper.SourceGenerated\" Version=\"1.0.14\" />",
             "\t\t<PackageReference Include=\"ICSharpCode.Decompiler\" Version=\"8.2.0.7535\" />",
+            "\t\t<PackageReference Include=\"K4os.Compression.LZ4\" Version=\"1.3.8\" />",
             "\t\t<PackageReference Include=\"NativeFileDialogs.Net\" Version=\"1.1.0\" />",
             "\t\t<PackageReference Include=\"AsmResolver.DotNet\" Version=\"5.5.1\" />",
             "\t\t<PackageReference Include=\"AssetRipper.Gee.External.Capstone\" Version=\"2.3.2\" />",
@@ -172,7 +173,15 @@ public static class ShaderExporter
             "\t\t<PackageReference Include=\"AssetRipper.Tpk\" Version=\"1.0.0\" />",
             "\t\t<PackageReference Include=\"Samboy063.Cpp2IL.Core\" Version=\"2022.1.0-pre-release.14\" />");
         File.WriteAllText(path, project.Replace(marker, replacement, StringComparison.Ordinal), new UTF8Encoding(false));
-        return await Capture("git", ["diff", "--", projectPath], checkout, cancellationToken);
+        const string resourcesPath = "Source/AssetRipper.Export.UnityProjects/AssetRipper.Export.UnityProjects.csproj";
+        var resourcesFile = Path.Combine(checkout, resourcesPath.Replace('/', Path.DirectorySeparatorChar));
+        var resources = File.ReadAllText(resourcesFile);
+        const string oldResource = "<EmbeddedResource Include=\"Shaders\\Templates\\*\" />";
+        const string newResource = "<EmbeddedResource Include=\"Shaders\\Templates\\*\" LogicalName=\"AssetRipper.Export.UnityProjects.Shaders.Templates.%(Filename)%(Extension)\" />";
+        if (resources.Split(oldResource, StringSplitOptions.None).Length != 2)
+            throw new InvalidDataException("AssetRipper shader resources no longer match the reviewed build fix.");
+        File.WriteAllText(resourcesFile, resources.Replace(oldResource, newResource, StringComparison.Ordinal), new UTF8Encoding(false));
+        return await Capture("git", ["diff", "--", projectPath, resourcesPath], checkout, cancellationToken);
     }
 
     private static async Task Run(string file, IReadOnlyList<string> arguments, string cwd, CancellationToken cancellationToken)
