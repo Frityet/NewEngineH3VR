@@ -5,6 +5,25 @@ namespace H3VR.Converter;
 
 public static class Integration
 {
+    internal const string MetalBridge = "NativeH3VR.UnityMetal";
+    private static readonly string[] MetalSources =
+    [
+        "Assets/OpenXRProvider/MetalOpenXR.cs",
+        "Assets/OpenXRProvider/NativeStereoRenderer.cs",
+        "Assets/OpenXRProvider/H3VRMetalBinding.cs",
+        "Assets/OpenXRProvider/SyntheticHands.cs",
+    ];
+    private static readonly string[] MetalLibraries =
+    [
+        "Assets/Plugins/macOS/libNativeH3VRMetal.dylib",
+        "Assets/Plugins/Native/macOS/libsteam_api.dylib",
+        "Assets/Plugins/Native/macOS/libCSteamworks.dylib",
+        "Assets/Plugins/Native/macOS/libfmod.dylib",
+        "Assets/Plugins/Native/macOS/libfmodstudio.dylib",
+        "Assets/Plugins/Native/macOS/libNativeH3VRFMOD.dylib",
+    ];
+    internal static IEnumerable<string> RequiredMetalFiles() =>
+        MetalSources.Concat(MetalLibraries).Concat(MetalLibraries.Select(file => file + ".meta"));
     private sealed record FileEntry(string Source, string Destination, string Sha256);
     private sealed record Manifest(int SchemaVersion, string UnityVersion, string BuildTarget, string XrBackend, string? Provider, List<FileEntry> Files);
 
@@ -19,19 +38,22 @@ public static class Integration
         if (manifest.SchemaVersion != 1 || manifest.UnityVersion != ConversionConfig.TargetVersion || manifest.BuildTarget != buildTarget || manifest.XrBackend != "OpenXR")
             throw new InvalidDataException("Integration manifest must target schema 1, Unity " + ConversionConfig.TargetVersion + ", build target " + buildTarget + ", and OpenXR.");
         var hasProvider = !string.IsNullOrWhiteSpace(manifest.Provider);
+        if (buildTarget == "StandaloneOSX" && manifest.Provider != MetalBridge)
+            throw new InvalidDataException("StandaloneOSX requires the NativeH3VR.UnityMetal integration built by runtime/UnityMetal/build.py.");
         if (buildTarget != "StandaloneWindows64" && !hasProvider)
             throw new InvalidDataException("Non-Windows OpenXR builds require Provider to name a managed XR loader class.");
         if (hasProvider && !Regex.IsMatch(manifest.Provider!, @"^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)+$"))
             throw new InvalidDataException("Provider must be a fully qualified managed XR loader type name.");
         if (manifest.Files is null || manifest.Files.Count == 0) throw new InvalidDataException("Integration manifest must list at least one hash-pinned provider file.");
-        var seen = new HashSet<string>(OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal);
+        var seen = new HashSet<string>(OperatingSystem.IsLinux() ? StringComparer.Ordinal : StringComparer.OrdinalIgnoreCase);
+        var copies = new List<(string Source, string Destination, string Sha256)>();
         foreach (var entry in manifest.Files)
         {
             if (string.IsNullOrWhiteSpace(entry.Source) || string.IsNullOrWhiteSpace(entry.Destination) || !System.Text.RegularExpressions.Regex.IsMatch(entry.Sha256 ?? "", "^[0-9a-fA-F]{64}$"))
                 throw new InvalidDataException("Each integration file requires source, destination, and a SHA-256 hash.");
             var source = SafeFiles.Inside(sourceRoot, entry.Source);
             if (!File.Exists(source)) throw new FileNotFoundException("Integration source file not found.", source);
-            if (new FileInfo(source).LinkTarget is not null) throw new InvalidDataException("Integration source symlinks are not supported: " + entry.Source);
+            RejectLinks(sourceRoot, source);
             var actual = SafeFiles.Hash(source);
             if (!actual.Equals(entry.Sha256, StringComparison.OrdinalIgnoreCase)) throw new InvalidDataException("Integration source hash mismatch: " + entry.Source);
             var destRelative = entry.Destination.Replace('\\', '/');
@@ -39,28 +61,47 @@ public static class Integration
                 throw new InvalidDataException("Integration destinations are limited to Assets/Plugins or Assets/OpenXRProvider: " + entry.Destination);
             var destination = SafeFiles.Inside(candidate, destRelative);
             if (!seen.Add(destination)) throw new InvalidDataException("Duplicate integration destination: " + destRelative);
-            var cursor = destination;
-            while (SafeFiles.Contains(candidate, cursor) && cursor != Path.GetFullPath(candidate))
-            {
-                FileSystemInfo item = Directory.Exists(cursor) ? new DirectoryInfo(cursor) : new FileInfo(cursor);
-                if (item.Exists && item.LinkTarget is not null) throw new InvalidDataException("Integration destination passes through a symlink: " + cursor);
-                cursor = Path.GetDirectoryName(cursor)!;
-            }
+            RejectLinks(candidate, destination);
             if (File.Exists(destination))
             {
                 if (!SafeFiles.Hash(destination).Equals(actual, StringComparison.OrdinalIgnoreCase)) throw new IOException("Integration refuses to overwrite a different existing file: " + destRelative);
                 continue;
             }
-            Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
-            File.Copy(source, destination, false);
+            copies.Add((source, destination, actual));
         }
+        if (buildTarget == "StandaloneOSX")
+            foreach (var required in RequiredMetalFiles())
+                if (!seen.Contains(SafeFiles.Inside(candidate, required)))
+                    throw new InvalidDataException("The Metal OpenXR integration is missing " + required);
+        string? settings = null;
+        string? content = null;
         if (hasProvider)
         {
-            var settings = SafeFiles.Inside(candidate, "ProjectSettings/H3VRProvider.json");
-            var content = JsonSerializer.Serialize(new { loader = manifest.Provider }, ConversionConfig.Json) + "\n";
+            settings = SafeFiles.Inside(candidate, "ProjectSettings/H3VRProvider.json");
+            RejectLinks(candidate, settings);
+            content = JsonSerializer.Serialize(new { loader = manifest.Provider }, ConversionConfig.Json) + "\n";
             if (File.Exists(settings) && File.ReadAllText(settings) != content) throw new IOException("Candidate already contains different H3VR provider configuration.");
+        }
+        foreach (var copy in copies)
+        {
+            SafeFiles.Copy(copy.Source, copy.Destination);
+            if (SafeFiles.Hash(copy.Destination) != copy.Sha256)
+                throw new IOException("Integration source changed while copying " + copy.Source);
+        }
+        if (settings != null && content != null && !File.Exists(settings))
+        {
             Directory.CreateDirectory(Path.GetDirectoryName(settings)!);
-            if (!File.Exists(settings)) File.WriteAllText(settings, content);
+            File.WriteAllText(settings, content);
+        }
+    }
+
+    private static void RejectLinks(string root, string path)
+    {
+        root = Path.GetFullPath(root);
+        for (var cursor = path; cursor != root && SafeFiles.Contains(root, cursor); cursor = Path.GetDirectoryName(cursor)!)
+        {
+            FileSystemInfo item = Directory.Exists(cursor) ? new DirectoryInfo(cursor) : new FileInfo(cursor);
+            if (item.LinkTarget is not null) throw new InvalidDataException("Integration paths cannot contain symlinks: " + cursor);
         }
     }
 }

@@ -7,6 +7,7 @@
     <Nullable>disable</Nullable>
     <LangVersion>9.0</LangVersion>
     <ImplicitUsings>disable</ImplicitUsings>
+    <DefineConstants Condition="'$(NativeH3VRMetal)' == 'true'">$(DefineConstants);NATIVEH3VR_METAL</DefineConstants>
     <UnityManagedPath Condition="'$(UnityManagedPath)' == ''">$(UnityEngineAssemblies)</UnityManagedPath>
     <GameManagedPath Condition="'$(GameManagedPath)' == ''">$(GameManaged)</GameManagedPath>
     <NewtonsoftAssembly Condition="'$(NewtonsoftAssembly)' == ''">$(GameManagedPath)/Valve.Newtonsoft.Json.dll</NewtonsoftAssembly>

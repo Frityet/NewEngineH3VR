@@ -13,7 +13,9 @@ namespace NativeH3VR
         public static ETrackingUniverseOrigin TrackingSpace =
             ETrackingUniverseOrigin.TrackingUniverseStanding;
         static readonly List<XRInputSubsystem> inputSubsystems = new List<XRInputSubsystem>(2);
+#if !NATIVEH3VR_METAL
         static readonly List<Vector3> boundary = new List<Vector3>(32);
+#endif
 
         static uint Role(uint index) { return index == 0 ? 1u : index == 1 ? 2u : index == 2 ? 3u : 0u; }
 
@@ -37,6 +39,7 @@ namespace NativeH3VR
             };
         }
 
+#if !NATIVEH3VR_METAL
         static bool TryBoundary()
         {
             inputSubsystems.Clear();
@@ -48,6 +51,7 @@ namespace NativeH3VR
             boundary.Clear();
             return false;
         }
+#endif
 
         public static void ResetSeatedZeroPose()
         {
@@ -67,10 +71,11 @@ namespace NativeH3VR
         {
             if (!XRBridge.IsRunning)
                 throw new InvalidOperationException("No active Unity XR display subsystem.");
-            width = (uint)Mathf.Max(1, XRSettings.eyeTextureWidth);
-            height = (uint)Mathf.Max(1, XRSettings.eyeTextureHeight);
+            width = XRBridge.EyeWidth;
+            height = XRBridge.EyeHeight;
         }
 
+#if !NATIVEH3VR_METAL
         static Camera ActiveCamera()
         {
             Camera camera = Camera.main;
@@ -83,10 +88,22 @@ namespace NativeH3VR
         {
             return eye == EVREye.Eye_Left ? Camera.StereoscopicEye.Left : Camera.StereoscopicEye.Right;
         }
+#endif
+
+        static Matrix4x4 Projection(EVREye eye, float near, float far)
+        {
+#if NATIVEH3VR_METAL
+            Vector4 fov = XRBridge.Metal.Fov(eye == EVREye.Eye_Left ? 0 : 1);
+            return Matrix4x4.Frustum(Mathf.Tan(fov.x) * near, Mathf.Tan(fov.y) * near,
+                                     Mathf.Tan(fov.w) * near, Mathf.Tan(fov.z) * near, near, far);
+#else
+            return ActiveCamera().GetStereoProjectionMatrix(StereoEye(eye));
+#endif
+        }
 
         public static HmdMatrix44_t GetProjectionMatrix(EVREye eye, float near, float far)
         {
-            Matrix4x4 m = ActiveCamera().GetStereoProjectionMatrix(StereoEye(eye));
+            Matrix4x4 m = Projection(eye, near, far);
             return new HmdMatrix44_t
             {
                 m0 = m.m00,
@@ -111,7 +128,7 @@ namespace NativeH3VR
         public static void GetProjectionRaw(EVREye eye, ref float left, ref float right,
                                              ref float top, ref float bottom)
         {
-            Matrix4x4 p = ActiveCamera().GetStereoProjectionMatrix(StereoEye(eye));
+            Matrix4x4 p = Projection(eye, .1f, 100f);
             if (Mathf.Abs(p.m00) < 1e-6f || Mathf.Abs(p.m11) < 1e-6f)
                 throw new InvalidOperationException("Unity XR returned a degenerate eye projection.");
             left = (p.m02 - 1f) / p.m00;
@@ -122,6 +139,9 @@ namespace NativeH3VR
 
         public static HmdMatrix34_t GetEyeToHeadTransform(EVREye eye)
         {
+#if NATIVEH3VR_METAL
+            return Matrix(XRBridge.Metal.EyeOffset(eye == EVREye.Eye_Left ? 0 : 1));
+#else
             Camera camera = ActiveCamera();
             Matrix4x4 eyeToHead = camera.transform.worldToLocalMatrix *
                                   camera.GetStereoViewMatrix(StereoEye(eye)).inverse;
@@ -140,6 +160,7 @@ namespace NativeH3VR
                 m10 = eyeToHead.m22,
                 m11 = -eyeToHead.m23
             };
+#endif
         }
 
         public static bool IsTrackedDeviceConnected(uint device)
@@ -187,11 +208,15 @@ namespace NativeH3VR
 
         public static ChaperoneCalibrationState GetCalibrationState()
         {
-            return TryBoundary() ? ChaperoneCalibrationState.OK
+            float width = 0, depth = 0;
+            return GetPlayAreaSize(ref width, ref depth) ? ChaperoneCalibrationState.OK
                                  : ChaperoneCalibrationState.Error_PlayAreaInvalid;
         }
         public static bool GetPlayAreaSize(ref float width, ref float depth)
         {
+#if NATIVEH3VR_METAL
+            return XRBridge.Metal != null && XRBridge.Metal.StageBounds(out width, out depth);
+#else
             if (!TryBoundary()) return false;
             float minX = float.PositiveInfinity, maxX = float.NegativeInfinity;
             float minZ = float.PositiveInfinity, maxZ = float.NegativeInfinity;
@@ -202,6 +227,7 @@ namespace NativeH3VR
             }
             width = maxX - minX; depth = maxZ - minZ;
             return width > 0 && depth > 0;
+#endif
         }
         public static bool GetPlayAreaRect(ref HmdQuad_t rect)
         {
@@ -221,7 +247,13 @@ namespace NativeH3VR
         public static bool AreBoundsVisible() { return false; }
         public static bool SceneRenderingSuspended { get; private set; }
         public static bool CanRenderScene() { return Running && XRBridge.IsRunning && !SceneRenderingSuspended; }
-        public static void SuspendRendering(bool suspend) { SceneRenderingSuspended = suspend; }
+        public static void SuspendRendering(bool suspend)
+        {
+            SceneRenderingSuspended = suspend;
+#if NATIVEH3VR_METAL
+            XRBridge.Metal?.Suspend(suspend);
+#endif
+        }
         public static void SetTrackingSpace(ETrackingUniverseOrigin space)
         {
             if (space != ETrackingUniverseOrigin.TrackingUniverseStanding &&
@@ -252,7 +284,7 @@ namespace NativeH3VR
             {
                 case ETrackedDeviceProperty.Prop_TrackingSystemName_String: text = "Unity OpenXR"; break;
                 case ETrackedDeviceProperty.Prop_ModelNumber_String:
-                    text = device == 0 ? XRSettings.loadedDeviceName : tracked.name; break;
+                    text = device == 0 ? XRBridge.SystemName : tracked.name; break;
                 case ETrackedDeviceProperty.Prop_ControllerType_String:
                     text = device == 0 ? "hmd" : "openxr-controller"; break;
                 case ETrackedDeviceProperty.Prop_SerialNumber_String: text = tracked.serial; break;
@@ -275,10 +307,14 @@ namespace NativeH3VR
             error = ETrackedPropertyError.TrackedProp_Success;
             if (property == ETrackedDeviceProperty.Prop_UserIpdMeters_Float)
             {
+#if NATIVEH3VR_METAL
+                return Vector3.Distance(XRBridge.Metal.EyeOffset(0).position, XRBridge.Metal.EyeOffset(1).position);
+#else
                 Camera camera = Camera.main;
                 if (camera == null) { error = ETrackedPropertyError.TrackedProp_NotYetAvailable; return 0; }
                 return Vector3.Distance(camera.GetStereoViewMatrix(Camera.StereoscopicEye.Left).inverse.GetColumn(3),
                                         camera.GetStereoViewMatrix(Camera.StereoscopicEye.Right).inverse.GetColumn(3));
+#endif
             }
             error = ETrackedPropertyError.TrackedProp_UnknownProperty;
             return 0;
@@ -286,19 +322,36 @@ namespace NativeH3VR
 
         public static void FadeToColor(float seconds, float r, float g, float b, float a, bool background)
         {
+#if NATIVEH3VR_METAL
+            XRBridge.Metal?.FadeTo(new Color(Mathf.Clamp01(r), Mathf.Clamp01(g), Mathf.Clamp01(b), Mathf.Clamp01(a)), seconds, background);
+#else
             throw new NotSupportedException("The Unity XR provider does not expose compositor fade controls.");
+#endif
         }
         public static void FadeGrid(float seconds, bool fadeIn)
         {
+#if NATIVEH3VR_METAL
+            XRBridge.Metal?.FadeGrid(seconds, fadeIn);
+#else
             throw new NotSupportedException("The Unity XR provider does not expose compositor grid controls.");
+#endif
         }
         public static HmdColor_t GetCurrentFadeColor(bool background)
         {
+#if NATIVEH3VR_METAL
+            Color color = XRBridge.Metal?.FadeColor(background) ?? Color.clear;
+            return new HmdColor_t { r = color.r, g = color.g, b = color.b, a = color.a };
+#else
             throw new NotSupportedException("The Unity XR provider does not expose compositor fade state.");
+#endif
         }
         public static float GetCurrentGridAlpha()
         {
+#if NATIVEH3VR_METAL
+            return XRBridge.Metal?.GridAlpha ?? 0;
+#else
             throw new NotSupportedException("The Unity XR provider does not expose compositor grid state.");
+#endif
         }
     }
 }

@@ -44,14 +44,17 @@ var cases = new List<(string Name, Action Run)>
     }),
     ("target Unity version is the experiment version", () => Check(ConversionConfig.TargetVersion == "2021.3.45f2", "wrong target"))
 };
-cases.Add(("player receipt records manifest build and managed hashes without account data", () => {
+cases.Add(("player receipt records manifest build and managed hashes without account data", () =>
+{
     var root = Path.Combine(Path.GetTempPath(), "h3vr-receipt-" + Guid.NewGuid().ToString("N"));
-    try {
+    try
+    {
         var apps = Path.Combine(root, "steamapps"); var game = Path.Combine(apps, "common", "H3VR");
         Directory.CreateDirectory(game);
         File.WriteAllText(Path.Combine(apps, "appmanifest_450540.acf"), "\"AppState\"\n{\n\"appid\" \"450540\"\n\"installdir\" \"H3VR\"\n\"buildid\" \"25002541\"\n\"LastOwner\" \"private\"\n}");
         Throws(() => PlayerReceipt.ValidateSupportedInstallation(game));
-        foreach (var item in new[] { "h3vr.exe", "steam_api64.dll", "h3vr_Data/globalgamemanagers", "h3vr_Data/Managed/Assembly-CSharp.dll", "h3vr_Data/Managed/Assembly-CSharp-firstpass.dll" }) {
+        foreach (var item in new[] { "h3vr.exe", "steam_api64.dll", "h3vr_Data/globalgamemanagers", "h3vr_Data/Managed/Assembly-CSharp.dll", "h3vr_Data/Managed/Assembly-CSharp-firstpass.dll" })
+        {
             var path = Path.Combine(game, item); Directory.CreateDirectory(Path.GetDirectoryName(path)!); File.WriteAllText(path, "synthetic");
         }
         Directory.CreateDirectory(Path.Combine(game, "h3vr_Data/StreamingAssets"));
@@ -70,28 +73,38 @@ cases.Add(("player receipt records manifest build and managed hashes without acc
         Throws(() => PlayerReceipt.SteamBuildId(game));
         File.WriteAllText(Path.Combine(apps, "appmanifest_450540.acf"), "\"appid\" \"450540\"\n\"installdir\" \"H3VR\"\n\"buildid\" \"1\"");
         Throws(() => PlayerReceipt.ValidateSupportedInstallation(game));
-    } finally { if (Directory.Exists(root)) Directory.Delete(root, true); }
-}));
-cases.Add(("shader export rejects upstream exceptions even when HTTP succeeds", () => {
+    }
+    finally { if (Directory.Exists(root)) Directory.Delete(root, true); }
+}
+));
+cases.Add(("shader export rejects upstream exceptions even when HTTP succeeds", () =>
+{
     Check(ShaderRecovery.ExportLogHasException("[stdout] System.IO.FileNotFoundException: missing\n"), "missed exporter exception");
     Check(ShaderRecovery.ExportLogHasException("[stderr] System.TypeInitializationException: failed\n"), "missed initialization exception");
     Check(!ShaderRecovery.ExportLogHasException("[stdout] Export : complete\n"), "rejected clean log");
-}));
-cases.Add(("macOS source staging uses the mod host instead of stock XR feature scripts", () => {
+}
+));
+cases.Add(("macOS source staging uses the mod host instead of stock XR feature scripts", () =>
+{
     var root = Path.Combine(Path.GetTempPath(), "h3vr-staging-" + Guid.NewGuid().ToString("N"));
-    try {
+    try
+    {
         Directory.CreateDirectory(root);
         SourceStaging.Install(Repository.Find(), root, "StandaloneOSX");
         Check(File.Exists(Path.Combine(root, "Assets/H3VRConverter/NativeModHost.cs")), "mod host missing");
         Check(!Directory.Exists(Path.Combine(root, "Assets/H3VRConverter/OpenXR")), "stock XR features staged on macOS");
-    } finally { if (Directory.Exists(root)) Directory.Delete(root, true); }
-}));
-cases.Add(("macOS project and player stages reject external recovery", () => {
+    }
+    finally { if (Directory.Exists(root)) Directory.Delete(root, true); }
+}
+));
+cases.Add(("macOS project and player stages reject external recovery", () =>
+{
     var config = new ConversionConfig { BuildTarget = "StandaloneOSX", RecoveredProject = "/comparison" };
     config.RequireColdRecovery("extract"); config.RequireColdRecovery("managed");
     foreach (var step in new[] { "project", "validate", "build" }) Throws(() => config.RequireColdRecovery(step));
     (config with { RecoveredProject = null }).RequireColdRecovery("build");
-}));
+}
+));
 cases.AddRange(ProjectMigrationTests.Cases());
 cases.AddRange(BundlePlanTests.Cases());
 cases.AddRange(PipelineTests.Cases());

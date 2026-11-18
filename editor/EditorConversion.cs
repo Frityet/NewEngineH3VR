@@ -3,6 +3,8 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Security.Cryptography;
+using System.Text;
 using UnityEditor;
 using UnityEditor.Build.Reporting;
 using UnityEditor.SceneManagement;
@@ -67,9 +69,14 @@ namespace H3VRConverter
                     PlayerSettings.SetManagedStrippingLevel(BuildTargetGroup.Standalone, ManagedStrippingLevel.Disabled);
                     PlayerSettings.SetUseDefaultGraphicsAPIs(target, false);
                     PlayerSettings.SetGraphicsAPIs(target, new[] { GraphicsDeviceType.Metal });
-                    PlayerSettings.companyName = "NativeH3VR";
+                    PlayerSettings.enableFrameTimingStats = true;
+                    string workspaceId;
+                    using (var hash = SHA256.Create())
+                        workspaceId = BitConverter.ToString(hash.ComputeHash(Encoding.UTF8.GetBytes(
+                            Path.GetFullPath(Directory.GetCurrentDirectory())))).Replace("-", "").Substring(0, 16).ToLowerInvariant();
+                    PlayerSettings.companyName = "NativeH3VR-" + workspaceId;
                     PlayerSettings.productName = "NativeH3VR";
-                    PlayerSettings.SetApplicationIdentifier(BuildTargetGroup.Standalone, "local.nativeh3vr.player");
+                    PlayerSettings.SetApplicationIdentifier(BuildTargetGroup.Standalone, "local.nativeh3vr.player." + workspaceId);
                     if (PlayerSettings.GetArchitecture(BuildTargetGroup.Standalone) != 1 ||
                         PlayerSettings.GetScriptingBackend(BuildTargetGroup.Standalone) != ScriptingImplementation.Mono2x ||
                         !PlayerSettings.GetGraphicsAPIs(target).SequenceEqual(new[] { GraphicsDeviceType.Metal }))

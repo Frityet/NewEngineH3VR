@@ -58,6 +58,7 @@ var helpers = new Dictionary<string, TypeDefinition>
     ["CVRChaperoneSetup"] = RequiredType("NativeH3VR.NativeSteamVRSystem"),
 };
 var bootstrap = RequiredType("NativeH3VR.NativeSteamVRBootstrap");
+bool metal = bootstrap.Methods.Any(m => m.Name == "CameraEnabled");
 var changes = new List<object>();
 int blockedNativeImports = 0;
 int forwardedMethods = 0;
@@ -307,6 +308,7 @@ foreach (string name in assemblyNames)
     using var assembly = AssemblyDefinition.ReadAssembly(source,
         new ReaderParameters { ReadWrite = false, AssemblyResolver = resolver });
     var module = assembly.MainModule;
+    if (metal) PatchMetalCameras(module, name);
 
     // SteamVR's force-init path asks Unity to load the OpenVR XR device. That
     // would replace the project's configured OpenXR loader, so force mode is
@@ -392,6 +394,12 @@ foreach (string name in assemblyNames)
             Replace(create, ForwardBody(create, createHelper));
             changes.Add(new { assembly = name, method = create.FullName, kind = "unity-xr-session-bootstrap" });
         }
+        if (metal)
+        {
+            var enabled = steamVr.Methods.Single(m => m.Name == "get_enabled" && m.IsStatic);
+            var field = steamVr.Fields.Single(f => f.Name == "_enabled" && f.IsStatic);
+            Replace(enabled, new[] { Instruction.Create(OpCodes.Ldsfld, field), Instruction.Create(OpCodes.Ret) });
+        }
     }
 
     // The SteamVR renderer performs its own per-eye camera renders and compositor
@@ -462,7 +470,7 @@ foreach (string name in assemblyNames)
 File.Copy(adapterPath, Path.Combine(output, Path.GetFileName(adapterPath)), true);
 var result = new
 {
-    backend = "Unity XR / OpenXR provider",
+    backend = metal ? "Metal / OpenXR" : "Unity XR / OpenXR provider",
     input,
     adapterPath,
     output,
@@ -486,6 +494,80 @@ Console.WriteLine(JsonSerializer.Serialize(new
     explicitUnsupportedMethods = explicitUnsupported
 }));
 return 0;
+
+void PatchMetalCameras(ModuleDefinition module, string assembly)
+{
+    MethodReference Helper(string name) => ImportMethod(bootstrap.Methods.Single(m => m.Name == name), module);
+
+    var camera = module.GetType("Valve.VR.SteamVR_Camera");
+    if (camera != null)
+    {
+        var onEnable = camera.Methods.Single(m => m.Name == "OnEnable" && m.HasBody);
+        var bind = Helper("CameraEnabled");
+        var il = onEnable.Body.GetILProcessor();
+        foreach (var exit in onEnable.Body.Instructions.Where(i => i.OpCode == OpCodes.Ret).ToArray())
+        {
+            // Existing branch targets at ret also need to bind the expanded rig.
+            exit.OpCode = OpCodes.Ldarg_0;
+            var call = il.Create(OpCodes.Call, bind);
+            il.InsertAfter(exit, call);
+            il.InsertAfter(call, il.Create(OpCodes.Ret));
+        }
+        changes.Add(new { assembly, method = onEnable.FullName, kind = "metal-stereo-camera" });
+    }
+    else if (assembly == "NativeH3VR.Game.dll")
+    {
+        throw new InvalidOperationException("The imported game is missing the SteamVR camera rig.");
+    }
+
+    var behaviour = module.GetType("Valve.VR.SteamVR_Behaviour");
+    if (behaviour != null)
+    {
+        var callback = behaviour.Methods.Single(m => m.Name == "OnCameraPreCull" && m.Parameters.Count == 1);
+        var preCull = behaviour.Methods.Single(m => m.Name == "PreCull" && m.Parameters.Count == 0);
+        var first = callback.Body.Instructions[0];
+        var il = callback.Body.GetILProcessor();
+        foreach (var instruction in new[]
+        {
+            il.Create(OpCodes.Ldarg_1), il.Create(OpCodes.Call, Helper("IsEyeCamera")),
+            il.Create(OpCodes.Brfalse, first), il.Create(OpCodes.Ldarg_0),
+            il.Create(OpCodes.Call, preCull), il.Create(OpCodes.Ret),
+        })
+            il.InsertBefore(first, instruction);
+        changes.Add(new { assembly, method = callback.FullName, kind = "metal-eye-input-precull" });
+    }
+
+    var effects = module.GetType("UnityEngine.Rendering.PostProcessing.PostProcessLayer");
+    if (effects != null)
+    {
+        foreach (var method in effects.Methods.Where(m => m.HasBody))
+            foreach (var instruction in method.Body.Instructions)
+                if (instruction.Operand is MethodReference call &&
+                    call.DeclaringType.FullName == "UnityEngine.Camera" && call.Name == "ResetProjectionMatrix")
+                {
+                    instruction.OpCode = OpCodes.Call;
+                    instruction.Operand = Helper("ResetEyeProjection");
+                    changes.Add(new { assembly, method = method.FullName, kind = "preserve-openxr-eye-projection" });
+                }
+    }
+
+    var context = module.GetType("UnityEngine.Rendering.PostProcessing.PostProcessRenderContext");
+    if (context != null)
+    {
+        var temporal = context.Methods.Single(m => m.Name == "IsTemporalAntialiasingActive" && m.Parameters.Count == 0);
+        var getCamera = context.Methods.Single(m => m.Name == "get_camera");
+        var first = temporal.Body.Instructions[0];
+        var il = temporal.Body.GetILProcessor();
+        foreach (var instruction in new[]
+        {
+            il.Create(OpCodes.Ldarg_0), il.Create(OpCodes.Callvirt, getCamera),
+            il.Create(OpCodes.Call, Helper("IsEyeCamera")), il.Create(OpCodes.Brfalse, first),
+            il.Create(OpCodes.Ldc_I4_0), il.Create(OpCodes.Ret),
+        })
+            il.InsertBefore(first, instruction);
+        changes.Add(new { assembly, method = temporal.FullName, kind = "preserve-vr-temporal-antialiasing-policy" });
+    }
+}
 
 static IEnumerable<TypeDefinition> AllTypes(ModuleDefinition module)
 {

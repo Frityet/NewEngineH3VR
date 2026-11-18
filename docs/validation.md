@@ -1,68 +1,61 @@
-# Validation and remaining work
+# Validation and open gates
 
-The C# rewrite targets Unity **2021.3.45f2**. These checks were performed on an
-Apple Silicon Mac. They are distinct from a successful converted game build or
-a headset playtest.
+The macOS candidate targets Unity **2021.3.45f2**, Mono and ARM64 Metal. The
+Unity test scene and native mod-host fixture use independently authored assets.
 
-## Checks performed
+## Verified locally
 
-- The .NET solution builds with warnings treated as errors. Synthetic tests cover
-  path boundaries, copy isolation, serialized script migration, original asset
-  bundle addresses, input fingerprints, workspace locking and publication rules.
-- CLI/TUI checks cover flag parsing, optional JSON precedence, path origins,
-  discovery, generated help, redirected/ANSI terminal handling, cancellation and
-  read-only status/doctor commands. The wizard was also exercised in a real
-  terminal through review and cancellation without creating a workspace.
-- The pinned AssetRipper 2.0.0 C# worker builds against its upstream submodule.
-  A wholly synthetic TextAsset exports successfully, preserving its exact bytes,
-  project version and path-ID map. The same test passes using the verified cache
-  in offline mode. This is a small export test, not a fresh full-game recovery.
-  CI runs it from a checkout without an initialized submodule to test first use.
-- The OpenXR patcher has a synthetic Cecil integration test. Against the local
-  game, it blocks 10 native imports, forwards 47 methods and records 100 methods
-  with explicit unsupported behavior. The migration preserves 30,388 serialized
-  or public field definitions. These are structural checks, not proof that every
-  gameplay path uses a supported API.
-- Post-patch managed verification resolves 1,868 type references, 98,545
-  Unity/compatibility call sites and 14,582 engine field references with zero
-  errors against the pinned editor's managed and Mono reference assemblies.
-- The actual CLI completed extraction-input verification, managed migration and
-  project preparation against a local installation and an existing shader
-  overlay. The project report contains 2,351 script bindings, 292,081 rewritten
-  references and 41 execution-order entries. The bundle plan resolves 4,387
-  original asset addresses across 18 bundles with no unresolved addresses.
-- Unity 2021.3.45f2 compiled the final editor and OpenXR feature sources in an
-  isolated project. OpenXR configuration selected the loader, controller profiles
-  and session-focus feature. This used OpenXR 1.13.0, XR Management 4.4.0,
-  Input System 1.6.3, XR Core Utils 2.1.1 and Legacy Input Helpers 2.1.7.
-- Raw shader recovery extracted 390 serialized Shader objects and produced 277
-  non-dummy shader source files. The exporter can be provisioned from a fresh
-  pinned public source checkout; its local web service was started and checked.
-  This does not establish shader correctness.
-- The relocated native bridge in ValveIndexMacOS passed its synthetic stereo,
-  eye-query, core and action checks. That bridge is separate from this converter's
-  Unity XR provider contract.
+- A fresh Steam extraction of app 450540 build 25002541 completed. The
+  converter retargets the installed managed assemblies and preserves their
+  serialized field layout. A private managed verification run passed with
+  zero unresolved type, method or engine field references.
+- The rebuilt Steam and FMOD shims resolved all 850 inspected CSteamworks and
+  545 FMOD imports by symbol. Steam client authorization, spatial audio and
+  video playback still need stock-player runs.
+- A signed arm64 Unity fixture loaded the MacVR 0.4.0 runtime through the
+  Khronos loader and ran on Apple M5 Max Metal. It acquired focus, read two
+  tracked controller poses, reached the configured 2 m stage bounds and
+  submitted accepted synthetic haptics to both hands. The captured
+  compositor image showed upright markers and 22 px of binocular disparity
+  at 800 × 800 per eye. The measured head height was 1.6 m with 64 mm IPD.
+  Unity resolved its persistent data into the launcher's private state path.
+- The generic native mod host registered an external assembly before the
+  first scene and resolved that assembly's MonoBehaviour in an independently
+  built Atlas scene bundle. Assembly and manifest rejection was checked.
+- The shader exporter recovered 277 raw files from 390 serialized Shader
+  objects in the installed Steam build. A standalone Unity Metal probe
+  evaluated eight representative files. Three reported missing recovered
+  variants, including Alloy Core and two Alloy Unlit variants. The raw
+  output still needs source-to-export identity reconciliation and Unity/Metal
+  variant and material validation. [Shader recovery](shader-recovery.md)
 
-## Not established by these checks
+## Reproduce the Unity fixture
 
-A full new player build, complete scene/prefab import, headset presentation,
-controller interaction, finger tracking, game parity and sustained performance
-have not been established for the rewritten pipeline. The available local
-editor has the macOS build module; the default Windows target needs its own
-installed build module. The old working local player predates this rewrite and
-is not evidence for the new adapter.
+From this checkout, with a built MacVR runtime and a closed, isolated target
+project:
 
-Faithful shader restoration remains the largest fresh-installation gap. Raw
-shader output needs identity matching, semantic review and Unity/graphics
-validation; it is not a validated overlay. See [shader recovery](shader-recovery.md).
-The converter stops on detected dummy shaders, unresolved bundle addresses,
-managed API failures, new missing scripts and shader/compiler errors. Passing
-those checks still does not prove visual or gameplay equivalence.
+```sh
+python3 tests/UnityMetal/smoke.py \
+  --unity-editor "/path/to/Unity.app/Contents/MacOS/Unity" \
+  --openxr-headers "/path/to/MacVR/extern/openxr/include" \
+  --runtime "/path/to/macvr-openxr" --frames 1110 \
+  --work "/path/to/new-metal-smoke"
+```
 
-Unity's stock OpenXR provider does not supply a macOS player backend. A native
-OpenXR runtime alone cannot replace a Unity XR display/input provider or the
-game's other native plugins. See [platform integrations](platform-integrations.md).
+The fixture writes the editor and player logs, the composited stereo image and
+separate Unity and MacVR traces. The capture check verifies both eyes and the
+vertical marker orientation. [Trace analysis command](platform-integrations.md)
 
-All local game assets, managed outputs, reports containing game-derived data,
-and compiled players remain outside the published source tree. CI uses
-synthetic fixtures and does not download or require H3VR.
+## Open gates
+
+The stock player and its production mod bundle still need a compatible,
+identity-matched shader overlay. The next Unity build must preserve original
+scene/script bindings and bundle addresses, verify the assembled app
+signature, and run through Steam authorization and stock startup. Actual
+gameplay, seeded Atlas acceptance and performance on the stock, Facility
+door and Level 0 routes remain open. Physical headset readiness, presentation,
+controller handling and player acceptance require a live session.
+
+Unity 2021.3.45f2 stays selected for this checkpoint. The Metal and external
+mod smoke tests passed there. The stock shader gate currently precedes any
+comparable game trace, so engine comparison is deferred.

@@ -43,6 +43,14 @@ namespace NativeH3VR
             }
         }
 
+#if NATIVEH3VR_METAL
+        public static int Read(out Snapshot snapshot)
+        {
+            if (XRBridge.Metal != null) return XRBridge.Metal.Read(out snapshot);
+            snapshot = default(Snapshot);
+            return -1;
+        }
+#else
         static readonly List<InputDevice> leftDevices = new List<InputDevice>(4);
         static readonly List<InputDevice> rightDevices = new List<InputDevice>(4);
 
@@ -145,13 +153,47 @@ namespace NativeH3VR
                  : role == 3 ? GetDevice(XRNode.RightHand, rightDevices)
                              : default(InputDevice);
         }
+#endif
     }
+
+#if NATIVEH3VR_METAL
+    public interface IMetalOpenXRPlayer
+    {
+        bool Running { get; }
+        bool Focused { get; }
+        uint EyeWidth { get; }
+        uint EyeHeight { get; }
+        string SystemName { get; }
+        Vector4 Fov(int eye);
+        bool StageBounds(out float width, out float depth);
+        XRBridge.Pose EyeOffset(int eye);
+        int Read(out NativeTracking.Snapshot snapshot);
+        bool Haptic(uint role, float amplitude, float frequency, float duration);
+        void BindCamera(Camera camera, Transform origin);
+        void RestoreProjection(Camera camera);
+        bool IsEyeCamera(Camera camera);
+        void Suspend(bool suspend);
+        void FadeTo(Color color, float seconds, bool background);
+        Color FadeColor(bool background);
+        void FadeGrid(float seconds, bool fadeIn);
+        float GridAlpha { get; }
+    }
+#endif
 
     public static class XRBridge
     {
+#if NATIVEH3VR_METAL
+        public static IMetalOpenXRPlayer Metal { get; private set; }
+        public static void Register(IMetalOpenXRPlayer player)
+        {
+            if (player == null || Metal != null) throw new InvalidOperationException("Expected a single Metal OpenXR player.");
+            Metal = player;
+        }
+#else
         public delegate bool OpenXRHapticSender(InputDevice device, float amplitude, float frequency,
                                                 float duration);
         static OpenXRHapticSender openXRHapticSender;
+#endif
 
         public struct Pose
         {
@@ -159,12 +201,27 @@ namespace NativeH3VR
             public Quaternion rotation;
         }
 
+#if NATIVEH3VR_METAL
+        public static bool IsRunning => Metal != null && Metal.Running;
+        public static bool InputFocused => IsRunning && Metal.Focused;
+        public static uint EyeWidth => Metal?.EyeWidth ?? 0;
+        public static uint EyeHeight => Metal?.EyeHeight ?? 0;
+        public static string SystemName => Metal?.SystemName;
+
+        public static int Haptic(uint role, float amplitude, float frequency, float duration)
+        {
+            return InputFocused && Metal.Haptic(role, amplitude, frequency, duration) ? 0 : -1;
+        }
+#else
         public static bool IsRunning
         {
             get { return XRSettings.enabled && XRSettings.isDeviceActive; }
         }
 
         public static bool InputFocused { get { return IsRunning && OpenXRSessionState.InputFocus; } }
+        public static uint EyeWidth => (uint)Mathf.Max(1, XRSettings.eyeTextureWidth);
+        public static uint EyeHeight => (uint)Mathf.Max(1, XRSettings.eyeTextureHeight);
+        public static string SystemName => XRSettings.loadedDeviceName;
 
         public static int Haptic(uint role, float amplitude, float frequency, float duration)
         {
@@ -194,6 +251,7 @@ namespace NativeH3VR
         {
             openXRHapticSender = sender;
         }
+#endif
     }
 
     // Fail closed because Unity's cross-provider XR API reports device validity,

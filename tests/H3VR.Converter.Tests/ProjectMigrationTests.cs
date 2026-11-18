@@ -96,11 +96,12 @@ public static class ProjectMigrationTests
         using var fixture = new Fixture(); Directory.CreateDirectory(fixture.Candidate);
         var bytes = Encoding.UTF8.GetBytes("provider"); File.WriteAllBytes(Path.Combine(fixture.Root, "provider.dll"), bytes);
         var hash = Convert.ToHexStringLower(SHA256.HashData(bytes));
-        var manifest = new { schemaVersion = 1, unityVersion = ConversionConfig.TargetVersion, buildTarget = "StandaloneOSX", xrBackend = "OpenXR", provider = "H3VR.TestProvider", files = new[] { new { source = "provider.dll", destination = "Assets/Plugins/provider.dll", sha256 = hash } } };
+        var entries = Integration.RequiredMetalFiles().Select(destination => new { source = "provider.dll", destination, sha256 = hash });
+        var manifest = new { schemaVersion = 1, unityVersion = ConversionConfig.TargetVersion, buildTarget = "StandaloneOSX", xrBackend = "OpenXR", provider = Integration.MetalBridge, files = entries };
         var manifestPath = Path.Combine(fixture.Root, "integration.json"); File.WriteAllText(manifestPath, JsonSerializer.Serialize(manifest));
         Integration.Apply(manifestPath, fixture.Candidate, "StandaloneOSX");
-        Check(SafeFiles.Hash(Path.Combine(fixture.Candidate, "Assets/Plugins/provider.dll")) == hash, "copies the verified provider bytes");
-        Check(File.ReadAllText(Path.Combine(fixture.Candidate, "ProjectSettings/H3VRProvider.json")).Contains("H3VR.TestProvider", StringComparison.Ordinal), "persists the managed XR loader type for editor configuration");
+        Check(SafeFiles.Hash(Path.Combine(fixture.Candidate, "Assets/Plugins/macOS/libNativeH3VRMetal.dylib")) == hash, "copies the verified provider bytes");
+        Check(File.ReadAllText(Path.Combine(fixture.Candidate, "ProjectSettings/H3VRProvider.json")).Contains(Integration.MetalBridge, StringComparison.Ordinal), "persists the Metal bridge selection for the editor configuration");
         Integration.Apply(manifestPath, fixture.Candidate, "StandaloneOSX");
         var missingProvider = new { schemaVersion = 1, unityVersion = ConversionConfig.TargetVersion, buildTarget = "StandaloneLinux64", xrBackend = "OpenXR", files = new[] { new { source = "provider.dll", destination = "Assets/OpenXRProvider/linux.dll", sha256 = hash } } };
         var missingPath = Path.Combine(fixture.Root, "missing-provider.json"); File.WriteAllText(missingPath, JsonSerializer.Serialize(missingProvider));

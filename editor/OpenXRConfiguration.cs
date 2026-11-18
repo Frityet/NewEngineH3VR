@@ -21,15 +21,23 @@ namespace H3VRConverter
 
         public static void Configure(BuildTarget target)
         {
-            var openXRPackage = UnityEditor.PackageManager.PackageInfo.FindForAssembly(typeof(OpenXRSettings).Assembly);
-            if (openXRPackage == null || openXRPackage.version != "1.13.0")
-                throw new InvalidOperationException("Expected com.unity.xr.openxr 1.13.0. Restore the converter's pinned package manifest.");
             var group = BuildPipeline.GetBuildTargetGroup(target);
             const string stockLoader = "UnityEngine.XR.OpenXR.OpenXRLoader";
             var loader = stockLoader;
             const string providerPath = "ProjectSettings/H3VRProvider.json";
             if (File.Exists(providerPath))
                 loader = JsonUtility.FromJson<ProviderConfiguration>(File.ReadAllText(providerPath)).loader;
+            if (target == BuildTarget.StandaloneOSX)
+            {
+                if (loader != "NativeH3VR.UnityMetal")
+                    throw new InvalidOperationException("StandaloneOSX requires the NativeH3VR.UnityMetal bridge.");
+                // The Metal plug-in owns the only OpenXR instance and session.
+                EditorBuildSettings.RemoveConfigObject(XRGeneralSettings.k_SettingsKey);
+                return;
+            }
+            var openXRPackage = UnityEditor.PackageManager.PackageInfo.FindForAssembly(typeof(OpenXRSettings).Assembly);
+            if (openXRPackage == null || openXRPackage.version != "1.13.0")
+                throw new InvalidOperationException("Expected com.unity.xr.openxr 1.13.0. Restore the converter's pinned package manifest.");
             if (string.IsNullOrWhiteSpace(loader))
                 throw new InvalidOperationException("The platform integration did not specify a Unity XR loader type.");
             if (loader == stockLoader && target != BuildTarget.StandaloneWindows64)

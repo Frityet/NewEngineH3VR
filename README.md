@@ -1,10 +1,10 @@
 # H3VR → Unity 2021
 
-C# tooling for converting your own installed copy of H3VR to **Unity 2021.3.45f2**, the version used by the original experiment. VR goes through **OpenXR and Unity XR**, with no dependency on a particular headset or ValveIndexMacOS.
+Tooling for importing your installed Steam copy of H3VR into a private Unity **2021.3.45f2** project. The Apple Silicon player uses Metal and the generic MacVR OpenXR runtime.
 
 This repository contains conversion tools, compatibility code and tests. It contains no game assemblies, extracted assets, shaders, Unity editor/player binaries, or prebuilt game. All extraction and rebuilding happen in a private workspace on your computer.
 
-**Status:** experimental. Managed migration, project preparation, original bundle address mapping and Unity OpenXR editor configuration have been exercised locally. A fresh game-to-playable-player conversion is **not yet unattended**: faithful shader restoration still needs a locally validated shader overlay. The new OpenXR player has not been playtested. See [validation](docs/validation.md) before assuming gameplay parity.
+**Status.** Cold extraction, managed migration and a synthetic Apple Silicon Metal/OpenXR player have passed. The fresh stock game build still requires an identity-matched, validated shader overlay recovered from the Steam input. See [validation](docs/validation.md).
 
 ## Requirements
 
@@ -14,7 +14,7 @@ This repository contains conversion tools, compatibility code and tests. It cont
 - Git and internet access on first extraction. The converter manages the pinned [AssetRipper 2.0.0](https://github.com/AssetRipper/AssetRipper/releases/tag/2.0.0) dependency and caches its worker.
 - A local, identity-matched shader source overlay, including its original `.meta` files and include files. [Shader recovery tooling and limitations](docs/shader-recovery.md).
 
-Windows x64 / D3D11 is the default player target. Unity's pinned OpenXR provider does not provide a macOS player backend. Other platforms require an explicit compatible Unity XR provider and native game dependencies; an OpenXR runtime alone does not supply those. See [platform integrations](docs/platform-integrations.md).
+Apple Silicon selects the macOS target by default. The supported Steam input is app 450540 build 25002541. Build the local Metal, Steamworks and FMOD integration before generating the player project. The converter also retains the Windows x64 target with Unity OpenXR. [Platform prerequisites and commands](docs/platform-integrations.md)
 
 ## Run
 
@@ -33,6 +33,7 @@ dotnet run --project src/H3VR.Converter -- \
   --game "/path/to/H3VR" \
   --unity "/path/to/Unity/2021.3.45f2" \
   --workspace "/path/to/private-workspace" \
+  --integration "/path/to/private/integration/integration.json" \
   --shaders "/path/to/validated-shader-overlay" \
   --through build
 ```
@@ -51,11 +52,11 @@ dotnet run --project src/H3VR.Converter -- --game "/path/to/H3VR" --through extr
 dotnet run --project src/H3VR.Converter -- recover-shaders --game "/path/to/H3VR" --output "/path/to/raw-shaders"
 ```
 
-`--target` accepts `windows` (default), `macos`, or `linux`; non-Windows project preparation also needs `--integration`. `--recovered /path/to/ExportedProject` reuses an existing recovery. `--cache` changes the tool cache from `~/.cache/h3vr-converter`; `--offline` requires already cached AssetRipper tools and prevents their provisioning. It does not change Unity Package Manager or other .NET restore behavior. `--no-color` and `NO_COLOR` disable ANSI colors. `--tui` requires an interactive terminal.
+`--target macos` makes the Apple Silicon selection explicit. See `--help` for comparison and other conversion targets. `--cache` changes the tool cache from `~/.cache/h3vr-converter`; `--offline` requires already cached AssetRipper tools and prevents their provisioning. It does not change Unity Package Manager or other .NET restore behavior. `--no-color` and `NO_COLOR` disable ANSI colors. `--tui` requires an interactive terminal.
 
 Saved JSON setups remain optional: `init /path/to/settings.json` creates one, and `--config /path/to/settings.json` loads it. Flags override saved values. Flag paths resolve against your current directory; JSON paths resolve against the file's directory. The former `AssetRipperUrl` setting is obsolete and ignored.
 
-The output is `workspace/project` and, after a successful build, `workspace/player`. Logs, migration reports, unsupported VR API reports and SHA-256 receipts stay in that workspace. No upload or game launch is performed. `status` lists recorded stages; repeating the conversion checks input bytes and recorded outputs before resuming. You can extract without Unity, then add `--unity` and `--shaders` later in the same workspace. Settings only affect receipts for stages that use them; changing inputs to an already completed stage requires a new workspace. Use the converter to perform the initial Unity import: it disables Unity's assembly updater because the assemblies are already explicitly retargeted and verified.
+The output is `workspace/project` and, after a successful macOS build, `workspace/player/NativeH3VR.app`. Logs, migration reports, unsupported VR API reports and SHA-256 receipts stay in that workspace. No upload or game launch is performed. `status` lists recorded stages; repeating the conversion checks input bytes and recorded outputs before resuming. You can extract without Unity, then add `--unity` and `--shaders` later in the same workspace. Settings only affect receipts for stages that use them; changing inputs to an already completed stage requires a new workspace. Use the converter to perform the initial Unity import: it disables Unity's assembly updater because the assemblies are already explicitly retargeted and verified.
 
 ## AssetRipper integration
 
@@ -73,7 +74,7 @@ Failed private staging candidates are cleaned automatically. The original recove
 
 - `src/H3VR.Converter`: CLI, safe staging, project/bundle migration and publication checks.
 - `tools`: managed retargeting/verification, OpenXR IL patching, shader export tooling.
-- `runtime`: managed Unity API compatibility and the Unity XR adapter.
+- `runtime` contains managed Unity API compatibility, the Metal OpenXR plug-in, platform adapters and the optional native mod bootstrap.
 - `editor`: project validation, OpenXR settings and bundle/player building.
 - `tests`: small synthetic fixtures; no copy of the game is required.
 
@@ -89,7 +90,7 @@ The optional direct-export integration check generates a tiny synthetic Unity as
 dotnet run --project tools/AssetRipper.Worker.Tests -c Release
 ```
 
-Native macOS runtime/driver work is maintained in [ValveIndexMacOS](https://github.com/Frityet/ValveIndexMacOS). This converter calls Unity XR APIs, not that repository's private bridge API. [OpenXR behavior and limits](docs/openxr.md).
+The macOS bridge uses the packaged [MacVR runtime](https://github.com/Frityet/MacVR) through standard OpenXR. [OpenXR behavior and limits](docs/openxr.md)
 
 Before publishing, stage only authored sources and run:
 

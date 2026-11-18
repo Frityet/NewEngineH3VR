@@ -51,8 +51,33 @@ namespace NativeH3VR
             Set(typeof(SteamVR), instance, "hmd", Interface<CVRSystem>());
             Set(typeof(SteamVR), instance, "compositor", Interface<CVRCompositor>());
             Set(typeof(SteamVR), instance, "overlay", Interface<CVROverlay>());
-            Set(typeof(SteamVR), instance, "sceneWidth", (float)XRSettings.eyeTextureWidth);
-            Set(typeof(SteamVR), instance, "sceneHeight", (float)XRSettings.eyeTextureHeight);
+            Set(typeof(SteamVR), instance, "sceneWidth", (float)XRBridge.EyeWidth);
+            Set(typeof(SteamVR), instance, "sceneHeight", (float)XRBridge.EyeHeight);
+#if NATIVEH3VR_METAL
+            Vector4 leftFov = XRBridge.Metal.Fov(0);
+            Vector4 rightFov = XRBridge.Metal.Fov(1);
+            float halfX = Mathf.Max(-Mathf.Tan(leftFov.x), Mathf.Tan(leftFov.y),
+                                    -Mathf.Tan(rightFov.x), Mathf.Tan(rightFov.y));
+            float halfY = Mathf.Max(Mathf.Tan(leftFov.z), -Mathf.Tan(leftFov.w),
+                                    Mathf.Tan(rightFov.z), -Mathf.Tan(rightFov.w));
+            Set(typeof(SteamVR), instance, "tanHalfFov", new Vector2(halfX, halfY));
+            Set(typeof(SteamVR), instance, "aspect", halfY > 0 ? halfX / halfY : 1);
+            Set(typeof(SteamVR), instance, "fieldOfView", 2 * Mathf.Atan(halfY) * Mathf.Rad2Deg);
+            Set(typeof(SteamVR), instance, "textureBounds", new[]
+            {
+                new VRTextureBounds_t { uMax = 1, vMax = 1 },
+                new VRTextureBounds_t { uMax = 1, vMax = 1 }
+            });
+            var offsets = new SteamVR_Utils.RigidTransform[2];
+            for (int eye = 0; eye < offsets.Length; eye++)
+            {
+                XRBridge.Pose offset = XRBridge.Metal.EyeOffset(eye);
+                offsets[eye] = new SteamVR_Utils.RigidTransform(offset.position, offset.rotation);
+            }
+            Set(typeof(SteamVR), instance, "eyes", offsets);
+            instance.textureType = ETextureType.Metal;
+#endif
+            NativeSteamVRInput.Synthetic = Environment.GetEnvironmentVariable("VR_OPENXR_SIMULATE") == "1";
             string manifest = ResolveActionManifest();
             EVRInputError inputError = NativeSteamVRInput.SetActionManifestPath(manifest);
             if (inputError != EVRInputError.None)
@@ -64,14 +89,32 @@ namespace NativeH3VR
             NativeSteamVRSystem.Running = true;
             SteamVR.initializedState = SteamVR.InitializedStates.InitializeSuccess;
             SteamVR_Events.Initialized.Send(true);
-            Debug.Log("H3VR_STEAMVR_ADAPTER backend=UnityXR provider=" + XRSettings.loadedDeviceName);
+            Debug.Log("H3VR_STEAMVR_ADAPTER system=" + XRBridge.SystemName);
             return instance;
         }
 
         public static string ResolveLegacyHeadsetModel(string engineModel)
         {
-            return XRBridge.IsRunning ? XRSettings.loadedDeviceName : engineModel;
+            return XRBridge.IsRunning ? XRBridge.SystemName : engineModel;
         }
+
+#if NATIVEH3VR_METAL
+        public static void CameraEnabled(SteamVR_Camera camera)
+        {
+            if (XRBridge.Metal == null || camera == null) return;
+            Transform origin = camera.head != null ? camera.origin : camera.transform.parent;
+            if (origin == null) throw new InvalidOperationException("SteamVR camera has no tracking origin.");
+            XRBridge.Metal.BindCamera(camera.GetComponent<Camera>(), origin);
+        }
+
+        public static void ResetEyeProjection(Camera camera)
+        {
+            if (XRBridge.Metal != null) XRBridge.Metal.RestoreProjection(camera);
+            else camera.ResetProjectionMatrix();
+        }
+
+        public static bool IsEyeCamera(Camera camera) => XRBridge.Metal?.IsEyeCamera(camera) == true;
+#endif
 
         static string ResolveActionManifest()
         {

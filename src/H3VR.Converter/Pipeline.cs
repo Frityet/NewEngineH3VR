@@ -293,6 +293,13 @@ public sealed class Pipeline(string repository, ConversionConfig config)
                 await Processes.Run("lipo", ["-archs", Path.Combine(output, "Contents/MacOS", executable)], repository, architectureLog, cancellation);
                 if (File.ReadAllText(architectureLog).Trim() != "arm64")
                     throw new InvalidDataException("Player executable is not a thin Apple Silicon build; inspect " + architectureLog);
+                var libraries = Directory.GetFiles(Path.Combine(output, "Contents"), "*.dylib", SearchOption.AllDirectories);
+                var libraryNames = libraries.Select(Path.GetFileName).ToHashSet(StringComparer.Ordinal);
+                foreach (var expected in Integration.RequiredMetalFiles().Where(path => path.EndsWith(".dylib", StringComparison.Ordinal)))
+                    if (!libraryNames.Contains(Path.GetFileName(expected)))
+                        throw new InvalidDataException("The built player is missing its native plug-in " + Path.GetFileName(expected));
+                foreach (var library in libraries)
+                    await Processes.Run("lipo", ["-verify_arch", "arm64", library], repository, cancellation: cancellation);
                 await Processes.Run("codesign", ["--force", "--deep", "--sign", "-", output], repository, cancellation: cancellation);
                 await Processes.Run("codesign", ["--verify", "--deep", "--strict", output], repository, cancellation: cancellation);
             }

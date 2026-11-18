@@ -45,5 +45,16 @@
 !/tests/**/*.cs
 !/tests/**/*.csproj
 !/docs/**/*.md
+!/runtime/UnityMetal/MetalOpenXR.h
+!/runtime/UnityMetal/MetalOpenXR.mm
+!/runtime/UnityMetal/*.py
+!/tests/UnityMetal/*.py
+!/runtime/Platform/README.md
+!/runtime/Platform/Steam/legacy_api.cpp
+!/runtime/Platform/Fmod/bridge.cpp
+!/runtime/Platform/Fmod/fmod-output.cpp
+!/tools/PlatformPatch/build-native.py
+!/tools/ShaderExporter/link-exports.py
 **/bin/
 **/obj/
+**/__pycache__/

@@ -1,30 +1,75 @@
-# OpenXR platform integrations
+# Native macOS integration
 
-The stock conversion target is `StandaloneWindows64`, using Unity 2021.3.45f2 and OpenXR package 1.13.0. Unity's [OpenXR supported runtime list](https://docs.unity3d.com/Packages/com.unity.xr.openxr@1.13/manual/index.html) does not include a macOS player provider. A working native OpenXR runtime and a Unity XR provider are separate components.
+Apple Silicon conversion targets Unity **2021.3.45f2**, the Mono scripting
+backend and Metal. The host creates one OpenXR session in its ARM64 Metal
+plug-in. It reads tracking and actions and submits the two eye images through
+the Khronos loader. Unity's OpenXR 1.13 package supports the converter's Windows
+target. The macOS target uses the Metal plug-in. [Unity's runtime matrix](https://docs.unity3d.com/Packages/com.unity.xr.openxr@1.13/manual/index.html#runtimes) · [OpenXR Metal specification](https://registry.khronos.org/OpenXR/specs/1.1/html/xrspec.html#XR_KHR_metal_enable)
 
-On other targets, supply `IntegrationManifest` in the conversion configuration. The manifest is local, outside the public repository. It must match the exact Unity version and build target, declare `XrBackend: "OpenXR"`, and list every supplied file with a SHA-256 digest. `Provider` names the fully qualified managed Unity XR loader type. The loader must register with XR Plug-in Management's metadata store. The converter selects that loader instead of the stock OpenXR loader.
+## Prepare the local integration
 
-```json
-{
-  "SchemaVersion": 1,
-  "UnityVersion": "2021.3.45f2",
-  "BuildTarget": "StandaloneOSX",
-  "XrBackend": "OpenXR",
-  "Provider": "YourProvider.OpenXRLoader",
-  "Files": [
-    {
-      "Source": "provider/YourProvider.dll",
-      "Destination": "Assets/OpenXRProvider/YourProvider.dll",
-      "Sha256": "REPLACE_WITH_THE_ACTUAL_64_HEX_DIGEST"
-    }
-  ]
-}
+Use the OpenXR headers from the same MacVR source revision as the runtime
+package. Install Python 3.11 or later, Xcode command line tools and the Unity
+2021.3.45f2 Apple Silicon editor with Mac Standalone Support. Supply the
+[CSteamworks and FMOD inputs](../runtime/Platform/README.md) locally.
+
+Run these commands from the NativeH3VR checkout with new private paths.
+
+```sh
+python3 tools/PlatformPatch/build-native.py \
+  --csteamworks "/path/to/CSteamworks" \
+  --steam-api "/path/to/Steam Helper.app/Contents/MacOS/libsteam_api.dylib" \
+  --fmod-sdk "/path/to/fmod-sdk-2.03.15" \
+  --output "/path/to/private/platform"
+
+python3 runtime/UnityMetal/build.py \
+  --unity-editor "/path/to/Unity.app/Contents/MacOS/Unity" \
+  --openxr-headers "/path/to/MacVR/extern/openxr/include" \
+  --platform "/path/to/private/platform" \
+  --output "/path/to/private/integration"
 ```
 
-Paths are relative to the manifest directory; destination files are limited to `Assets/Plugins` and `Assets/OpenXRProvider`. Parent traversal, symlinks, hash mismatches and overwriting a different existing file are rejected. Include required Unity `.meta`/assembly definition files in the manifest. These files remain private build inputs.
+Pass `--integration /path/to/private/integration/integration.json` to the
+converter. The manifest binds each authored source and local plug-in to the
+exact target and a SHA-256 digest. The Unity editor selects the Metal backend
+and uses its runtime initialization to attach the game camera after rig
+expansion. The converter includes a generic mod host that discovers private
+mod manifests under `Contents/Resources/NativeMods`.
 
-A provider must implement stereo display, pose/input subsystems and OpenXR session lifecycle. The managed game adapter expects floor/stage-relative headset and controller poses, standard Unity `CommonUsages`, haptics, and reliable device availability. Providers using the stock OpenXR feature system receive the included session-focus feature; a custom provider must forward actual session focus changes to `NativeH3VR.OpenXRSessionState.SetInputFocus`. It must clear focus on loss or teardown. Focus must never be inferred merely from a connected headset.
+The macOS editor stage requires the pinned editor and its native player module.
+Use a fresh private project with that project closed before running batch
+conversion. The built player is ad-hoc signed locally. Its receipt records
+Steam build and extraction identities, Unity version, architecture, executable
+and managed DLL hashes.
 
-Platform support also requires replacements for the game's native Steam, FMOD, video and optional peripheral dependencies. The manifest mechanism stages supplied integrations; it does not implement or certify them. Windows plugins are copied from the user's installation only for Windows builds, with platform-restricted Unity import settings. OpenVR's native DLL is excluded.
+## Launch an imported player
 
-The macOS compatibility work moved to ValveIndexMacOS under `integrations/h3vr`, with the reusable native bridge/tests under `integrations/unity/openxr`. That legacy bridge owns an OpenXR session and is not a Unity XR display/input provider; it is not selected by this converter.
+Build a MacVR export with `xmake openxr-export --output=/absolute/new/path`.
+The launcher verifies the runtime files and the signed app, selects the runtime
+with a process-local `XR_RUNTIME_JSON`, and directs Unity preferences and saves
+into the supplied state directory. It passes the real H3VR app ID to Steam.
+The Steam libraries still perform their own initialization and ownership
+operations.
+
+```sh
+python3 runtime/UnityMetal/run.py \
+  --app "/path/to/private-workspace/player/NativeH3VR.app" \
+  --runtime "/path/to/macvr-openxr" \
+  --state-dir "/path/to/private-state" \
+  --synthetic --log-file "/path/to/new-player.log"
+```
+
+Use `--headset` for a physical session. For synthetic timing, supply
+`--trace-file` and `--unity-profile-file` with fresh paths, and keep
+`NATIVEH3VR_EYE_WIDTH`, `NATIVEH3VR_EYE_HEIGHT` and `VR_OPENXR_TARGET_HZ` fixed
+across runs. The profiler joins Unity rows to MacVR by predicted display time.
+
+```sh
+python3 runtime/UnityMetal/profile.py \
+  --unity "/path/to/unity.csv" --openxr "/path/to/macvr.csv" \
+  --warmup-seconds 2 --window-seconds 10
+```
+
+Use `--unity-frames START END` for an inclusive range of known scene frames.
+Unsupported Unity recorder counters appear as missing data. MacVR completion
+records report GPU completion. Physical scanout requires separate evidence.
