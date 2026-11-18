@@ -5,6 +5,7 @@ using System.IO;
 using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.RegularExpressions;
 using UnityEditor;
 using UnityEditor.Build.Reporting;
 using UnityEditor.SceneManagement;
@@ -31,6 +32,9 @@ namespace H3VRConverter
             public int originalMissingScripts;
             public int newMissingScripts;
             public int shaderErrors;
+            public int computeShaderErrors;
+            public string graphicsAPI;
+            public string graphicsDevice;
             public string player;
         }
 
@@ -45,7 +49,13 @@ namespace H3VRConverter
 
         private static void Execute(bool build)
         {
-            var report = new Report { unityVersion = Application.unityVersion, target = EditorUserBuildSettings.activeBuildTarget.ToString() };
+            var report = new Report
+            {
+                unityVersion = Application.unityVersion,
+                target = EditorUserBuildSettings.activeBuildTarget.ToString(),
+                graphicsAPI = SystemInfo.graphicsDeviceType.ToString(),
+                graphicsDevice = SystemInfo.graphicsDeviceName,
+            };
             var errors = new List<string>();
             try
             {
@@ -106,6 +116,8 @@ namespace H3VRConverter
                     var shader = AssetDatabase.LoadAssetAtPath<Shader>(path);
                     if (shader == null || ShaderUtil.ShaderHasError(shader)) { report.shaderErrors++; errors.Add("Shader failed to import or compile: " + path); }
                 }
+                if (target == BuildTarget.StandaloneOSX)
+                    CheckMetalComputeShaders(report, errors);
                 var plan = Argument("-h3vrBundlePlan");
                 BundleConversion.Validate(plan);
                 if (build && errors.Count == 0)
@@ -125,6 +137,43 @@ namespace H3VRConverter
             File.WriteAllText(Argument("-h3vrReport"), JsonUtility.ToJson(report, true));
             foreach (var error in errors) Debug.LogError(error);
             EditorApplication.Exit(report.passed ? 0 : 1);
+        }
+
+        private static void CheckMetalComputeShaders(Report report, List<string> errors)
+        {
+            if (SystemInfo.graphicsDeviceType != GraphicsDeviceType.Metal)
+                throw new InvalidOperationException("Compute validation needs an active Metal device.");
+            foreach (var guid in AssetDatabase.FindAssets("t:ComputeShader", new[] { "Assets" }))
+            {
+                var path = AssetDatabase.GUIDToAssetPath(guid);
+                var shader = AssetDatabase.LoadAssetAtPath<ComputeShader>(path);
+                string issue = null;
+                if (shader == null)
+                    issue = "Compute shader failed to import";
+                else if (path.EndsWith(".asset", StringComparison.OrdinalIgnoreCase) && IsDirect3DOnlyCompute(path))
+                    issue = "Serialized Direct3D compute program requires a Steam-derived Metal source replacement";
+                else if (ShaderUtil.GetComputeShaderMessages(shader).Any(message =>
+                         message.severity == UnityEditor.Rendering.ShaderCompilerMessageSeverity.Error))
+                    issue = "Compute shader failed to compile";
+                else if (path.EndsWith(".compute", StringComparison.OrdinalIgnoreCase))
+                {
+                    var kernels = Regex.Matches(File.ReadAllText(path), @"(?m)^\s*#pragma\s+kernel\s+(\w+)")
+                        .Cast<Match>().Select(match => match.Groups[1].Value).ToArray();
+                    if (kernels.Length == 0 || kernels.Any(kernel => !shader.HasKernel(kernel)))
+                        issue = "Declared compute kernels are unavailable on Metal";
+                }
+                if (issue == null) continue;
+                report.computeShaderErrors++;
+                errors.Add(issue + ": " + path);
+            }
+        }
+
+        private static bool IsDirect3DOnlyCompute(string path)
+        {
+            var contents = File.ReadAllText(path);
+            var renderers = Regex.Matches(contents, @"(?m)^\s*-\s*targetRenderer:\s*(\d+)\s*$");
+            return renderers.Count > 0 && renderers.Cast<Match>().All(row => row.Groups[1].Value == "2") &&
+                   Regex.IsMatch(contents, @"(?im)^\s*code:\s*44584243");
         }
 
         private static void CheckScripts(GameObject root, string asset, Dictionary<string, int> baseline, Report report, List<string> errors)

@@ -272,13 +272,16 @@ public sealed class Pipeline(string repository, ConversionConfig config)
         var bundleOutput = Path.Combine(config.Workspace, "bundles-" + Guid.NewGuid().ToString("N"));
         // Cecil migration and verification replace Unity's heuristic assembly updater.
         // The latter cannot safely choose among several deprecated Unity 5 overloads.
-        await Processes.Run(config.UnityEditor, ["-batchmode", "-disable-assembly-updater", "-projectPath", config.Project, "-buildTarget", config.BuildTarget, "-executeMethod", build ? "H3VRConverter.EditorConversion.Build" : "H3VRConverter.EditorConversion.Validate", "-logFile", logfile, "-h3vrReport", report, "-h3vrOutput", output, "-h3vrBundlePlan", Path.Combine(Receipts, "bundle-plan.json"), "-h3vrBundleOutput", bundleOutput], repository, cancellation: cancellation);
+        string[] editorArguments = ["-batchmode", "-disable-assembly-updater", "-projectPath", config.Project, "-buildTarget", config.BuildTarget, "-executeMethod", build ? "H3VRConverter.EditorConversion.Build" : "H3VRConverter.EditorConversion.Validate", "-logFile", logfile, "-h3vrReport", report, "-h3vrOutput", output, "-h3vrBundlePlan", Path.Combine(Receipts, "bundle-plan.json"), "-h3vrBundleOutput", bundleOutput];
+        if (config.BuildTarget == "StandaloneOSX") editorArguments = [.. editorArguments, "-force-metal"];
+        await Processes.Run(config.UnityEditor, editorArguments, repository, cancellation: cancellation);
         if (!File.Exists(report)) throw new InvalidDataException("Unity did not produce the expected report. Inspect " + logfile);
         using var document = JsonDocument.Parse(File.ReadAllText(report));
         if (!document.RootElement.GetProperty("passed").GetBoolean()) throw new InvalidDataException("Unity validation failed: " + report);
         if (Regex.IsMatch(File.ReadAllText(logfile), @"(?im)^.*(?:error CS\d+|Shader error|Compute shader error|Build completed with a result of 'Failed'|Unable to update following assemblies)"))
             throw new InvalidDataException("Compiler failures were found in " + logfile);
-        RefreshEditorSettingsReceipt();
+        var shaderUpgrades = Path.Combine(Receipts, run + "-shader-upgrades.json");
+        RefreshEditorSettingsReceipt(logfile, shaderUpgrades);
         if (build)
         {
             if (!File.Exists(output) && !Directory.Exists(output)) throw new InvalidDataException("Unity reported success without creating the player.");
@@ -305,9 +308,9 @@ public sealed class Pipeline(string repository, ConversionConfig config)
             }
             if (Directory.Exists(bundleOutput)) Directory.Delete(bundleOutput, true);
             return BuildOutputFiles(Path.Combine(config.Workspace, "player"), Path.Combine(config.Project, "Assets/StreamingAssets"))
-                .Concat([report, logfile]).ToList();
+                .Concat([report, logfile, shaderUpgrades]).ToList();
         }
-        return [report, logfile];
+        return [report, logfile, shaderUpgrades];
     }
 
     /// <summary>Inventory the player and the rebuilt bundle artifacts that Unity emits into the project.</summary>
@@ -330,7 +333,7 @@ public sealed class Pipeline(string repository, ConversionConfig config)
         return diagnosticPath;
     }
 
-    private void RefreshEditorSettingsReceipt()
+    private void RefreshEditorSettingsReceipt(string logfile, string shaderUpgrades)
     {
         // Only an accepted Unity run may refresh settings that Unity serializes on
         // import. Unrecorded external changes are checked before launching the editor.
@@ -341,6 +344,30 @@ public sealed class Pipeline(string repository, ConversionConfig config)
         foreach (var key in files.Keys.Where(p => roots.Any(r => SafeFiles.Contains(r, p))).ToArray()) files.Remove(key);
         foreach (var root in roots.Where(Directory.Exists))
             foreach (var file in SafeFiles.Files(root)) files[file] = SafeFiles.Hash(file);
+        var upgrades = ImportShaderUpgrades(config.Project, files, File.ReadLines(logfile));
+        SafeFiles.AtomicJson(shaderUpgrades, upgrades);
         SafeFiles.AtomicJson(path, receipt with { Files = files });
+    }
+
+    internal sealed record ShaderUpgrade(string Path, string Before, string After);
+
+    internal static IReadOnlyList<ShaderUpgrade> ImportShaderUpgrades(
+        string project, Dictionary<string, string> files, IEnumerable<string> log)
+    {
+        const string prefix = "Upgraded shader: Assets/";
+        var result = new List<ShaderUpgrade>();
+        foreach (var line in log.Where(line => line.StartsWith(prefix, StringComparison.Ordinal)).Distinct(StringComparer.Ordinal))
+        {
+            var relative = line["Upgraded shader: ".Length..].TrimEnd();
+            var path = SafeFiles.Inside(project, relative);
+            if (!SafeFiles.Contains(Path.Combine(project, "Assets"), path) || !relative.EndsWith(".shader", StringComparison.OrdinalIgnoreCase) ||
+                !files.TryGetValue(path, out var before) || !File.Exists(path) || new FileInfo(path).LinkTarget is not null)
+                continue;
+            var after = SafeFiles.Hash(path);
+            if (before == after) continue;
+            files[path] = after;
+            result.Add(new ShaderUpgrade(relative, before, after));
+        }
+        return result;
     }
 }

@@ -38,12 +38,10 @@ Input manifest schema 2 records each source file's SHA-256, the serialized bundl
 entry index (null for a standalone assets file), each Shader's signed path ID,
 and the hash of the shader-only copy. Together these identify the original
 serialized objects in the same local Steam input; a bundle entry index is scoped
-to that exact source hash. They do not identify which exported shader file came
-from each object. The current AssetRipper exports omit that link. Exact matching
-also needs both exporters to record object-to-export GUID/path relationships;
-names alone are ambiguous and are not sufficient to select an overlay. Even an
-exact identity match would still need shader semantic, Unity/Metal and visual
-validation.
+to that exact source hash. The two export identity manifests associate the
+original objects with exported paths and the recovered project GUIDs. An exact
+identity match establishes provenance. Shader semantics, Metal compilation and
+visual behavior are checked separately.
 The schema 2 recovery receipt hashes that input manifest, the exporter executable,
 every exported shader and, when available, the verified tool manifest (which
 includes the pinned source commit, patch and cached file hashes). It also records
@@ -92,6 +90,11 @@ sources with the original project GUIDs and a correspondence receipt. Use the
 candidate to measure import, shader and material failures. The rendering
 gate still requires compiling and exercising the original reachable variants
 on Metal.
+
+The raw exporter covers Unity `Shader` objects. Steam build `25002541` also
+contains eleven serialized `ComputeShader` objects with 22 Direct3D kernels.
+Unity's Metal validation checks for these Windows-only programs and for
+compiler errors or missing entry points in recovered compute sources.
 
 The receipt intentionally labels the result `raw-export-unvalidated`. Passing
 this raw export to the converter as `ShaderSources` is not supported. In

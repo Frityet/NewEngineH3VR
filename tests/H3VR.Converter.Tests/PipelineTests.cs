@@ -18,6 +18,35 @@ public static class PipelineTests
         yield return ("build receipt tracks generated StreamingAssets bundle bytes", BuildReceiptTracksBundles);
         yield return ("failed bundle plan remains inspectable after candidate cleanup", FailedBundlePlanSurvivesCleanup);
         yield return ("cold extraction receipt tracks provenance maps", ColdReceiptTracksMaps);
+        yield return ("successful editor receipt records named shader upgrades and keeps other hashes", ShaderUpgradeReceipt);
+    }
+
+    private static void ShaderUpgradeReceipt()
+    {
+        using var fixture = new Fixture();
+        var project = Path.Combine(fixture.Workspace, "project");
+        var assets = Path.Combine(project, "Assets");
+        Directory.CreateDirectory(assets);
+        var tracked = Path.Combine(assets, "Fixture Shader.shader");
+        var unlogged = Path.Combine(assets, "Unlogged.shader");
+        var unrelated = Path.Combine(assets, "Unrelated.txt");
+        foreach (var file in new[] { tracked, unlogged, unrelated }) File.WriteAllText(file, "old");
+        var files = new[] { tracked, unlogged, unrelated }.ToDictionary(file => file, SafeFiles.Hash);
+        var previous = files[tracked];
+        foreach (var file in files.Keys) File.WriteAllText(file, "new");
+
+        var rows = Pipeline.ImportShaderUpgrades(project, files,
+        [
+            "Upgraded shader: Assets/Fixture Shader.shader",
+            "Upgraded shader: Assets/Fixture Shader.shader",
+            "Upgraded shader: Assets/Unrelated.txt",
+            "Upgraded shader: Packages/Anything.shader",
+        ]);
+        var row = rows.Single();
+        Check(row.Path == "Assets/Fixture Shader.shader" && row.Before == previous && row.After == SafeFiles.Hash(tracked),
+            "the editor receipt omitted the actual shader upgrade");
+        Check(files[tracked] == row.After && files[unlogged] == previous && files[unrelated] == previous,
+            "an unlogged shader or unrelated file was treated as an editor upgrade");
     }
 
     private static void ColdReceiptTracksMaps()

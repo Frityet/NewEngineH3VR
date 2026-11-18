@@ -8,7 +8,8 @@ Unity test scene and native mod-host fixture use independently authored assets.
 - A fresh Steam extraction of app 450540 build 25002541 completed. The
   converter retargets the installed managed assemblies and preserves their
   serialized field layout. A private managed verification run passed with
-  zero unresolved type, method or engine field references.
+  zero unresolved type, method or engine field references. Project migration
+  resolved 4,387 original asset-bundle addresses across 18 bundles.
 - The rebuilt Steam and FMOD shims resolved all 850 inspected CSteamworks and
   545 FMOD imports by symbol. Steam client authorization, spatial audio and
   video playback still need stock-player runs.
@@ -23,11 +24,12 @@ Unity test scene and native mod-host fixture use independently authored assets.
   first scene and resolved that assembly's MonoBehaviour in an independently
   built Atlas scene bundle. Assembly and manifest rejection was checked.
 - The shader exporter recovered 277 raw files from 390 serialized Shader
-  objects in the installed Steam build. A standalone Unity Metal probe
-  evaluated eight representative files. Three reported missing recovered
-  variants, including Alloy Core and two Alloy Unlit variants. The raw
-  output still needs source-to-export identity reconciliation and Unity/Metal
-  variant and material validation. [Shader recovery](shader-recovery.md)
+  objects in the installed Steam build. All 277 exported files match their
+  original serialized identities and recovered project GUIDs. An eight-file
+  Unity Metal probe identified missing variants in three Alloy files. Those
+  three passed the same probe after adjusting mutually exclusive keyword
+  groups according to the original programs. Full material and scene
+  validation remains pending. [Shader recovery](shader-recovery.md)
 
 ## Reproduce the Unity fixture
 
@@ -49,7 +51,10 @@ vertical marker orientation. [Trace analysis command](platform-integrations.md)
 ## Open gates
 
 The stock player and its production mod bundle still need a compatible,
-identity-matched shader overlay. The next Unity build must preserve original
+identity-matched shader overlay. That includes eleven Direct3D-only compute
+assets whose 22 original kernels need compatible Metal programs. A successful
+Unity validation reports the Metal device and records any shader changes
+applied by Unity's source upgrader. The next Unity build must preserve original
 scene/script bindings and bundle addresses, verify the assembled app
 signature, and run through Steam authorization and stock startup. Actual
 gameplay, seeded Atlas acceptance and performance on the stock, Facility
