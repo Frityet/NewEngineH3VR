@@ -117,6 +117,14 @@ program body, and the receipt records each include's hash. On macOS the
 project stage verifies this receipt against the extraction and checks that
 every original graphics shader and generated include is present.
 
+The same link command writes `shader-variant-domains.json` for pass groups
+whose original Direct3D programs match every generated guard. The receipt
+seals the catalog. When Unity builds macOS bundles or the player, the Metal
+preprocessor compares requested keywords and platform defines with those
+original rows. It removes combinations absent from every verified domain for
+the matched pass group. Source guards still surface combinations the catalog
+cannot prove. [Unity shader preprocessing](https://docs.unity3d.com/2021.3/Documentation/ScriptReference/Build.IPreprocessShaders.OnProcessShader.html)
+
 When a material enables several keywords from one group, Unity can choose a
 closest variant. Matching Unity 5.6's visual choice requires a rendering
 comparison. [Unity shader keywords](https://docs.unity3d.com/cn/2021.3/Manual/shader-keywords-scripts.html)
