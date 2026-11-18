@@ -58,7 +58,15 @@ vertical marker orientation. [Trace analysis command](platform-integrations.md)
 The stock player and its production mod bundle still need complete validation
 of the identity-matched shader overlay. A successful Unity validation reports
 the Metal device and records any shader changes applied by Unity's source
-upgrader. The next Unity build must preserve original
+upgrader. The first cold validation loaded 46 scenes and inspected 8,293
+prefabs. It recorded 41 shader asset failures. The compiler diagnostics include
+missing variant guards, undeclared resource bindings, a dropped texture gather,
+and malformed texture loads. The same run found 16 missing EventSystem components
+across eight scenes. A targeted Unity retest confirmed all 16 bindings through
+the original file IDs. The same retest imported the 11 translated compute
+assets with their original GUIDs and found all 22 kernels on Metal.
+
+The next Unity build must preserve original
 scene/script bindings and bundle addresses, verify the assembled app
 signature, and run through Steam authorization and stock startup. Actual
 gameplay, seeded Atlas acceptance and performance on the stock, Facility
