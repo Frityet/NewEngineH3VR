@@ -174,6 +174,7 @@ public sealed class Pipeline(string repository, ConversionConfig config)
             await Processes.Run("dotnet", ["build", Path.Combine(repository, "runtime/Compatibility/Compatibility.csproj"), "-c", "Release", "-o", compat, "-p:UnityEngineAssemblies=" + config.EngineAssemblies], repository, cancellation: cancellation);
             var retargeted = Path.Combine(candidate, "retargeted");
             await Processes.Run("dotnet", ["run", "--project", Path.Combine(repository, "tools/ManagedRetarget"), "-c", "Release", "--", config.ManagedInput, retargeted, config.EngineAssemblies, Path.Combine(compat, "NativeH3VR.Compat.dll")], repository, cancellation: cancellation);
+            if (config.BuildTarget == "StandaloneOSX") await ApplyMacPlatform(retargeted, candidate, cancellation);
             await VerifyManaged(retargeted, cancellation);
             var adapter = Path.Combine(candidate, "adapter");
             var adapterArgs = new List<string> { "build", Path.Combine(repository, "runtime/OpenXR/NativeH3VR.OpenXR.csproj"), "-c", "Release", "-o", adapter, "-p:UnityEngineAssemblies=" + config.EngineAssemblies, "-p:GameManaged=" + retargeted };
@@ -190,6 +191,29 @@ public sealed class Pipeline(string repository, ConversionConfig config)
 
     private Task VerifyManaged(string output, CancellationToken cancellation) => Processes.Run("dotnet", ["run", "--project", Path.Combine(repository, "tools/ManagedVerify"), "-c", "Release", "--", output, config.EngineAssemblies, Path.Combine(config.UnityData, "MonoBleedingEdge/lib/mono/4.7.1-api")], repository, cancellation: cancellation);
 
+    private async Task ApplyMacPlatform(string managed, string candidate, CancellationToken cancellation)
+    {
+        var scratch = Path.Combine(candidate, "platform"); Directory.CreateDirectory(scratch);
+        var patches = Path.Combine(repository, "tools/PlatformPatch");
+        var first = Path.Combine(managed, "NativeH3VR.FirstPass.dll");
+        var steam = Path.Combine(scratch, "steam.dll"); var fmod = Path.Combine(scratch, "NativeH3VR.FirstPass.dll");
+        await Processes.Run("dotnet", ["run", "--project", Path.Combine(patches, "Steam"), "-c", "Release", "--", first, steam], repository, cancellation: cancellation);
+        await Processes.Run("dotnet", ["run", "--project", Path.Combine(patches, "Fmod"), "-c", "Release", "--", steam, fmod], repository, cancellation: cancellation);
+        File.Move(fmod, first, true);
+        var game = Path.Combine(managed, "NativeH3VR.Game.dll");
+        var unity = Path.Combine(config.UnityData, "PlaybackEngines/MacStandaloneSupport/Variations/mono/Managed");
+        if (!Directory.Exists(unity)) throw new InvalidDataException("Install Unity's macOS standalone Mono player module: " + unity);
+        var prepared = Path.Combine(scratch, "prepared/NativeH3VR.Game.dll");
+        var backendDir = Path.Combine(scratch, "backend"); var backend = Path.Combine(backendDir, "NativeH3VR.Platform.dll");
+        var video = Path.Combine(patches, "Video");
+        await Processes.Run("dotnet", ["run", "--project", video, "-c", "Release", "--", "prepare", game, prepared, "-", unity, managed], repository, cancellation: cancellation);
+        await Processes.Run("dotnet", ["build", Path.Combine(repository, "runtime/Platform/Video/NativeH3VR.Platform.csproj"), "-c", "Release", "-o", backendDir, "-p:UnityManaged=" + unity, "-p:GameManaged=" + prepared], repository, cancellation: cancellation);
+        var intermediate = Path.Combine(scratch, "video-intermediate.dll"); var final = Path.Combine(scratch, "NativeH3VR.Game.dll");
+        await Processes.Run("dotnet", ["run", "--project", video, "-c", "Release", "--", "finish", prepared, intermediate, backend, unity, managed], repository, cancellation: cancellation);
+        await Processes.Run("dotnet", ["run", "--project", video, "-c", "Release", "--", "normalize-self", intermediate, final, "-", unity, managed], repository, cancellation: cancellation);
+        File.Move(final, game, true); File.Copy(backend, Path.Combine(managed, "NativeH3VR.Platform.dll"));
+    }
+
     private List<string> Prepare()
     {
         if (Directory.Exists(config.Project)) throw new IOException("Unrecorded project exists. Inspect it before using a fresh workspace.");
@@ -200,7 +224,7 @@ public sealed class Pipeline(string repository, ConversionConfig config)
             var report = new ProjectMigration(config, candidate).Run();
             LocalAssets.Stage(config, candidate);
             AssetBaseline.Capture(candidate);
-            SourceStaging.Install(repository, candidate);
+            SourceStaging.Install(repository, candidate, config.BuildTarget);
             if (config.IntegrationManifest is not null) Integration.Apply(config.IntegrationManifest, candidate, config.BuildTarget);
             var temporaryPlan = Path.Combine(candidate, "bundle-plan.json");
             var bundleReport = BundlePlan.Create(Path.Combine(config.GameData, "StreamingAssets"), candidate, temporaryPlan);
@@ -251,10 +275,14 @@ public sealed class Pipeline(string repository, ConversionConfig config)
             if (config.BuildTarget == "StandaloneOSX")
             {
                 if (!OperatingSystem.IsMacOS()) throw new PlatformNotSupportedException("The macOS player must be signed and verified on macOS.");
-                var playerReceipt = PlayerReceipt.Write(output, config.GameDirectory);
+                var playerReceipt = PlayerReceipt.Write(output, config.GameDirectory, Path.Combine(Receipts, "extract.json"));
                 using var playerMetadata = JsonDocument.Parse(File.ReadAllText(playerReceipt));
                 var executable = playerMetadata.RootElement.GetProperty("playerExecutable").GetString()!;
                 await Processes.Run("lipo", ["-verify_arch", "arm64", Path.Combine(output, "Contents/MacOS", executable)], repository, cancellation: cancellation);
+                var architectureLog = Path.Combine(Receipts, "player-architectures.txt");
+                await Processes.Run("lipo", ["-archs", Path.Combine(output, "Contents/MacOS", executable)], repository, architectureLog, cancellation);
+                if (File.ReadAllText(architectureLog).Trim() != "arm64")
+                    throw new InvalidDataException("Player executable is not a thin Apple Silicon build; inspect " + architectureLog);
                 await Processes.Run("codesign", ["--force", "--deep", "--sign", "-", output], repository, cancellation: cancellation);
                 await Processes.Run("codesign", ["--verify", "--deep", "--strict", output], repository, cancellation: cancellation);
             }

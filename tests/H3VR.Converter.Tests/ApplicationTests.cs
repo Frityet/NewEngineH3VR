@@ -149,7 +149,7 @@ public static class ApplicationTests
             GameDirectory = game,
             UnityEditor = "",
             Workspace = Path.Combine(temp.Root, "workspace"),
-            BuildTarget = "StandaloneOSX"
+            BuildTarget = "StandaloneWindows64"
         };
         var repository = Path.Combine(temp.Root, "repository"); Directory.CreateDirectory(repository);
         config.Validate(repository, "extract");

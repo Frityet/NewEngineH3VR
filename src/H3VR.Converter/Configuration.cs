@@ -14,7 +14,7 @@ public sealed record ConversionConfig
     public string? ToolCacheDirectory { get; init; }
     public bool Offline { get; init; }
     public string? IntegrationManifest { get; init; }
-    public string BuildTarget { get; init; } = "StandaloneWindows64";
+    public string BuildTarget { get; init; } = OperatingSystem.IsMacOS() && System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture == System.Runtime.InteropServices.Architecture.Arm64 ? "StandaloneOSX" : "StandaloneWindows64";
 
     public static readonly JsonSerializerOptions Json = new() { WriteIndented = true, PropertyNameCaseInsensitive = true };
     public static ConversionConfig Load(string file)
@@ -75,6 +75,7 @@ public sealed record ConversionConfig
         if (string.IsNullOrWhiteSpace(Workspace)) throw new InvalidDataException("Set --workspace to an empty directory outside the checkout.");
         if (!File.Exists(Path.Combine(ManagedInput, "Assembly-CSharp.dll")))
             throw new InvalidDataException("Set --game to your installed H3VR folder containing h3vr_Data/Managed/Assembly-CSharp.dll, or use --tui.");
+        if (BuildTarget == "StandaloneOSX") PlayerReceipt.ValidateSupportedInstallation(GameDirectory);
         if (through != "extract" && (!File.Exists(UnityEditor) || !File.Exists(Path.Combine(EngineAssemblies, "UnityEngine.CoreModule.dll"))))
             throw new InvalidDataException("Set --unity to the Unity 2021.3.45f2 editor executable or installation folder, or use --tui.");
         foreach (var input in new[] { GameDirectory, string.IsNullOrEmpty(UnityEditor) ? null : UnityData, repository, RecoveredProject, ShaderSources }.OfType<string>())

@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>netstandard2.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <AssemblyName>NativeH3VR.Platform</AssemblyName>
+  </PropertyGroup>
+  <Target Name="RequireLocalInputs" BeforeTargets="ResolveReferences" Condition="'$(UnityManaged)'=='' or '$(GameManaged)'==''">
+    <Error Text="Set UnityManaged and GameManaged to locally supplied Unity player modules and the prepared game assembly." />
+  </Target>
+  <ItemGroup>
+    <Reference Include="NativeH3VR.Game">
+      <HintPath>$(GameManaged)</HintPath>
+    </Reference>
+    <Reference Include="UnityEngine.CoreModule">
+      <HintPath>$(UnityManaged)/UnityEngine.CoreModule.dll</HintPath>
+    </Reference>
+    <Reference Include="UnityEngine.AudioModule">
+      <HintPath>$(UnityManaged)/UnityEngine.AudioModule.dll</HintPath>
+    </Reference>
+    <Reference Include="UnityEngine.VideoModule">
+      <HintPath>$(UnityManaged)/UnityEngine.VideoModule.dll</HintPath>
+    </Reference>
+  </ItemGroup>
+</Project>

@@ -50,22 +50,41 @@ cases.Add(("player receipt records manifest build and managed hashes without acc
         var apps = Path.Combine(root, "steamapps"); var game = Path.Combine(apps, "common", "H3VR");
         Directory.CreateDirectory(game);
         File.WriteAllText(Path.Combine(apps, "appmanifest_450540.acf"), "\"AppState\"\n{\n\"appid\" \"450540\"\n\"installdir\" \"H3VR\"\n\"buildid\" \"25002541\"\n\"LastOwner\" \"private\"\n}");
+        Throws(() => PlayerReceipt.ValidateSupportedInstallation(game));
+        foreach (var item in new[] { "h3vr.exe", "steam_api64.dll", "h3vr_Data/globalgamemanagers", "h3vr_Data/Managed/Assembly-CSharp.dll", "h3vr_Data/Managed/Assembly-CSharp-firstpass.dll" }) {
+            var path = Path.Combine(game, item); Directory.CreateDirectory(Path.GetDirectoryName(path)!); File.WriteAllText(path, "synthetic");
+        }
+        Directory.CreateDirectory(Path.Combine(game, "h3vr_Data/StreamingAssets"));
+        PlayerReceipt.ValidateSupportedInstallation(game);
         var app = Path.Combine(root, "Player.app", "Contents");
         Directory.CreateDirectory(Path.Combine(app, "MacOS"));
         Directory.CreateDirectory(Path.Combine(app, "Resources", "Data", "Managed"));
         File.WriteAllText(Path.Combine(app, "Info.plist"), "<plist><dict><key>CFBundleExecutable</key><string>Player</string></dict></plist>");
         File.WriteAllText(Path.Combine(app, "MacOS", "Player"), "executable");
         var dll = Path.Combine(app, "Resources", "Data", "Managed", "NativeH3VR.Game.dll"); File.WriteAllText(dll, "synthetic");
-        var receipt = File.ReadAllText(PlayerReceipt.Write(Path.GetDirectoryName(app)!, game));
-        Check(receipt.Contains("25002541") && receipt.Contains(SafeFiles.Hash(dll)) && !receipt.Contains("private"), "receipt lacks identity/hash or leaks account data");
+        var extract = Path.Combine(root, "extract.json");
+        SafeFiles.AtomicJson(extract, new StepReceipt("extract", new string('a', 64), DateTimeOffset.UtcNow, new()));
+        var receipt = File.ReadAllText(PlayerReceipt.Write(Path.GetDirectoryName(app)!, game, extract));
+        Check(receipt.Contains("25002541") && receipt.Contains(SafeFiles.Hash(dll)) && receipt.Contains(new string('a', 64)) && !receipt.Contains("private"), "receipt lacks identity/hash or leaks account data");
         File.WriteAllText(Path.Combine(apps, "appmanifest_450540.acf"), "\"appid\" \"999\"\n\"installdir\" \"H3VR\"\n\"buildid\" \"1\"");
         Throws(() => PlayerReceipt.SteamBuildId(game));
+        File.WriteAllText(Path.Combine(apps, "appmanifest_450540.acf"), "\"appid\" \"450540\"\n\"installdir\" \"H3VR\"\n\"buildid\" \"1\"");
+        Throws(() => PlayerReceipt.ValidateSupportedInstallation(game));
     } finally { if (Directory.Exists(root)) Directory.Delete(root, true); }
 }));
 cases.Add(("shader export rejects upstream exceptions even when HTTP succeeds", () => {
     Check(ShaderRecovery.ExportLogHasException("[stdout] System.IO.FileNotFoundException: missing\n"), "missed exporter exception");
     Check(ShaderRecovery.ExportLogHasException("[stderr] System.TypeInitializationException: failed\n"), "missed initialization exception");
     Check(!ShaderRecovery.ExportLogHasException("[stdout] Export : complete\n"), "rejected clean log");
+}));
+cases.Add(("macOS source staging uses the mod host instead of stock XR feature scripts", () => {
+    var root = Path.Combine(Path.GetTempPath(), "h3vr-staging-" + Guid.NewGuid().ToString("N"));
+    try {
+        Directory.CreateDirectory(root);
+        SourceStaging.Install(Repository.Find(), root, "StandaloneOSX");
+        Check(File.Exists(Path.Combine(root, "Assets/H3VRConverter/NativeModHost.cs")), "mod host missing");
+        Check(!Directory.Exists(Path.Combine(root, "Assets/H3VRConverter/OpenXR")), "stock XR features staged on macOS");
+    } finally { if (Directory.Exists(root)) Directory.Delete(root, true); }
 }));
 cases.AddRange(ProjectMigrationTests.Cases());
 cases.AddRange(BundlePlanTests.Cases());

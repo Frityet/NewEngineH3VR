@@ -7,6 +7,21 @@ namespace H3VR.Converter;
 /// <summary>Records only local build metadata; never copies the Steam manifest or account fields.</summary>
 internal static class PlayerReceipt
 {
+    internal static void ValidateSupportedInstallation(string game)
+    {
+        var build = SteamBuildId(game);
+        if (build != "25002541") throw new InvalidDataException("Unsupported Steam H3VR build " + build + "; the macOS importer currently targets build 25002541.");
+        foreach (var relative in new[] { "h3vr.exe", "steam_api64.dll", "h3vr_Data/globalgamemanagers", "h3vr_Data/Managed/Assembly-CSharp.dll", "h3vr_Data/Managed/Assembly-CSharp-firstpass.dll" })
+        {
+            var path = Path.Combine(game, relative);
+            if (!File.Exists(path) || new FileInfo(path).Length == 0) throw new InvalidDataException("Required Steam game input is missing or empty: " + relative);
+            using var stream = File.OpenRead(path);
+            _ = stream.ReadByte();
+        }
+        if (!Directory.Exists(Path.Combine(game, "h3vr_Data/StreamingAssets")))
+            throw new InvalidDataException("Required Steam game input is missing: h3vr_Data/StreamingAssets");
+    }
+
     internal static string SteamBuildId(string game)
     {
         var common = Directory.GetParent(Path.GetFullPath(game));
@@ -29,8 +44,9 @@ internal static class PlayerReceipt
         return build;
     }
 
-    internal static string Write(string app, string game)
+    internal static string Write(string app, string game, string extractionReceipt)
     {
+        ValidateSupportedInstallation(game);
         var contents = Path.Combine(app, "Contents");
         var plist = XDocument.Load(Path.Combine(contents, "Info.plist"));
         var key = plist.Descendants("key").FirstOrDefault(x => x.Value == "CFBundleExecutable");
@@ -39,10 +55,14 @@ internal static class PlayerReceipt
             throw new InvalidDataException("Player executable missing or invalid in Info.plist.");
         var managed = Path.Combine(contents, "Resources", "Data", "Managed");
         if (!Directory.Exists(managed)) throw new InvalidDataException("Player managed assemblies directory is missing.");
-        var assemblies = Directory.GetFiles(managed, "*.dll").Order(StringComparer.Ordinal).ToDictionary(Path.GetFileName, SafeFiles.Hash);
+        var assemblies = Directory.GetFiles(managed, "*.dll").Order(StringComparer.Ordinal).ToDictionary(path => Path.GetFileName(path)!, SafeFiles.Hash);
         if (!assemblies.ContainsKey("NativeH3VR.Game.dll")) throw new InvalidDataException("Player is missing the retargeted NativeH3VR.Game.dll.");
         var path = Path.Combine(contents, "Resources", "nativeh3vr-build.json");
-        SafeFiles.AtomicJson(path, new { schemaVersion = 1, unityVersion = ConversionConfig.TargetVersion, buildTarget = "StandaloneOSX", architecture = "arm64", playerExecutable = executable, managedAssemblies = assemblies, steamBuildId = SteamBuildId(game) });
+        var extract = JsonSerializer.Deserialize<StepReceipt>(File.ReadAllText(extractionReceipt), ConversionConfig.Json)
+            ?? throw new InvalidDataException("Extraction receipt is empty.");
+        if (extract.Step != "extract" || !Regex.IsMatch(extract.Fingerprint, "^[0-9a-f]{64}$"))
+            throw new InvalidDataException("Extraction receipt does not have a valid extract fingerprint.");
+        SafeFiles.AtomicJson(path, new { schemaVersion = 1, unityVersion = ConversionConfig.TargetVersion, buildTarget = "StandaloneOSX", architecture = "arm64", playerExecutable = executable, managedAssemblies = assemblies, steamBuildId = SteamBuildId(game), extractionFingerprint = extract.Fingerprint });
         return path;
     }
 }

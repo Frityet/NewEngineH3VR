@@ -62,7 +62,9 @@ namespace H3VRConverter
                 {
                     // Unity 2021.3 documents architecture 1 as ARM64.
                     PlayerSettings.SetArchitecture(BuildTargetGroup.Standalone, 1);
+                    EditorUserBuildSettings.SetPlatformSettings("Standalone", "OSXUniversal", "Architecture", "ARM64");
                     PlayerSettings.SetScriptingBackend(BuildTargetGroup.Standalone, ScriptingImplementation.Mono2x);
+                    PlayerSettings.SetManagedStrippingLevel(BuildTargetGroup.Standalone, ManagedStrippingLevel.Disabled);
                     PlayerSettings.SetUseDefaultGraphicsAPIs(target, false);
                     PlayerSettings.SetGraphicsAPIs(target, new[] { GraphicsDeviceType.Metal });
                     PlayerSettings.companyName = "NativeH3VR";
