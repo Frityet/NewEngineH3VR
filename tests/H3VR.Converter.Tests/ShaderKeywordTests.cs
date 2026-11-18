@@ -14,6 +14,7 @@ internal static class ShaderKeywordTests
         yield return ("a generated variant guard must assign each declared keyword once", CompleteGuard);
         yield return ("split shaders preserve each program guard and keep entry point directives in ShaderLab", SplitPrograms);
         yield return ("verified instancing variants rebind only the recognized engine layout", InstancingBindings);
+        yield return ("shader catalog requires every original pass with the same callback key", CompleteVariantGroups);
     }
 
     private static void ExactProduct()
@@ -68,6 +69,22 @@ internal static class ShaderKeywordTests
         Check(!KeywordRepair.TryReadGuard("defined(A)", positions, out _));
         Check(!KeywordRepair.TryReadGuard("defined(A) && !defined(A)", positions, out _));
         Check(!KeywordRepair.TryReadGuard("defined(A) && defined(B) && defined(C)", positions, out _));
+    }
+
+    private static void CompleteVariantGroups()
+    {
+        var first = ShaderVariantCatalog.FromRows(0, 0, ["DIRECTIONAL", "FOG_EXP2"], ["DIRECTIONAL"], [3, 1]);
+        var second = ShaderVariantCatalog.FromRows(1, 0, ["POINT", "SHADOWS_CUBE"], ["POINT"], [1]);
+        var original = new ShaderVariantCatalog.Pass("FORWARDBASE", "FORWARD", first);
+        var inherited = new ShaderVariantCatalog.Pass("FORWARDBASE", "FORWARD", second);
+        var additive = new ShaderVariantCatalog.Pass("FORWARDADD", "FORWARD", second);
+        var complete = ShaderVariantCatalog.CompleteGroups([original, inherited, additive]);
+        Check(complete.Length == 2 && complete[0].Domains.SequenceEqual([first, second]));
+        Check(first.Fixed.SequenceEqual(["DIRECTIONAL"]) && first.Rows.SequenceEqual(["1", "3"]));
+        var partial = ShaderVariantCatalog.CompleteGroups([original, inherited with { Domain = null }, additive]);
+        Check(partial.Length == 1 && partial[0].LightMode == "FORWARDADD");
+        Check(ShaderVariantCatalog.NormalizeMode(" ForwardBase ") == "FORWARDBASE");
+        Check(ShaderVariantCatalog.NormalizeMode("CustomPipeline") is null);
     }
 
     private static void SplitPrograms()

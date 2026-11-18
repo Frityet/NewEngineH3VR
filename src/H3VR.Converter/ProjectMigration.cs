@@ -300,8 +300,8 @@ public sealed class ProjectMigration(ConversionConfig config, string candidate)
         var shaders = SafeFiles.Files(sourceAssets).Where(p => p.EndsWith(".shader", StringComparison.OrdinalIgnoreCase)).ToArray();
         var includes = SafeFiles.Files(sourceAssets).Where(GraphicsShaderOverlay.IsInclude).ToArray();
         if (shaders.Length == 0) throw new InvalidDataException("ShaderSources must contain a local Assets-shaped overlay with shader files.");
-        if (config.BuildTarget == "StandaloneOSX")
-            GraphicsShaderOverlay.Verify(config, overlayRoot, sourceAssets, shaders, includes);
+        var variantCatalog = config.BuildTarget == "StandaloneOSX"
+            ? GraphicsShaderOverlay.Verify(config, overlayRoot, sourceAssets, shaders, includes) : null;
         foreach (var source in shaders)
         {
             var bytes = File.ReadAllBytes(source); var content = Encoding.UTF8.GetString(bytes);
@@ -339,6 +339,13 @@ public sealed class ProjectMigration(ConversionConfig config, string candidate)
                 if (!File.Exists(SafeFiles.Inside(root, include.Groups[1].Value))) throw new InvalidDataException("Shader overlay is missing an include: " + include.Groups[1].Value);
         }
         computeGuids = ComputeShaderOverlay.Stage(config, sourceAssets, assets);
+        if (variantCatalog is { } catalog)
+        {
+            var destination = SafeFiles.Inside(root, $"{SourceStaging.EditorAssets}/{SourceStaging.ShaderVariantCatalogName}");
+            SafeFiles.Copy(catalog.Path, destination);
+            if (SafeFiles.Hash(destination) != catalog.Sha256)
+                throw new IOException("Shader variant catalog changed while copying.");
+        }
         return $"{shaders.Length} source shaders, {includes.Length} includes and {computeGuids.Count} translated compute shaders";
     }
 

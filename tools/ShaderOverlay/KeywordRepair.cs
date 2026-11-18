@@ -15,8 +15,10 @@ internal sealed partial class KeywordRepair : IDisposable
 
     internal sealed record PassRepair(string Name, int PassIndex, int VariantCount, ShaderKeywordPlan Keywords,
         ShaderProgramSplitter.Include[] Includes, InstancingBindingRepair.Audit? InstancingBindings);
+    internal sealed record Result(PassRepair[] Repairs, ShaderVariantCatalog.Group[] Groups);
     private sealed record Edit(int Start, int End, string Replacement, PassRepair Repair);
     private sealed record ProgramKeywords(int Kind, HashSet<string> Keywords);
+    private sealed record OriginalPass(AssetTypeValueField Data, int SubshaderIndex, int PassIndex);
 
     public KeywordRepair(string path, string classDatabase)
     {
@@ -31,6 +33,9 @@ internal sealed partial class KeywordRepair : IDisposable
     [GeneratedRegex("(?m)^[\\t ]*Name[\\t ]+\"([^\"]+)\"[\\t ]*$")]
     private static partial Regex PassNames();
 
+    [GeneratedRegex(@"""LightMode""[ \t]*=[ \t]*""([^""]*)""", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    private static partial Regex PassModes();
+
     [GeneratedRegex(@"(?m)^[ \t]*Pass[ \t]*\{[ \t]*\r?$")]
     private static partial Regex PassStarts();
 
@@ -40,31 +45,41 @@ internal sealed partial class KeywordRepair : IDisposable
     [GeneratedRegex(@"(?m)^[ \t]*#(if|ifdef|ifndef|elif|else|endif)\b([^\r\n]*)")]
     private static partial Regex ConditionalDirectives();
 
-    public PassRepair[] Repair(string path, long pathId, string overlay, string guid)
+    public Result Repair(string path, long pathId, string overlay, string guid)
     {
         var source = File.ReadAllText(path, Utf8);
-        if (!source.Contains("#pragma shader_feature __ ", StringComparison.Ordinal)) return [];
+        if (!source.Contains("#pragma shader_feature __ ", StringComparison.Ordinal)) return new([], []);
         var locations = PassStarts().Matches(source);
         var info = original.file.GetAssetInfo(pathId) ?? throw new InvalidDataException($"Missing original shader object {pathId}.");
         var asset = manager.GetBaseField(original, info);
         var parsed = asset["m_ParsedForm"];
         var platform = List(asset["platforms"]).FindIndex(platform => platform.AsUInt == 4);
-        if (parsed.IsDummy || platform < 0) return [];
+        if (parsed.IsDummy || platform < 0) return new([], []);
 
-        var originalPasses = List(parsed["m_SubShaders"]).SelectMany(subShader => List(subShader["m_Passes"]))
-            .Where(pass => pass["m_Type"].AsInt == 0).ToArray();
-        if (originalPasses.Length != locations.Count) return [];
+        var allPasses = List(parsed["m_SubShaders"]).SelectMany((subShader, subshaderIndex) =>
+            List(subShader["m_Passes"]).Select((pass, passIndex) => new OriginalPass(pass, subshaderIndex, passIndex))).ToArray();
+        var originalPasses = allPasses.Where(pass => pass.Data["m_Type"].AsInt == 0).ToArray();
+        if (originalPasses.Length != locations.Count) return new([], []);
+        // GrabPass adds no normal program. UsePass and unknown pass types can
+        // introduce an inherited pass with the same callback identity.
+        bool completePassIdentities = allPasses.All(pass => pass.Data["m_Type"].AsInt is 0 or 2);
         var programs = DecodePrograms(asset, platform);
         var edits = new List<Edit>();
+        var domains = new List<ShaderVariantCatalog.Pass>();
         for (var index = 0; index < locations.Count; index++)
         {
             var match = locations[index];
             var limit = index + 1 < locations.Count ? locations[index + 1].Index : source.Length;
-            var edit = Plan(source, index, match.Index + match.Length, limit, originalPasses[index], programs, overlay, guid);
+            var originalPass = originalPasses[index];
+            var lightMode = ReadLightMode(originalPass.Data);
+            var edit = Plan(source, index, match.Index + match.Length, limit, originalPass, programs, overlay, guid, lightMode, out var domain);
             if (edit is not null) edits.Add(edit);
+            if (lightMode is null) completePassIdentities = false;
+            else domains.Add(new(lightMode, originalPass.Data["m_State"]["m_Name"].AsString.Trim().ToUpperInvariant(), domain));
         }
 
-        if (edits.Count == 0) return [];
+        var groups = completePassIdentities ? ShaderVariantCatalog.CompleteGroups(domains) : [];
+        if (edits.Count == 0) return new([], groups);
         using var stream = File.CreateText(path);
         var head = 0;
         foreach (var edit in edits)
@@ -74,12 +89,27 @@ internal sealed partial class KeywordRepair : IDisposable
             head = edit.End;
         }
         stream.Write(source.AsSpan(head));
-        return edits.Select(edit => edit.Repair).ToArray();
+        return new(edits.Select(edit => edit.Repair).ToArray(), groups);
     }
 
-    private static Edit? Plan(string source, int index, int start, int end, AssetTypeValueField pass,
-        ProgramKeywords[] programs, string overlay, string guid)
+    private static string? ReadLightMode(AssetTypeValueField pass)
     {
+        var tags = pass["m_State"]["m_Tags"]["tags"];
+        if (tags.IsDummy) return null;
+        var modes = List(tags).Where(tag => tag["first"].AsString.Equals("LightMode", StringComparison.OrdinalIgnoreCase)).ToArray();
+        return modes.Length switch
+        {
+            0 => "ALWAYS",
+            1 => ShaderVariantCatalog.NormalizeMode(modes[0]["second"].AsString),
+            _ => null
+        };
+    }
+
+    private static Edit? Plan(string source, int index, int start, int end, OriginalPass originalPass,
+        ProgramKeywords[] programs, string overlay, string guid, string? lightMode, out ShaderVariantCatalog.Domain? domain)
+    {
+        domain = null;
+        var pass = originalPass.Data;
         var header = ProgramHeaders().Match(source, start, end - start);
         if (!header.Success) return null;
         var name = pass["m_State"]["m_Name"].AsString;
@@ -98,6 +128,12 @@ internal sealed partial class KeywordRepair : IDisposable
         if (paired is null || !paired.ToHashSet().SetEquals(guarded.Branches.Select(branch => branch.Mask))) return null;
 
         var plan = ShaderKeywordPlan.Create(names, paired);
+        var modes = PassModes().Matches(source[start..header.Index]);
+        var rawMode = modes.Count == 0 ? "ALWAYS" : modes.Count == 1 ? ShaderVariantCatalog.NormalizeMode(modes[0].Groups[1].Value) : null;
+        if (rawMode is not null && rawMode == lightMode && new[] { "progGeometry", "progHull", "progDomain" }
+            .All(stage => List(pass[stage]["m_SubPrograms"]).Count == 0))
+            domain = ShaderVariantCatalog.FromRows(originalPass.SubshaderIndex, originalPass.PassIndex, names,
+                plan.ChangesDeclarations ? plan.Fixed : [], paired);
         var directives = plan.ChangesDeclarations ? string.Join("\n", plan.Directives()) + "\n" : declarations.Value;
         var bindingRepair = InstancingBindingRepair.Rewrite(source, header.Index + header.Length, guarded, positions);
         var splitSource = bindingRepair?.Source ?? source;

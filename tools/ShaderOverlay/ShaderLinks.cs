@@ -160,6 +160,7 @@ internal static class ShaderLinks
         try
         {
             var fixes = new List<Patch>();
+            var shaderDomains = new List<ShaderVariantCatalog.Shader>();
             var classDatabaseHash = classDatabase is null ? null : SafeFiles.Hash(classDatabase);
             foreach (var group in matches.GroupBy(match => match.Original.Copy, StringComparer.Ordinal))
             {
@@ -175,8 +176,10 @@ internal static class ShaderLinks
                     Receipt.Verify(outputPath + ".meta", match.MetaHash);
                     if (keywords is null) continue;
                     var patched = keywords.Repair(outputPath, match.Target.PathId, candidate, match.Target.Guid);
-                    if (patched.Length != 0)
-                        fixes.Add(new(match.Target.ExportPath, match.RawHash, SafeFiles.Hash(outputPath), patched));
+                    if (patched.Repairs.Length != 0)
+                        fixes.Add(new(match.Target.ExportPath, match.RawHash, SafeFiles.Hash(outputPath), patched.Repairs));
+                    if (patched.Groups.Length != 0)
+                        shaderDomains.Add(new(match.Target.ExportPath, match.Target.Guid, patched.Groups));
                 }
             }
             var metadata = JsonNode.Parse(Receipt.Serialize(report))!.AsObject();
@@ -185,6 +188,9 @@ internal static class ShaderLinks
             {
                 Receipt.Verify(classDatabase, classDatabaseHash!);
                 metadata["typeTreeDatabaseSha256"] = classDatabaseHash;
+                var catalog = Path.Combine(candidate, SourceStaging.ShaderVariantCatalogName);
+                Receipt.WriteNew(catalog, new ShaderVariantCatalog.Catalog(1, shaderDomains.ToArray()));
+                metadata["shaderVariantCatalogSha256"] = SafeFiles.Hash(catalog);
             }
             Receipt.WriteNew(Path.Combine(candidate, "shader-overlay-candidate.json"), metadata);
             Directory.Move(candidate, output);

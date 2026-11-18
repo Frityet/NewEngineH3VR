@@ -11,12 +11,12 @@ internal static class GraphicsShaderOverlay
     private sealed record Pass(Include[]? Includes);
     private sealed record Include(string Path, string Sha256);
     private sealed record Receipt(int SchemaVersion, string ValidationState, string ExtractionFingerprint,
-        Link[] Links, string[] UnmappedProjectPaths, Repair[] KeywordRepairs);
+        Link[] Links, string[] UnmappedProjectPaths, Repair[] KeywordRepairs, string? ShaderVariantCatalogSha256);
 
     internal static bool IsInclude(string path) =>
         Path.GetExtension(path).ToLowerInvariant() is ".cginc" or ".hlsl" or ".glslinc";
 
-    internal static void Verify(ConversionConfig config, string overlayRoot, string overlayAssets,
+    internal static (string Path, string Sha256)? Verify(ConversionConfig config, string overlayRoot, string overlayAssets,
         string[] shaders, string[] includes)
     {
         var receipt = Read<Receipt>(Path.Combine(overlayRoot, ReceiptName));
@@ -63,6 +63,19 @@ internal static class GraphicsShaderOverlay
             throw new InvalidDataException("Graphics shader overlay contains unrecorded shaders or includes.");
         if (originals.Count != 0)
             throw new InvalidDataException("Graphics shader overlay is missing original shaders from this extraction.");
+
+        var catalog = SafeFiles.Inside(overlayRoot, SourceStaging.ShaderVariantCatalogName);
+        var catalogFile = new FileInfo(catalog);
+        if (receipt.ShaderVariantCatalogSha256 is null)
+        {
+            if (catalogFile.Exists || Directory.Exists(catalog) || catalogFile.LinkTarget is not null)
+                throw new InvalidDataException("Graphics shader overlay has an unrecorded variant catalog.");
+            return null;
+        }
+        if (!catalogFile.Exists || catalogFile.LinkTarget is not null)
+            throw new InvalidDataException("Graphics shader variant catalog is missing or linked.");
+        RequireHash(catalog, receipt.ShaderVariantCatalogSha256);
+        return (catalog, receipt.ShaderVariantCatalogSha256);
     }
 
     private static string Consume(string assets, string relative, HashSet<string> expected)

@@ -3,6 +3,7 @@ using Mono.Cecil;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 
 namespace H3VR.Converter.Tests;
 
@@ -121,14 +122,29 @@ public static class ProjectMigrationTests
         var assets = Path.Combine(fixture.Shaders, "Assets");
         var shader = Path.Combine(assets, "Fixture.shader");
         var include = Path.Combine(assets, "Fixture.cginc");
+        var catalog = Path.Combine(fixture.Shaders, SourceStaging.ShaderVariantCatalogName);
 
-        void Verify() => GraphicsShaderOverlay.Verify(fixture.Config(), fixture.Shaders, assets, [shader], [include]);
+        (string Path, string Sha256)? Verify() => GraphicsShaderOverlay.Verify(fixture.Config(), fixture.Shaders, assets, [shader], [include]);
+        Check(Verify() is null, "permits overlays written before the variant catalog");
+        File.WriteAllText(catalog, "{}");
+        Check(Capture(() => Verify()) is InvalidDataException, "rejects an unrecorded variant catalog");
+        const string catalogText = "{\"schemaVersion\":1,\"shaders\":[]}";
+        File.WriteAllText(catalog, catalogText);
+        var receiptPath = Path.Combine(fixture.Shaders, GraphicsShaderOverlay.ReceiptName);
+        var receipt = JsonNode.Parse(File.ReadAllText(receiptPath))!.AsObject();
+        receipt["shaderVariantCatalogSha256"] = SafeFiles.Hash(catalog);
+        SafeFiles.AtomicJson(receiptPath, receipt);
+        Check(Verify() is { } verified && verified.Path == catalog && verified.Sha256 == SafeFiles.HashText(catalogText),
+            "verifies the recorded variant catalog");
+        File.AppendAllText(catalog, "\n");
+        Check(Capture(() => Verify()) is InvalidDataException, "rejects an edited variant catalog");
+        File.WriteAllText(catalog, catalogText);
         Verify();
         File.AppendAllText(include, "\nfloat4 changed;");
-        Check(Capture(Verify) is InvalidDataException, "rejects an edited shader include");
+        Check(Capture(() => Verify()) is InvalidDataException, "rejects an edited shader include");
         File.WriteAllText(include, "float4 fixture;");
         File.AppendAllText(shader, "\n// changed");
-        Check(Capture(Verify) is InvalidDataException, "rejects graphics shader content not recorded in the receipt");
+        Check(Capture(() => Verify()) is InvalidDataException, "rejects graphics shader content not recorded in the receipt");
     }
 
     private static void ReplaceComputeShader()

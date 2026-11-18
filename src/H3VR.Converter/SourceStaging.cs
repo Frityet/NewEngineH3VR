@@ -2,9 +2,12 @@ namespace H3VR.Converter;
 
 public static class SourceStaging
 {
+    public const string ShaderVariantCatalogName = "shader-variant-domains.json";
+    internal const string EditorAssets = "Assets/Editor/H3VRConverter";
+
     public static void Install(string repository, string project, string buildTarget)
     {
-        var editor = Path.Combine(project, "Assets/Editor/H3VRConverter");
+        var editor = Path.Combine(project, EditorAssets);
         Directory.CreateDirectory(editor);
         foreach (var file in Directory.GetFiles(Path.Combine(repository, "editor"), "*.cs")) SafeFiles.Copy(file, Path.Combine(editor, Path.GetFileName(file)));
         SafeFiles.AtomicJson(Path.Combine(editor, "H3VRConverter.Editor.asmdef"), new
