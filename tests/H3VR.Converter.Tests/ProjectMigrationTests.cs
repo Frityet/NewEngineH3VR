@@ -16,6 +16,7 @@ public static class ProjectMigrationTests
         yield return ("OpenXR input staging copies the manifest and every referenced binding", SteamVrActions);
         yield return ("missing referenced controller bindings fail closed", MissingSteamVrBinding);
         yield return ("shader overlay rejects dummy exports", RejectDummyShader);
+        yield return ("graphics overlay verifies each recovered shader and its generated includes", VerifyGraphicsShaders);
         yield return ("compute overlays preserve local asset identity and rebind Unity importer references", ReplaceComputeShader);
         yield return ("integration applies a hash-pinned OpenXR provider", ApplyIntegration);
         yield return ("integration rejects traversal and hash mismatch", RejectUnsafeIntegration);
@@ -105,12 +106,29 @@ public static class ProjectMigrationTests
     {
         using var fixture = new Fixture(); fixture.CreateManaged("NativeH3VR.Game", "Assembly-CSharp", "H3VR", "Fixture");
         fixture.WriteCandidate("Assets/Keep.txt", "kept");
-        var overlayAssets = Path.Combine(fixture.Shaders, "Assets"); Directory.CreateDirectory(overlayAssets);
-        File.WriteAllText(Path.Combine(overlayAssets, "Bad.shader"), "Shader \"Fixture\" { //DummyShaderTextExporter\n }");
-        File.WriteAllText(Path.Combine(overlayAssets, "Bad.shader.meta"), "fileFormatVersion: 2\nguid: 22222222222222222222222222222222\n");
+        fixture.WriteShaderOverlay("Shader \"Fixture\" { //DummyShaderTextExporter\n }",
+            new StepReceipt("extract", "synthetic-extraction", DateTimeOffset.UtcNow, new()));
         var error = Capture(() => new ProjectMigration(fixture.Config(fixture.Shaders), fixture.Candidate).Run());
         Check(error is InvalidDataException && error.Message.Contains("Dummy shader", StringComparison.Ordinal), "rejects known placeholder shader content");
-        Check(!File.Exists(Path.Combine(fixture.Candidate, "Assets/Bad.shader")), "does not copy the rejected shader");
+        Check(!File.Exists(Path.Combine(fixture.Candidate, "Assets/Fixture.shader")), "does not copy the rejected shader");
+    }
+
+    private static void VerifyGraphicsShaders()
+    {
+        using var fixture = new Fixture();
+        var extract = new StepReceipt("extract", "synthetic-extraction", DateTimeOffset.UtcNow, new());
+        fixture.WriteShaderOverlay("Shader \"Fixture\" { }", extract, "float4 fixture;");
+        var assets = Path.Combine(fixture.Shaders, "Assets");
+        var shader = Path.Combine(assets, "Fixture.shader");
+        var include = Path.Combine(assets, "Fixture.cginc");
+
+        void Verify() => GraphicsShaderOverlay.Verify(fixture.Config(), fixture.Shaders, assets, [shader], [include]);
+        Verify();
+        File.AppendAllText(include, "\nfloat4 changed;");
+        Check(Capture(Verify) is InvalidDataException, "rejects an edited shader include");
+        File.WriteAllText(include, "float4 fixture;");
+        File.AppendAllText(shader, "\n// changed");
+        Check(Capture(Verify) is InvalidDataException, "rejects graphics shader content not recorded in the receipt");
     }
 
     private static void ReplaceComputeShader()
@@ -131,13 +149,11 @@ public static class ProjectMigrationTests
         fixture.WriteCandidate(dependency, $"probe: {{fileID: 7200000, guid: {guid}, type: 2}}\n");
         var extract = new StepReceipt("extract", "synthetic-extraction", DateTimeOffset.UtcNow,
             new() { [original] = SafeFiles.Hash(original), [original + ".meta"] = SafeFiles.Hash(original + ".meta") });
-        SafeFiles.AtomicJson(Path.Combine(fixture.Root, ".conversion/extract.json"), extract);
+        fixture.WriteShaderOverlay("Shader \"Fixture\" { }", extract);
 
         var assets = Path.Combine(fixture.Shaders, "Assets");
         var overlayCompute = Path.Combine(fixture.Shaders, compute);
         Directory.CreateDirectory(Path.GetDirectoryName(overlayCompute)!);
-        File.WriteAllText(Path.Combine(assets, "Fixture.shader"), "Shader \"Fixture\" { }");
-        File.WriteAllText(Path.Combine(assets, "Fixture.shader.meta"), $"fileFormatVersion: 2\nguid: {new string('2', 32)}\n");
         File.WriteAllText(overlayCompute, "#pragma kernel Readback\n[numthreads(1, 1, 1)]\nvoid Readback() { }\n");
         File.WriteAllText(overlayCompute + ".meta", $"fileFormatVersion: 2\nguid: {guid}\nComputeShaderImporter:\n  externalObjects: {{}}\n");
         var receipt = Path.Combine(assets, "ComputeShader", ComputeShaderOverlay.ReceiptName);
@@ -217,6 +233,42 @@ public static class ProjectMigrationTests
         }
         public void WriteRecovered(string relative, string content, string guid, int executionOrder = 0) { Write(Path.Combine(Recovered, relative), content); Write(Path.Combine(Recovered, relative + ".meta"), Meta(guid, executionOrder)); }
         public void WriteCandidate(string relative, string content, string? guid = null, int executionOrder = 0) { Write(Path.Combine(Candidate, relative), content); if (guid is not null) Write(Path.Combine(Candidate, relative + ".meta"), Meta(guid, executionOrder)); }
+        public void WriteShaderOverlay(string content, StepReceipt extraction, string? include = null)
+        {
+            const string relative = "Assets/Fixture.shader";
+            const string includeRelative = "Assets/Fixture.cginc";
+            WriteRecovered(relative, "Shader \"Original fixture\" { }", new string('2', 32));
+            var original = Path.Combine(Recovered, relative);
+            var output = Path.Combine(Shaders, relative);
+            Write(output, content);
+            SafeFiles.Copy(original + ".meta", output + ".meta");
+            extraction.Files[original] = SafeFiles.Hash(original);
+            extraction.Files[original + ".meta"] = SafeFiles.Hash(original + ".meta");
+            SafeFiles.AtomicJson(Path.Combine(Root, ".conversion/extract.json"), extraction);
+
+            var repairs = new List<object>();
+            var rawHash = SafeFiles.Hash(output);
+            if (include is not null)
+            {
+                Write(Path.Combine(Shaders, includeRelative), include);
+                rawHash = SafeFiles.HashText("Shader \"Raw fixture\" { }");
+                repairs.Add(new
+                {
+                    path = relative, before = rawHash, after = SafeFiles.Hash(output),
+                    passes = new[] { new { includes = new[] { new { path = includeRelative, sha256 = SafeFiles.HashText(include) } } } }
+                });
+            }
+            SafeFiles.AtomicJson(Path.Combine(Shaders, GraphicsShaderOverlay.ReceiptName), new
+            {
+                schemaVersion = 1, validationState = "identity-only-unvalidated", extractionFingerprint = extraction.Fingerprint,
+                unmappedProjectPaths = Array.Empty<string>(), keywordRepairs = repairs,
+                links = new[] { new
+                {
+                    projectPath = relative, projectSha256 = extraction.Files[original],
+                    projectMetaSha256 = extraction.Files[original + ".meta"], rawSha256 = rawHash
+                } }
+            });
+        }
         private static string Meta(string guid, int order) => $"fileFormatVersion: 2\nguid: {guid}\nMonoImporter:\n  externalObjects: {{}}\n  serializedVersion: 2\n  defaultReferences: []\n  executionOrder: {order}\n";
         private static void Write(string path, string text) { Directory.CreateDirectory(Path.GetDirectoryName(path)!); File.WriteAllText(path, text); }
         public void Dispose() { try { Directory.Delete(Root, true); } catch { } }

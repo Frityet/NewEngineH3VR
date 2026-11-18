@@ -51,11 +51,11 @@ manifest identifies the fork and its upstream base.
 ## Exporter provenance
 
 The provisioning command builds Frityet's AssetRipper fork at
-`474280efb422719c11eebd4633be144ff5cf6ae5` with upstream parent
+`68c73ecf0e2bc59c443246c8ca64af831736567e` and verifies its upstream base
 `d142a4b46586acdf931aaefc34d3e9eed4b7158e`. It removes its temporary checkout
 after publishing a self-contained executable and keeps the GPL-3.0-only
 license and the source URL alongside it. The standalone provisioning command
-can also write to a new local directory. [Pinned source](https://github.com/Frityet/AssetRipper/tree/474280efb422719c11eebd4633be144ff5cf6ae5)
+can also write to a new local directory. [Pinned source](https://github.com/Frityet/AssetRipper/tree/68c73ecf0e2bc59c443246c8ca64af831736567e)
 
 ```sh
 dotnet run --project tools/ShaderExporter -- provision cache/assetripper-shader-manual
@@ -96,16 +96,23 @@ keyword groups from the original paired Direct3D vertex and fragment programs.
 The linker checks that their keyword sets match every generated guard. It
 recovers required choices, optional choices and constants. When those groups
 cannot express the entire variant table, the linker preserves verified
-required lighting modes and keeps the explicit guards for unsupported
+required lighting and geometry modes and keeps the explicit guards for unsupported
 combinations. The compiler can still reject some combinations in those passes.
 Save the generic class database at `cache/legacy-unity-classdata.tpk` or
 supply `--class-database` with its local path. The tested database has SHA-256
-`129e1f80f930415db6779fe6089afa75280cb51462bcee812beab6cd81a764c6`.
+`129e1f80f930415db6779fe6089afa75280cb51462bcee812beab6cd81a764c6`. [Pinned class database](https://github.com/nesrak1/UABEA/blob/057e2f6ae67ebc94a38faca9f946f8577162fa99/ReleaseFiles/classdata.tpk)
+
 `shader-overlay-candidate.json` records the database hash, changed passes,
 recovered groups, whether the groups describe the exact variant domain, and
-before and after shader hashes. Unity can choose a closest variant when a
-material enables multiple keywords from one group. The compiler result alone
-does not establish the same visual choice as Unity 5.6. [Pinned class database](https://github.com/nesrak1/UABEA/blob/057e2f6ae67ebc94a38faca9f946f8577162fa99/ReleaseFiles/classdata.tpk)
+before and after shader hashes. The linker partitions large passes into
+guarded includes. The compiler selects the same exact guard and original
+program body, and the receipt records each include's hash. On macOS the
+project stage verifies this receipt against the extraction and checks that
+every original graphics shader and generated include is present.
+
+When a material enables several keywords from one group, Unity can choose a
+closest variant. Matching Unity 5.6's visual choice requires a rendering
+comparison. [Unity shader keywords](https://docs.unity3d.com/cn/2021.3/Manual/shader-keywords-scripts.html)
 
 The receipt intentionally labels the result `raw-export-unvalidated`. Passing
 this raw export to the converter as `ShaderSources` is not supported. In

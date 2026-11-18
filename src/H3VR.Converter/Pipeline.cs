@@ -56,7 +56,7 @@ public sealed class Pipeline(string repository, ConversionConfig config)
             if (config.ShaderSources is not null)
                 foreach (var file in SafeFiles.Files(config.ShaderSources)
                     .Where(p => Path.GetExtension(p).ToLowerInvariant() is ".shader" or ".cginc" or ".hlsl" or ".compute" or ".glslinc" or ".meta" ||
-                                Path.GetFileName(p) == ComputeShaderOverlay.ReceiptName)
+                                Path.GetFileName(p) is ComputeShaderOverlay.ReceiptName or GraphicsShaderOverlay.ReceiptName)
                     .Order(StringComparer.Ordinal)) FileInput(file);
         }
         if (config.IntegrationManifest is not null)
@@ -359,13 +359,17 @@ public sealed class Pipeline(string repository, ConversionConfig config)
     internal static IReadOnlyList<ShaderUpgrade> ImportShaderUpgrades(
         string project, Dictionary<string, string> files, IEnumerable<string> log)
     {
-        const string prefix = "Upgraded shader: Assets/";
+        const string shaderPrefix = "Upgraded shader: ";
+        const string includePrefix = "Upgraded shader include: ";
         var result = new List<ShaderUpgrade>();
-        foreach (var line in log.Where(line => line.StartsWith(prefix, StringComparison.Ordinal)).Distinct(StringComparer.Ordinal))
+        foreach (var line in log.Where(line => line.StartsWith(shaderPrefix + "Assets/", StringComparison.Ordinal)
+            || line.StartsWith(includePrefix + "Assets/", StringComparison.Ordinal)).Distinct(StringComparer.Ordinal))
         {
-            var relative = line["Upgraded shader: ".Length..].TrimEnd();
+            var include = line.StartsWith(includePrefix, StringComparison.Ordinal);
+            var relative = line[(include ? includePrefix.Length : shaderPrefix.Length)..].TrimEnd();
             var path = SafeFiles.Inside(project, relative);
-            if (!SafeFiles.Contains(Path.Combine(project, "Assets"), path) || !relative.EndsWith(".shader", StringComparison.OrdinalIgnoreCase) ||
+            var recognized = include ? GraphicsShaderOverlay.IsInclude(relative) : relative.EndsWith(".shader", StringComparison.OrdinalIgnoreCase);
+            if (!recognized || !SafeFiles.Contains(Path.Combine(project, "Assets"), path) ||
                 !files.TryGetValue(path, out var before) || !File.Exists(path) || new FileInfo(path).LinkTarget is not null)
                 continue;
             var after = SafeFiles.Hash(path);

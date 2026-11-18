@@ -298,7 +298,10 @@ public sealed class ProjectMigration(ConversionConfig config, string candidate)
         SafeFiles.RequireSeparate(overlayRoot, root); RejectLinks(overlayRoot);
         var sourceAssets = Directory.Exists(Path.Combine(overlayRoot, "Assets")) ? Path.Combine(overlayRoot, "Assets") : overlayRoot;
         var shaders = SafeFiles.Files(sourceAssets).Where(p => p.EndsWith(".shader", StringComparison.OrdinalIgnoreCase)).ToArray();
+        var includes = SafeFiles.Files(sourceAssets).Where(GraphicsShaderOverlay.IsInclude).ToArray();
         if (shaders.Length == 0) throw new InvalidDataException("ShaderSources must contain a local Assets-shaped overlay with shader files.");
+        if (config.BuildTarget == "StandaloneOSX")
+            GraphicsShaderOverlay.Verify(config, overlayRoot, sourceAssets, shaders, includes);
         foreach (var source in shaders)
         {
             var bytes = File.ReadAllBytes(source); var content = Encoding.UTF8.GetString(bytes);
@@ -320,7 +323,6 @@ public sealed class ProjectMigration(ConversionConfig config, string candidate)
             // Existing recovered metadata also carries the source AssetBundle group; keep it intact when its GUID matches.
             if (!File.Exists(targetMeta)) File.Copy(sourceMeta, targetMeta);
         }
-        var includes = SafeFiles.Files(sourceAssets).Where(p => new[] { ".cginc", ".hlsl", ".glslinc" }.Contains(Path.GetExtension(p).ToLowerInvariant())).ToArray();
         foreach (var source in includes)
         {
             var relative = Path.GetRelativePath(sourceAssets, source).Replace('\\', '/');

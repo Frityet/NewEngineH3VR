@@ -174,7 +174,7 @@ internal static class ShaderLinks
                     Receipt.Verify(outputPath, match.RawHash);
                     Receipt.Verify(outputPath + ".meta", match.MetaHash);
                     if (keywords is null) continue;
-                    var patched = keywords.Repair(outputPath, match.Target.PathId);
+                    var patched = keywords.Repair(outputPath, match.Target.PathId, candidate, match.Target.Guid);
                     if (patched.Length != 0)
                         fixes.Add(new(match.Target.ExportPath, match.RawHash, SafeFiles.Hash(outputPath), patched));
                 }

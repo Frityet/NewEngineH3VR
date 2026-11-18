@@ -13,8 +13,9 @@ internal sealed partial class KeywordRepair : IDisposable
     private readonly AssetsManager manager = new();
     private readonly AssetsFileInstance original;
 
-    internal sealed record PassRepair(string Name, int PassIndex, int VariantCount, ShaderKeywordPlan Keywords);
-    private sealed record Edit(int Start, int End, string Header, PassRepair Repair);
+    internal sealed record PassRepair(string Name, int PassIndex, int VariantCount, ShaderKeywordPlan Keywords,
+        ShaderProgramSplitter.Include[] Includes);
+    private sealed record Edit(int Start, int End, string Replacement, PassRepair Repair);
     private sealed record ProgramKeywords(int Kind, HashSet<string> Keywords);
 
     public KeywordRepair(string path, string classDatabase)
@@ -39,7 +40,7 @@ internal sealed partial class KeywordRepair : IDisposable
     [GeneratedRegex(@"(?m)^[ \t]*#(if|ifdef|ifndef|elif|else|endif)\b([^\r\n]*)")]
     private static partial Regex ConditionalDirectives();
 
-    public PassRepair[] Repair(string path, long pathId)
+    public PassRepair[] Repair(string path, long pathId, string overlay, string guid)
     {
         var source = File.ReadAllText(path, Utf8);
         if (!source.Contains("#pragma shader_feature __ ", StringComparison.Ordinal)) return [];
@@ -59,7 +60,7 @@ internal sealed partial class KeywordRepair : IDisposable
         {
             var match = locations[index];
             var limit = index + 1 < locations.Count ? locations[index + 1].Index : source.Length;
-            var edit = Plan(source, index, match.Index + match.Length, limit, originalPasses[index], programs);
+            var edit = Plan(source, index, match.Index + match.Length, limit, originalPasses[index], programs, overlay, guid);
             if (edit is not null) edits.Add(edit);
         }
 
@@ -69,14 +70,15 @@ internal sealed partial class KeywordRepair : IDisposable
         foreach (var edit in edits)
         {
             stream.Write(source.AsSpan(head, edit.Start - head));
-            stream.Write(edit.Header);
+            stream.Write(edit.Replacement);
             head = edit.End;
         }
         stream.Write(source.AsSpan(head));
         return edits.Select(edit => edit.Repair).ToArray();
     }
 
-    private static Edit? Plan(string source, int index, int start, int end, AssetTypeValueField pass, ProgramKeywords[] programs)
+    private static Edit? Plan(string source, int index, int start, int end, AssetTypeValueField pass,
+        ProgramKeywords[] programs, string overlay, string guid)
     {
         var header = ProgramHeaders().Match(source, start, end - start);
         if (!header.Success) return null;
@@ -88,41 +90,56 @@ internal sealed partial class KeywordRepair : IDisposable
         var positions = names.Select((keyword, bit) => (keyword, mask: 1UL << bit))
             .ToDictionary(row => row.keyword, row => row.mask, StringComparer.Ordinal);
 
-        var rows = ReadGuards(source, header.Index + header.Length, end, positions);
-        if (rows is null) return null;
+        var guarded = ReadGuards(source, header.Index + header.Length, end, positions);
+        if (guarded is null) return null;
         var vertex = Stage(pass, "progVertex", programs, 15, 16);
         var fragment = Stage(pass, "progFragment", programs, 17, 18);
         var paired = Pair(vertex, fragment, positions);
-        if (paired is null || !rows.SetEquals(paired)) return null;
+        if (paired is null || !paired.ToHashSet().SetEquals(guarded.Branches.Select(branch => branch.Mask))) return null;
 
         var plan = ShaderKeywordPlan.Create(names, paired);
+        var directives = plan.ChangesDeclarations ? string.Join("\n", plan.Directives()) + "\n" : declarations.Value;
+        var split = ShaderProgramSplitter.Split(source, guarded, names, overlay, guid, index);
+        if (split is not null)
+            return new(declarations.Index, guarded.End, directives + split.Source, new(name, index, paired.Count, plan, split.Includes));
         return plan.ChangesDeclarations
-            ? new(declarations.Index, declarations.Index + declarations.Length,
-                string.Join("\n", plan.Directives()) + "\n", new(name, index, paired.Count, plan))
+            ? new(declarations.Index, declarations.Index + declarations.Length, directives, new(name, index, paired.Count, plan, []))
             : null;
     }
 
-    private static HashSet<ulong>? ReadGuards(string source, int start, int end, Dictionary<string, ulong> positions)
+    private static ShaderProgramSplitter.Program? ReadGuards(string source, int start, int end, Dictionary<string, ulong> positions)
     {
+        var branches = new List<ShaderProgramSplitter.Branch>();
         var rows = new HashSet<ulong>();
         var depth = 0;
-        var fallback = false;
+        var branchStart = start;
+        var branchCondition = "";
+        var branchMask = 0UL;
+        var fallbackStart = -1;
         for (var match = ConditionalDirectives().Match(source, start, end - start); match.Success; match = match.NextMatch())
         {
             var directive = match.Groups[1].Value;
             if (depth == 0 || depth == 1 && directive == "elif")
             {
-                if (fallback || directive is not ("if" or "elif") ||
-                    !TryReadGuard(match.Groups[2].Value.Trim(), positions, out var mask) || !rows.Add(mask)) return null;
+                if (fallbackStart >= 0 || directive is not ("if" or "elif")) return null;
+                var condition = match.Groups[2].Value.Trim();
+                if (!TryReadGuard(condition, positions, out var mask) || !rows.Add(mask)) return null;
+                if (directive == "elif") branches.Add(new(branchMask, branchCondition, branchStart, match.Index));
+                branchMask = mask;
+                branchCondition = condition;
+                branchStart = match.Index + match.Length;
             }
             if (directive is "if" or "ifdef" or "ifndef") depth++;
             if (directive == "else" && depth == 1)
             {
+                if (fallbackStart >= 0) return null;
                 var tail = source.AsSpan(match.Index + match.Length).TrimStart();
                 if (!tail.StartsWith("#error Original shader has no recovered variant", StringComparison.Ordinal)) return null;
-                fallback = true;
+                branches.Add(new(branchMask, branchCondition, branchStart, match.Index));
+                fallbackStart = match.Index + match.Length;
             }
-            if (directive == "endif" && --depth == 0) return fallback ? rows : null;
+            if (directive == "endif" && --depth == 0)
+                return fallbackStart >= 0 ? new(branches, fallbackStart, match.Index, match.Index + match.Length) : null;
         }
         return null;
     }

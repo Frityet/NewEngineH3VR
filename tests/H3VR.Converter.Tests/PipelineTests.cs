@@ -28,23 +28,29 @@ public static class PipelineTests
         var assets = Path.Combine(project, "Assets");
         Directory.CreateDirectory(assets);
         var tracked = Path.Combine(assets, "Fixture Shader.shader");
+        var include = Path.Combine(assets, "Fixture Include.cginc");
         var unlogged = Path.Combine(assets, "Unlogged.shader");
         var unrelated = Path.Combine(assets, "Unrelated.txt");
-        foreach (var file in new[] { tracked, unlogged, unrelated }) File.WriteAllText(file, "old");
-        var files = new[] { tracked, unlogged, unrelated }.ToDictionary(file => file, SafeFiles.Hash);
+        foreach (var file in new[] { tracked, include, unlogged, unrelated }) File.WriteAllText(file, "old");
+        var files = new[] { tracked, include, unlogged, unrelated }.ToDictionary(file => file, SafeFiles.Hash);
         var previous = files[tracked];
         foreach (var file in files.Keys) File.WriteAllText(file, "new");
 
         var rows = Pipeline.ImportShaderUpgrades(project, files,
         [
             "Upgraded shader: Assets/Fixture Shader.shader",
+            "Upgraded shader include: Assets/Fixture Include.cginc",
             "Upgraded shader: Assets/Fixture Shader.shader",
             "Upgraded shader: Assets/Unrelated.txt",
             "Upgraded shader: Packages/Anything.shader",
         ]);
-        var row = rows.Single();
-        Check(row.Path == "Assets/Fixture Shader.shader" && row.Before == previous && row.After == SafeFiles.Hash(tracked),
+        Check(rows.Count == 2, "expected each upgraded shader and include once");
+        var row = rows.Single(row => row.Path == "Assets/Fixture Shader.shader");
+        Check(row.Before == previous && row.After == SafeFiles.Hash(tracked),
             "the editor receipt omitted the actual shader upgrade");
+        var includeRow = rows.Single(row => row.Path == "Assets/Fixture Include.cginc");
+        Check(includeRow.Before == previous && includeRow.After == files[include] && files[include] == SafeFiles.Hash(include),
+            "the editor receipt omitted the actual shader include upgrade");
         Check(files[tracked] == row.After && files[unlogged] == previous && files[unrelated] == previous,
             "an unlogged shader or unrelated file was treated as an editor upgrade");
     }

@@ -45,9 +45,8 @@ and managed DLL hashes.
 The macOS managed retargeter records names from legacy `Shader.PropertyToID`
 calls. When the game binds a `ComputeBuffer` to a material or property block,
 the compatibility assembly sets an integer `_NativeH3VRBufferCount` companion
-with the same scope. Metal translations can use the bound element count without
-querying the buffer size in the shader. The Windows retargeter uses the original
-binding calls. [Unity material property bindings](https://github.com/Unity-Technologies/UnityCsReference/blob/2021.3/Runtime/Export/Shaders/MaterialPropertyBlock.cs)
+with the same scope. Metal translations can use that value as the bound element
+count. [Unity material property bindings](https://github.com/Unity-Technologies/UnityCsReference/blob/2021.3/Runtime/Export/Shaders/MaterialPropertyBlock.cs)
 
 ## Launch an imported player
 

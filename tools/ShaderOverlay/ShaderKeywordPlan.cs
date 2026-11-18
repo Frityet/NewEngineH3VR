@@ -6,10 +6,11 @@ internal sealed record ShaderKeywordGroup(string[] Names, bool Optional);
 
 internal sealed record ShaderKeywordPlan(string[] Fixed, ShaderKeywordGroup[] Groups, bool Exact)
 {
-    private static readonly string[][] LegacyLightingModes =
+    private static readonly string[][] RequiredEngineModes =
     [
         ["DIRECTIONAL", "DIRECTIONAL_COOKIE", "POINT", "POINT_COOKIE", "SPOT"],
-        ["SHADOWS_CUBE", "SHADOWS_DEPTH"]
+        ["SHADOWS_CUBE", "SHADOWS_DEPTH"],
+        ["GEOM_TYPE_BRANCH", "GEOM_TYPE_BRANCH_DETAIL", "GEOM_TYPE_FROND", "GEOM_TYPE_LEAF", "GEOM_TYPE_MESH"]
     ];
 
     internal static ShaderKeywordPlan Create(string[] names, IReadOnlyCollection<ulong> variants)
@@ -47,7 +48,7 @@ internal sealed record ShaderKeywordPlan(string[] Fixed, ShaderKeywordGroup[] Gr
             }
             exact = false;
             var remainder = component;
-            foreach (var modeNames in LegacyLightingModes)
+            foreach (var modeNames in RequiredEngineModes)
             {
                 var mode = NamesMask(names, modeNames) & remainder;
                 if (BitOperations.PopCount(mode) < 2 || !variants.All(row => BitOperations.PopCount(row & mode) == 1))

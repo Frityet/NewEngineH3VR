@@ -11,7 +11,7 @@ public static class ShaderExporter
 {
     public const string UpstreamCommit = "d142a4b46586acdf931aaefc34d3e9eed4b7158e";
     public const string ForkRepository = "https://github.com/Frityet/AssetRipper.git";
-    public const string ForkCommit = "474280efb422719c11eebd4633be144ff5cf6ae5";
+    public const string ForkCommit = "68c73ecf0e2bc59c443246c8ca64af831736567e";
     private const string ProjectPath = "Source/AssetRipper.GUI.Free/AssetRipper.GUI.Free.csproj";
     private static string RuntimeIdentifier
     {
@@ -56,9 +56,7 @@ public static class ShaderExporter
             var head = (await Capture("git", ["rev-parse", "HEAD"], checkout, cancellationToken)).Trim();
             if (!string.Equals(head, ForkCommit, StringComparison.OrdinalIgnoreCase))
                 throw new InvalidDataException($"AssetRipper checkout mismatch: expected {ForkCommit}, found {head}.");
-            var parentCommit = (await Capture("git", ["rev-parse", "HEAD^"], checkout, cancellationToken)).Trim();
-            if (!string.Equals(parentCommit, UpstreamCommit, StringComparison.OrdinalIgnoreCase))
-                throw new InvalidDataException("The pinned shader exporter fork does not descend directly from the expected upstream source.");
+            await Run("git", ["merge-base", "--is-ancestor", UpstreamCommit, ForkCommit], checkout, cancellationToken);
 
             var project = Path.Combine(checkout, ProjectPath.Replace('/', Path.DirectorySeparatorChar));
             await Run("dotnet", ["publish", project, "--configuration", "Release", "--runtime", RuntimeIdentifier,
@@ -137,13 +135,13 @@ public static class ShaderExporter
             await writer.WriteLineAsync(line);
     }
 
-    private const string SourceNotice = """
+    private static readonly string SourceNotice = $"""
         AssetRipper GUI Free 1.0.15
         Upstream repository: https://github.com/AssetRipper/AssetRipper
-        Upstream commit: d142a4b46586acdf931aaefc34d3e9eed4b7158e
-        Fork repository: https://github.com/Frityet/AssetRipper.git
-        Corresponding source: https://github.com/Frityet/AssetRipper/tree/474280efb422719c11eebd4633be144ff5cf6ae5
-        Fork commit: 474280efb422719c11eebd4633be144ff5cf6ae5
+        Upstream commit: {UpstreamCommit}
+        Fork repository: {ForkRepository}
+        Corresponding source: {ForkRepository[..^4]}/tree/{ForkCommit}
+        Fork commit: {ForkCommit}
         License: GPL-3.0-only; see AssetRipper-LICENSE.md.
         """;
 }
