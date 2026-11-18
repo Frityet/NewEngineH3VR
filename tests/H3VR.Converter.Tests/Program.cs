@@ -55,7 +55,7 @@ cases.Add(("player receipt records manifest build and managed hashes without acc
         Directory.CreateDirectory(Path.Combine(app, "Resources", "Data", "Managed"));
         File.WriteAllText(Path.Combine(app, "Info.plist"), "<plist><dict><key>CFBundleExecutable</key><string>Player</string></dict></plist>");
         File.WriteAllText(Path.Combine(app, "MacOS", "Player"), "executable");
-        var dll = Path.Combine(app, "Resources", "Data", "Managed", "Assembly-CSharp.dll"); File.WriteAllText(dll, "synthetic");
+        var dll = Path.Combine(app, "Resources", "Data", "Managed", "NativeH3VR.Game.dll"); File.WriteAllText(dll, "synthetic");
         var receipt = File.ReadAllText(PlayerReceipt.Write(Path.GetDirectoryName(app)!, game));
         Check(receipt.Contains("25002541") && receipt.Contains(SafeFiles.Hash(dll)) && !receipt.Contains("private"), "receipt lacks identity/hash or leaks account data");
         File.WriteAllText(Path.Combine(apps, "appmanifest_450540.acf"), "\"appid\" \"999\"\n\"installdir\" \"H3VR\"\n\"buildid\" \"1\"");

@@ -40,7 +40,7 @@ internal static class PlayerReceipt
         var managed = Path.Combine(contents, "Resources", "Data", "Managed");
         if (!Directory.Exists(managed)) throw new InvalidDataException("Player managed assemblies directory is missing.");
         var assemblies = Directory.GetFiles(managed, "*.dll").Order(StringComparer.Ordinal).ToDictionary(Path.GetFileName, SafeFiles.Hash);
-        if (!assemblies.ContainsKey("Assembly-CSharp.dll")) throw new InvalidDataException("Player is missing Assembly-CSharp.dll.");
+        if (!assemblies.ContainsKey("NativeH3VR.Game.dll")) throw new InvalidDataException("Player is missing the retargeted NativeH3VR.Game.dll.");
         var path = Path.Combine(contents, "Resources", "nativeh3vr-build.json");
         SafeFiles.AtomicJson(path, new { schemaVersion = 1, unityVersion = ConversionConfig.TargetVersion, buildTarget = "StandaloneOSX", architecture = "arm64", playerExecutable = executable, managedAssemblies = assemblies, steamBuildId = SteamBuildId(game) });
         return path;
