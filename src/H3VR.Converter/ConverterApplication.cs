@@ -139,10 +139,18 @@ public sealed class ConverterApplication(string repository, IAnsiConsole console
             throw new IOException("Shader output must be empty: " + output);
         console.WriteLine("Preparing the pinned shader exporter in " + config.ToolCacheDirectory);
         var exporter = await ShaderToolCache.EnsureAsync(config.ToolCacheDirectory!, config.Offline, cancellation);
-        var result = await ShaderRecovery.RecoverAsync(new(config.GameData, output, exporter), cancellation);
-        console.WriteLine($"Recovered {result.ExportedShaders} shader files to {result.OutputDirectory}.");
-        console.WriteLine("These are raw, unvalidated sources. Validate and assemble an identity-matched overlay before using --shaders; see docs/shader-recovery.md.");
-        return 0;
+        // The exporter writes next to its executable, even with a different
+        // working directory. Run an isolated copy so the verified cache remains immutable.
+        var runtimeCopy = output + ".exporter-" + Guid.NewGuid().ToString("N");
+        try
+        {
+            SafeFiles.CopyTree(Path.GetDirectoryName(exporter)!, runtimeCopy);
+            var result = await ShaderRecovery.RecoverAsync(new(config.GameData, output, Path.Combine(runtimeCopy, Path.GetFileName(exporter))), cancellation);
+            console.WriteLine($"Recovered {result.ExportedShaders} shader files to {result.OutputDirectory}.");
+            console.WriteLine("These are raw, unvalidated sources. Validate and assemble an identity-matched overlay before using --shaders; see docs/shader-recovery.md.");
+            return 0;
+        }
+        finally { if (Directory.Exists(runtimeCopy)) Directory.Delete(runtimeCopy, true); }
     }
 
     private void ShowConfiguration(ConversionConfig config, string through)

@@ -20,7 +20,7 @@ dotnet run --project src/H3VR.Converter -- recover-shaders \
   --game "/path/to/H3VR" --output "/path/to/private-raw-shaders"
 ```
 
-The converter provisions the exporter on first use under `~/.cache/h3vr-converter`, then reuses a verified cache keyed by source commit, patch and host runtime. `--cache` changes the location; `--offline` requires an existing verified cache and skips provisioning. The output defaults to the conversion workspace path plus `-shaders`. This raw export does **not** automatically supply the validated `--shaders` overlay required by project preparation.
+The converter provisions the exporter on first use under `~/.cache/h3vr-converter`, then reuses a verified cache keyed by source commit, patch, provisioning recipe and host runtime. `--cache` changes the location; `--offline` requires an existing verified cache and skips provisioning. The output defaults to the conversion workspace path plus `-shaders`. This raw export does **not** automatically supply the validated `--shaders` overlay required by project preparation.
 
 The command creates `shader-inputs/`, `assetripper-export/`,
 `shader-input-manifest.json`, `assetripper.log`, and `recovery-receipt.json` under the output
@@ -28,6 +28,10 @@ directory. It refuses to overwrite a non-empty output or overlap the game, check
 workspace or tool cache. The legacy exporter starts on an ephemeral loopback port
 and is stopped when the export finishes or is cancelled. Its standard output and
 error are drained to the log. Choose a private output with enough free space.
+Large shaders may take many minutes; each local service request has a two-hour
+limit and can be cancelled. An exporter exception invalidates the entire export,
+even if its service returned success and some files were written. Failed output
+is retained for diagnosis and must not be treated as an overlay.
 
 ## Exporter provenance
 

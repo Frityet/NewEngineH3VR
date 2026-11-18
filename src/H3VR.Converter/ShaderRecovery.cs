@@ -229,7 +229,9 @@ public static class ShaderRecovery
                 log = new StreamWriter(new FileStream(logPath, FileMode.CreateNew, FileAccess.Write, FileShare.Read), new UTF8Encoding(false)) { AutoFlush = true };
                 var start = new ProcessStartInfo(executable)
                 {
-                    WorkingDirectory = Path.GetDirectoryName(executable)!,
+                    // AssetRipper writes its own log in the working directory.
+                    // Keep the content-addressed executable cache immutable.
+                    WorkingDirectory = output,
                     UseShellExecute = false,
                     RedirectStandardOutput = true,
                     RedirectStandardError = true,
@@ -309,10 +311,19 @@ public static class ShaderRecovery
 
     private static async Task PostForm(Uri baseUri, string endpoint, string form, CancellationToken cancellationToken)
     {
-        using var client = new HttpClient { Timeout = TimeSpan.FromMinutes(10) };
+        // Large serialized shaders can take well over ten minutes to decompile.
+        // Keep a bounded timeout while preserving Ctrl-C cancellation of the owned child.
+        using var client = new HttpClient { Timeout = TimeSpan.FromHours(2) };
         using var content = new StringContent(form, Encoding.UTF8, "application/x-www-form-urlencoded");
-        using var response = await client.PostAsync(new Uri(baseUri, endpoint), content, cancellationToken);
-        response.EnsureSuccessStatusCode();
+        try
+        {
+            using var response = await client.PostAsync(new Uri(baseUri, endpoint), content, cancellationToken);
+            response.EnsureSuccessStatusCode();
+        }
+        catch (TaskCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            throw new TimeoutException("AssetRipper " + endpoint + " did not complete within two hours; inspect the exporter log.");
+        }
     }
 
     private static async Task WaitForService(Uri service, Process? server, CancellationToken cancellationToken)
