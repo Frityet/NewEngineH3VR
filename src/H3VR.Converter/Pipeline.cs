@@ -11,30 +11,27 @@ namespace H3VR.Converter;
 
 public sealed record StepReceipt(string Step, string Fingerprint, DateTimeOffset Completed, Dictionary<string, string> Files);
 
-public sealed class Pipeline(string repository, ConversionConfig config)
+public sealed partial class Pipeline(string repository, ConversionConfig config)
 {
     public static readonly string[] Steps = ["extract", "managed", "project", "validate", "build"];
     private string Receipts => Path.Combine(config.Workspace, ".conversion");
 
-    private string CommonFingerprint()
+    private string GameFingerprint()
     {
         using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
         void Add(string value) => hash.AppendData(Encoding.UTF8.GetBytes(value + "\n"));
         void FileInput(string path) { Add(Path.GetFullPath(path)); Add(SafeFiles.Hash(path)); }
-        void Tree(string path, Func<string, bool>? include = null)
+        void Tree(string path)
         {
-            foreach (var file in SafeFiles.Files(path).Where(p => include?.Invoke(p) ?? true).Order(StringComparer.Ordinal)) FileInput(file);
+            foreach (var file in SafeFiles.Files(path).Order(StringComparer.Ordinal)) FileInput(file);
         }
-        Add("h3vr-converter-common-inputs-v2");
+        Add("h3vr-converter-game-inputs-v3");
         Add(Path.GetFullPath(config.GameDirectory));
         Add(config.RecoveredProject is null ? "internal-recovery" : Path.GetFullPath(config.RecoveredProject));
         Add(ConversionConfig.TargetVersion);
         // Hash actual input bytes. File timestamps alone miss replacements with preserved dates.
         Tree(config.GameData);
         foreach (var file in Directory.GetFiles(config.GameDirectory).Where(p => p.EndsWith(".json", StringComparison.OrdinalIgnoreCase) || Path.GetFileName(p).Equals("steam_api64.dll", StringComparison.OrdinalIgnoreCase)).Order(StringComparer.Ordinal)) FileInput(file);
-        foreach (var directory in new[] { "src", "tools", "editor", "runtime" })
-            Tree(Path.Combine(repository, directory), p => !p.Split(Path.DirectorySeparatorChar).Any(x => x is "obj" or "bin") && Path.GetExtension(p) is ".cs" or ".csproj");
-        foreach (var file in new[] { "Directory.Build.props", "global.json" }) FileInput(Path.Combine(repository, file));
         if (config.RecoveredProject is not null) Tree(config.RecoveredProject);
         return Convert.ToHexStringLower(hash.GetHashAndReset());
     }
@@ -45,11 +42,25 @@ public sealed class Pipeline(string repository, ConversionConfig config)
         void Add(string value) => hash.AppendData(Encoding.UTF8.GetBytes(value + "\n"));
         void FileInput(string path) { Add(Path.GetFullPath(path)); Add(SafeFiles.Hash(path)); }
         void Tree(string path) { foreach (var file in SafeFiles.Files(path).Order(StringComparer.Ordinal)) FileInput(file); }
-        Add("h3vr-converter-step-inputs-v2");
+        Add("h3vr-converter-step-inputs-v3");
         Add(step);
         Add(common);
 
-        if (step is "managed" or "project" or "validate" or "build") { AddUnityInputs(); Add(config.BuildTarget); }
+        if (step == "extract")
+        {
+            AddExtractionSources(repository, Add);
+            return Convert.ToHexStringLower(hash.GetHashAndReset());
+        }
+        foreach (var directory in new[] { "src", "tools", "editor", "runtime" })
+            foreach (var file in SafeFiles.Files(Path.Combine(repository, directory))
+                .Where(path => !path.Split(Path.DirectorySeparatorChar).Any(part => part is "obj" or "bin")
+                    && Path.GetExtension(path) is ".cs" or ".csproj").Order(StringComparer.Ordinal))
+                FileInput(file);
+        foreach (var file in new[] { "Directory.Build.props", "global.json" })
+            FileInput(Path.Combine(repository, file));
+
+        AddUnityInputs();
+        Add(config.BuildTarget);
         if (step is "project" or "validate" or "build")
         {
             Add(JsonSerializer.Serialize(config with { Offline = false, ToolCacheDirectory = null }));
@@ -82,7 +93,7 @@ public sealed class Pipeline(string repository, ConversionConfig config)
         }
     }
 
-    internal string FingerprintForTests(string step) => Fingerprint(step, CommonFingerprint());
+    internal string FingerprintForTests(string step) => Fingerprint(step, GameFingerprint());
 
     public static void Status(ConversionConfig config)
     {
@@ -107,11 +118,11 @@ public sealed class Pipeline(string repository, ConversionConfig config)
         Directory.CreateDirectory(Receipts);
         using var lease = new FileStream(Path.Combine(Receipts, "lock"), FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
         Console.WriteLine("Fingerprinting local inputs before conversion/resume…");
-        var commonFingerprint = CommonFingerprint();
+        var gameFingerprint = GameFingerprint();
         foreach (var step in Steps)
         {
             cancellation.ThrowIfCancellationRequested();
-            var fingerprint = Fingerprint(step, commonFingerprint);
+            var fingerprint = Fingerprint(step, gameFingerprint);
             var receiptFile = Path.Combine(Receipts, step + ".json");
             if (File.Exists(receiptFile))
             {
@@ -139,39 +150,6 @@ public sealed class Pipeline(string repository, ConversionConfig config)
             }
             if (step == through) break;
         }
-    }
-
-    private async Task<List<string>> Extract(CancellationToken cancellation)
-    {
-        if (config.RecoveredProject is null)
-        {
-            var recovery = Path.Combine(config.Workspace, "recovery");
-            if (Directory.Exists(recovery)) throw new IOException("An incomplete recovery exists. Inspect it and choose a fresh workspace before rerunning extraction.");
-            var candidate = Path.Combine(config.Workspace, "recovery-candidate-" + Guid.NewGuid().ToString("N"));
-            try
-            {
-                await AssetRipperIntegration.ExportAsync(repository, config, candidate, Path.Combine(Receipts, "assetripper.log"), cancellation);
-                if (!File.Exists(Path.Combine(candidate, "ExportedProject/ProjectSettings/ProjectVersion.txt")) ||
-                    !Directory.Exists(Path.Combine(candidate, "ExportedProject/Assets")))
-                    throw new InvalidDataException("AssetRipper did not produce an ExportedProject. Inspect .conversion/assetripper.log.");
-                Directory.Move(candidate, recovery);
-            }
-            finally { if (Directory.Exists(candidate)) Directory.Delete(candidate, true); }
-        }
-        var version = Path.Combine(config.Export, "ProjectSettings/ProjectVersion.txt");
-        if (!File.Exists(version) || !Directory.Exists(Path.Combine(config.Export, "Assets"))) throw new InvalidDataException("Recovery must contain ExportedProject/Assets and ProjectSettings/ProjectVersion.txt.");
-        // External recovered input is already fully fingerprinted. Internally generated
-        // recovery is immutable output and must be verified on every resumed run.
-        if (config.RecoveredProject is not null) return [version];
-        return ColdRecoveryOutputFiles(Path.Combine(config.Workspace, "recovery"));
-    }
-
-    internal static List<string> ColdRecoveryOutputFiles(string recovery)
-    {
-        var identityMap = Path.Combine(recovery, "AuxiliaryFiles", "shader-identity-v2.json");
-        var pathMap = Path.Combine(recovery, "AuxiliaryFiles", "path_id_map.json");
-        if (!File.Exists(identityMap) || !File.Exists(pathMap)) throw new InvalidDataException("Cold extraction did not produce its required provenance maps.");
-        return SafeFiles.Files(Path.Combine(recovery, "ExportedProject")).Concat([identityMap, pathMap]).ToList();
     }
 
     private async Task<List<string>> Managed(CancellationToken cancellation)

@@ -9,6 +9,7 @@ public static class PipelineTests
     {
         yield return ("external extraction receipt resumes only when source inputs remain identical", ExtractResume);
         yield return ("extract receipt resumes after Unity, shader, and target settings are added", ExtractResumeAfterOptionsAdded);
+        yield return ("cold extraction fingerprints its worker and can resume after shader tooling changes", ExtractionUsesScopedTooling);
         yield return ("external extraction fingerprint covers StreamingAssets inputs", () => MutationIsRejected("streaming"));
         yield return ("external extraction fingerprint covers native plugin inputs", () => MutationIsRejected("plugin"));
         yield return ("project fingerprint covers shader overlay inputs", ShaderMutationChangesProjectFingerprint);
@@ -127,6 +128,31 @@ public static class PipelineTests
         File.WriteAllText(Path.Combine(fixture.Shaders, "Assets/Includes/Lighting.cginc"), "changed-shader-include");
         var after = pipeline.FingerprintForTests("project");
         Check(before != after, "shader overlay changes were omitted from the project-stage fingerprint");
+    }
+
+    private static void ExtractionUsesScopedTooling()
+    {
+        using var fixture = new Fixture();
+        fixture.CreateUnityInputs();
+        var pipeline = new Pipeline(fixture.Repository, fixture.Config() with { RecoveredProject = null });
+        var previousExtract = pipeline.FingerprintForTests("extract");
+        var previousProject = pipeline.FingerprintForTests("project");
+        var mirror = fixture.Repository + "-mirror";
+        SafeFiles.CopyTree(fixture.Repository, mirror);
+        var mirrored = new Pipeline(mirror, fixture.Config() with { RecoveredProject = null });
+        Check(mirrored.FingerprintForTests("extract") == previousExtract,
+            "identical extraction tooling in a second checkout must verify the same local inputs");
+
+        Write(Path.Combine(fixture.Repository, "tools/ShaderOverlay/Link.cs"), "internal class Link {}");
+        Check(pipeline.FingerprintForTests("extract") == previousExtract,
+            "cold extraction included post-extraction shader tooling");
+        Check(pipeline.FingerprintForTests("project") != previousProject,
+            "project preparation ignored a change in shader tooling");
+
+        Write(Path.Combine(fixture.Repository, "tools/AssetRipper.Worker/ShaderIdentityRecorder.cs"),
+            "internal class ShaderIdentityRecorder {}");
+        Check(pipeline.FingerprintForTests("extract") != previousExtract,
+            "cold extraction ignored its shader identity worker");
     }
 
     private static void ManagedFingerprintSelection()

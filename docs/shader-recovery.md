@@ -72,6 +72,10 @@ redistributing the fork executable.
 
 ## Validation boundary
 
+The extraction receipt binds the Steam inputs and the extraction worker.
+Shader recovery and linking can iterate against that receipt in the same
+private workspace while the game and extractor stay fixed.
+
 The cold extractor records each exported shader's serialized member, bundle,
 path ID, Unity GUID and project path. The raw exporter links its result to the
 hashed shader-only input and original serialized object. Join the two receipts

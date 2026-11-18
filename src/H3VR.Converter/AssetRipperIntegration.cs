@@ -163,7 +163,7 @@ public static class AssetRipperIntegration
         }
     }
 
-    private static string Fingerprint(string repository)
+    internal static string Fingerprint(string repository)
     {
         var paths = new[]
         {
