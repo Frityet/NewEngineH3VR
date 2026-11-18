@@ -233,7 +233,7 @@ public sealed class Pipeline(string repository, ConversionConfig config)
         var run = name + "-" + DateTime.UtcNow.ToString("yyyyMMdd-HHmmss") + "-" + Guid.NewGuid().ToString("N")[..8];
         var report = Path.Combine(Receipts, run + ".json");
         var logfile = Path.Combine(Receipts, run + ".log");
-        var output = Path.Combine(config.Workspace, "player", config.BuildTarget == "StandaloneOSX" ? "H3VR.app" : config.BuildTarget == "StandaloneWindows64" ? "H3VR.exe" : "H3VR.x86_64");
+        var output = Path.Combine(config.Workspace, "player", config.BuildTarget == "StandaloneOSX" ? "NativeH3VR.app" : config.BuildTarget == "StandaloneWindows64" ? "H3VR.exe" : "H3VR.x86_64");
         if (build && Directory.Exists(Path.GetDirectoryName(output)!)) throw new IOException("Player output exists. Inspect the previous build before using a fresh workspace.");
         var bundleOutput = Path.Combine(config.Workspace, "bundles-" + Guid.NewGuid().ToString("N"));
         // Cecil migration and verification replace Unity's heuristic assembly updater.
