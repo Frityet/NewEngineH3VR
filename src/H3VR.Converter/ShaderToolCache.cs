@@ -28,7 +28,6 @@ public static class ShaderToolCache
         Directory.CreateDirectory(root);
         var commit = ShaderExporter.UpstreamCommit;
         var rid = CurrentRuntimeIdentifier();
-        // Include the provisioning recipe version as well as the upstream patch.
         // A publish can succeed while omitting runtime dependencies.
         var key = $"{ShaderExporter.ForkCommit}-{rid}";
         var destination = Path.Combine(root, key);

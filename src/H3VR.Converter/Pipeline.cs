@@ -33,7 +33,7 @@ public sealed class Pipeline(string repository, ConversionConfig config)
         Tree(config.GameData);
         foreach (var file in Directory.GetFiles(config.GameDirectory).Where(p => p.EndsWith(".json", StringComparison.OrdinalIgnoreCase) || Path.GetFileName(p).Equals("steam_api64.dll", StringComparison.OrdinalIgnoreCase)).Order(StringComparer.Ordinal)) FileInput(file);
         foreach (var directory in new[] { "src", "tools", "editor", "runtime" })
-            Tree(Path.Combine(repository, directory), p => !p.Split(Path.DirectorySeparatorChar).Any(x => x is "obj" or "bin") && Path.GetExtension(p) is ".cs" or ".csproj" or ".patch");
+            Tree(Path.Combine(repository, directory), p => !p.Split(Path.DirectorySeparatorChar).Any(x => x is "obj" or "bin") && Path.GetExtension(p) is ".cs" or ".csproj");
         foreach (var file in new[] { "Directory.Build.props", "global.json" }) FileInput(Path.Combine(repository, file));
         if (config.RecoveredProject is not null) Tree(config.RecoveredProject);
         return Convert.ToHexStringLower(hash.GetHashAndReset());

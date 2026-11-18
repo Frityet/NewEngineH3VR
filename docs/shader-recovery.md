@@ -20,7 +20,7 @@ dotnet run --project src/H3VR.Converter -- recover-shaders \
   --game "/path/to/H3VR" --output "/path/to/private-raw-shaders"
 ```
 
-The converter provisions the exporter on first use in the checkout's ignored `cache/` directory, then verifies its source commit, patch, provisioning recipe and host runtime on reuse. Use `--cache` to specify an external path and `--offline` to require a verified cached tool build. The output defaults to the conversion workspace path plus `-shaders`. Project preparation requires a validated `--shaders` overlay.
+The converter provisions the exporter on first use in the checkout's ignored `cache/` directory. It verifies the fork commit, upstream base, host runtime and payload hashes on reuse. Use `--cache` to specify an external path and `--offline` to require a verified cached tool build. The output defaults to the conversion workspace path plus `-shaders`. Project preparation requires a validated `--shaders` overlay.
 
 The command creates `shader-inputs/`, `assetripper-export/`,
 `shader-input-manifest.json`, `shader-export-identities.json`,
@@ -43,19 +43,19 @@ original objects with exported paths and the recovered project GUIDs. An exact
 identity match establishes provenance. Shader semantics, Metal compilation and
 visual behavior are checked separately.
 The schema 2 recovery receipt hashes that input manifest, the exporter executable,
-every exported shader and, when available, the verified tool manifest (which
-includes the pinned source commit, patch and cached file hashes). It also records
-whether the converter started the exporter locally; an externally supplied
-service is not authenticated by the local executable hash.
+every exported shader and, when available, the verified tool manifest with the
+pinned fork and cached file hashes. It also records
+whether the converter started the exporter locally. A locally verified tool
+manifest identifies the fork and its upstream base.
 
 ## Exporter provenance
 
-The provisioning command clones AssetRipper at commit
-`d142a4b46586acdf931aaefc34d3e9eed4b7158e`, applies the generic shader exporter
-repairs in the bundled source patch, and publishes a self-contained executable for the
-current platform. It deletes its temporary source checkout after the build and
-leaves the upstream GPL-3.0-only license and corresponding patch beside the
-executable. For development, the standalone provisioning tool is also available:
+The provisioning command builds Frityet's AssetRipper fork at
+`474280efb422719c11eebd4633be144ff5cf6ae5` with upstream parent
+`d142a4b46586acdf931aaefc34d3e9eed4b7158e`. It removes its temporary checkout
+after publishing a self-contained executable and keeps the GPL-3.0-only
+license and the source URL alongside it. The standalone provisioning command
+can also write to a new local directory. [Pinned source](https://github.com/Frityet/AssetRipper/tree/474280efb422719c11eebd4633be144ff5cf6ae5)
 
 ```sh
 dotnet run --project tools/ShaderExporter -- provision cache/assetripper-shader-manual
@@ -65,7 +65,7 @@ The command prints the executable path. It refuses to overwrite an existing
 output directory. The exporter preserves all recovered shader keyword variants
 and includes generic DirectX-to-HLSL fixes; it has no H3VR-specific runtime
 hooks. Follow the license and source notice in the generated directory when
-redistributing the patched executable.
+redistributing the fork executable.
 
 ## Validation boundary
 
@@ -75,7 +75,7 @@ hashed shader-only input and original serialized object. Join the two receipts
 after both commands complete.
 
 ```sh
-python3 tools/ShaderExporter/link-exports.py \
+dotnet run --project tools/ShaderOverlay -c Release -- link \
   --workspace "/path/to/private-workspace" \
   --recovery "/path/to/private-raw-shaders" \
   --steam-install "/path/to/H3VR" \
@@ -93,9 +93,11 @@ on Metal.
 
 Use `--repair-exclusive-keywords` alongside `--overlay-candidate` to restore
 mutually exclusive light and shadow keyword groups from the original variant
-metadata. This option uses Python 3.13 with `UnityPy==1.25.4` and `lz4==4.4.5`.
-It records each changed pass and its before and after file hashes in
-`shader-overlay-candidate.json`.
+metadata. Save the generic class database at `cache/legacy-unity-classdata.tpk`
+or supply `--class-database` with its local path. The tested database has SHA-256
+`129e1f80f930415db6779fe6089afa75280cb51462bcee812beab6cd81a764c6`.
+`shader-overlay-candidate.json` records the database hash, changed passes and
+before and after shader hashes. [Pinned class database](https://github.com/nesrak1/UABEA/blob/057e2f6ae67ebc94a38faca9f946f8577162fa99/ReleaseFiles/classdata.tpk)
 
 The receipt intentionally labels the result `raw-export-unvalidated`. Passing
 this raw export to the converter as `ShaderSources` is not supported. In
@@ -116,12 +118,12 @@ replace every shader with one fallback shader to make the project compile.
 
 The raw exporter covers Unity `Shader` objects. Steam build `25002541` also
 contains eleven serialized `ComputeShader` objects with 22 Direct3D kernels.
-Use Python 3.13 with `PyYAML==6.0.3`, a local build of `dxil-spirv` at
+Use a local build of `dxil-spirv` at
 `a781dce9b5f2dd076f419d7f98dcc2dcf5f011d5`, and SPIRV-Cross from Vulkan SDK
 `1.4.357.0`. [dxil-spirv build instructions](https://github.com/HansKristian-Work/dxil-spirv/tree/a781dce9b5f2dd076f419d7f98dcc2dcf5f011d5) · [SPIRV-Cross](https://github.com/KhronosGroup/SPIRV-Cross)
 
 ```sh
-python3 tools/ShaderExporter/recover-compute.py \
+dotnet run --project tools/ShaderOverlay -c Release -- compute \
   --workspace "/path/to/private-workspace" \
   --overlay "/path/to/private-shader-overlay" \
   --dxbc-compiler "/path/to/dxil-spirv" \

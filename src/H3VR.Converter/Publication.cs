@@ -67,14 +67,9 @@ public static class Publication
         if (path.Any(char.IsControl)) return false;
         if (path.Split('/').Any(p => p is "bin" or "obj" or "build" or "Library" or "recovered")) return false;
         if (path == ".github/workflows/ci.yml") return true;
-        if (path == "src/H3VR.Converter/AssetRipper.ShaderExporter.patch") return true;
         if (path is "runtime/Platform/README.md" or "runtime/Platform/Steam/legacy_api.cpp" or
             "runtime/Platform/Fmod/bridge.cpp" or "runtime/Platform/Fmod/fmod-output.cpp" or
-            "tools/PlatformPatch/build-native.py" or "tools/ShaderExporter/link-exports.py" or
-            "tools/ShaderExporter/keyword_repair.py" or "tools/ShaderExporter/recover-compute.py" or
             "runtime/UnityMetal/MetalOpenXR.h" or "runtime/UnityMetal/MetalOpenXR.mm")
-            return true;
-        if ((Path.GetDirectoryName(path) is "runtime/UnityMetal" or "tests/UnityMetal") && Path.GetExtension(path) == ".py")
             return true;
         if (new[] { "LICENSE", "README.md", ".gitignore", ".gitmodules", ".gitattributes", ".editorconfig", "Directory.Build.props", "global.json", "H3VR.Converter.sln" }.Contains(path)) return true;
         if (path.StartsWith("docs/", StringComparison.Ordinal)) return Path.GetExtension(path) == ".md";

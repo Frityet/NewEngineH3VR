@@ -7,7 +7,7 @@ are matched to the user's locally installed game at conversion time. Steam
 initialization, `RestartAppIfNecessary`, and ownership checks remain real Steam
 operations; the bridge does not synthesize ownership.
 
-`tools/PlatformPatch/build-native.py` requires explicit local paths for the
+`dotnet run --project tools/PlatformPatch/NativeBuilder -c Release --` takes explicit local paths for the
 CSteamworks wrapper at commit `407dcba0151cfa52d1814a752e3038f16dbedc4d` with
 its Steamworks 1.41 headers, the installed Steam client's `libsteam_api.dylib`,
 and FMOD Studio/Core 2.03.15 SDK. It builds and signs private arm64 shims and

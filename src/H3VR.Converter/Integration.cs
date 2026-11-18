@@ -39,7 +39,7 @@ public static class Integration
             throw new InvalidDataException("Integration manifest must target schema 1, Unity " + ConversionConfig.TargetVersion + ", build target " + buildTarget + ", and OpenXR.");
         var hasProvider = !string.IsNullOrWhiteSpace(manifest.Provider);
         if (buildTarget == "StandaloneOSX" && manifest.Provider != MetalBridge)
-            throw new InvalidDataException("StandaloneOSX requires the NativeH3VR.UnityMetal integration built by runtime/UnityMetal/build.py.");
+            throw new InvalidDataException("StandaloneOSX requires the integration emitted by tools/UnityMetalCli build.");
         if (buildTarget != "StandaloneWindows64" && !hasProvider)
             throw new InvalidDataException("Non-Windows OpenXR builds require Provider to name a managed XR loader class.");
         if (hasProvider && !Regex.IsMatch(manifest.Provider!, @"^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)+$"))

@@ -42,7 +42,7 @@ From this checkout, with a built MacVR runtime and a closed, isolated target
 project:
 
 ```sh
-python3 tests/UnityMetal/smoke.py \
+dotnet run --project tools/UnityMetalCli -c Release -- smoke \
   --unity-editor "/path/to/Unity.app/Contents/MacOS/Unity" \
   --openxr-headers "/path/to/MacVR/extern/openxr/include" \
   --runtime "/path/to/macvr-openxr" --frames 1110 \

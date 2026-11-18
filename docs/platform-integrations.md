@@ -9,20 +9,20 @@ target. The macOS target uses the Metal plug-in. [Unity's runtime matrix](https:
 ## Prepare the local integration
 
 Use the OpenXR headers from the same MacVR source revision as the runtime
-package. Install Python 3.11 or later, Xcode command line tools and the Unity
+package. Install the .NET 10 SDK, Xcode command line tools and the Unity
 2021.3.45f2 Apple Silicon editor with Mac Standalone Support. Supply the
 [CSteamworks and FMOD inputs](../runtime/Platform/README.md) locally.
 
 Run these commands from the NativeH3VR checkout with new private paths.
 
 ```sh
-python3 tools/PlatformPatch/build-native.py \
+dotnet run --project tools/PlatformPatch/NativeBuilder -c Release -- \
   --csteamworks "/path/to/CSteamworks" \
   --steam-api "/path/to/Steam Helper.app/Contents/MacOS/libsteam_api.dylib" \
   --fmod-sdk "/path/to/fmod-sdk-2.03.15" \
   --output "/path/to/private/platform"
 
-python3 runtime/UnityMetal/build.py \
+dotnet run --project tools/UnityMetalCli -c Release -- build \
   --unity-editor "/path/to/Unity.app/Contents/MacOS/Unity" \
   --openxr-headers "/path/to/MacVR/extern/openxr/include" \
   --platform "/path/to/private/platform" \
@@ -52,7 +52,7 @@ The Steam libraries still perform their own initialization and ownership
 operations.
 
 ```sh
-python3 runtime/UnityMetal/run.py \
+dotnet run --project tools/UnityMetalCli -c Release -- run \
   --app "/path/to/private-workspace/player/NativeH3VR.app" \
   --runtime "/path/to/macvr-openxr" \
   --state-dir "/path/to/private-state" \
@@ -65,7 +65,7 @@ Use `--headset` for a physical session. For synthetic timing, supply
 across runs. The profiler joins Unity rows to MacVR by predicted display time.
 
 ```sh
-python3 runtime/UnityMetal/profile.py \
+dotnet run --project tools/UnityMetalCli -c Release -- profile \
   --unity "/path/to/unity.csv" --openxr "/path/to/macvr.csv" \
   --warmup-seconds 2 --window-seconds 10
 ```
@@ -73,3 +73,7 @@ python3 runtime/UnityMetal/profile.py \
 Use `--unity-frames START END` for an inclusive range of known scene frames.
 Unsupported Unity recorder counters appear as missing data. MacVR completion
 records report GPU completion. Physical scanout requires separate evidence.
+
+For callers such as the Backrooms launch tool, build with
+`dotnet build tools/UnityMetalCli -c Release`, then invoke
+`dotnet /absolute/path/to/UnityMetalCli.dll run` with the same options.
