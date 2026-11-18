@@ -86,6 +86,12 @@ cases.Add(("macOS source staging uses the mod host instead of stock XR feature s
         Check(!Directory.Exists(Path.Combine(root, "Assets/H3VRConverter/OpenXR")), "stock XR features staged on macOS");
     } finally { if (Directory.Exists(root)) Directory.Delete(root, true); }
 }));
+cases.Add(("macOS project and player stages reject external recovery", () => {
+    var config = new ConversionConfig { BuildTarget = "StandaloneOSX", RecoveredProject = "/comparison" };
+    config.RequireColdRecovery("extract"); config.RequireColdRecovery("managed");
+    foreach (var step in new[] { "project", "validate", "build" }) Throws(() => config.RequireColdRecovery(step));
+    (config with { RecoveredProject = null }).RequireColdRecovery("build");
+}));
 cases.AddRange(ProjectMigrationTests.Cases());
 cases.AddRange(BundlePlanTests.Cases());
 cases.AddRange(PipelineTests.Cases());

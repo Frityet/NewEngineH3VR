@@ -39,6 +39,8 @@ dotnet run --project src/H3VR.Converter -- \
 
 `convert` is the default command and stops after `validate` unless you select another stage. The stages are `extract`, `managed`, `project`, `validate`, and `build`. They retarget the installed managed assemblies, replace legacy VR calls, preserve serialized script identities and execution orders, configure OpenXR, and rebuild bundles with the original asset addresses. Failed checks stop conversion. The editor verifies both scenes and prefabs without starting gameplay.
 
+For macOS project and player stages, use the converter's own extraction in a fresh workspace. `--recovered` is a comparison input allowed only through `managed`; it cannot supply a macOS player build.
+
 Useful commands and options:
 
 ```sh

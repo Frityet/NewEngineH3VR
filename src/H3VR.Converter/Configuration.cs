@@ -72,6 +72,7 @@ public sealed record ConversionConfig
 
     public void Validate(string repository, string through = "validate")
     {
+        RequireColdRecovery(through);
         if (string.IsNullOrWhiteSpace(Workspace)) throw new InvalidDataException("Set --workspace to an empty directory outside the checkout.");
         if (!File.Exists(Path.Combine(ManagedInput, "Assembly-CSharp.dll")))
             throw new InvalidDataException("Set --game to your installed H3VR folder containing h3vr_Data/Managed/Assembly-CSharp.dll, or use --tui.");
@@ -89,6 +90,12 @@ public sealed record ConversionConfig
                 SafeFiles.RequireSeparate(input, ToolCacheDirectory);
         if (RecoveredProject is not null && !Directory.Exists(Path.Combine(RecoveredProject, "Assets")))
             throw new InvalidDataException("RecoveredProject must contain Assets. Recovery input is never modified.");
+    }
+
+    internal void RequireColdRecovery(string through)
+    {
+        if (BuildTarget == "StandaloneOSX" && RecoveredProject is not null && through is ("project" or "validate" or "build"))
+            throw new InvalidDataException("macOS project and player stages require the converter's own cold extraction; --recovered is comparison-only through managed. Choose a fresh workspace without --recovered.");
     }
 
     public void VerifyEditorVersion()

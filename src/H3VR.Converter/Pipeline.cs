@@ -95,6 +95,7 @@ public sealed class Pipeline(string repository, ConversionConfig config)
     public async Task Run(string through, CancellationToken cancellation)
     {
         if (!Steps.Contains(through)) throw new ArgumentException("Unknown step: " + through);
+        config.RequireColdRecovery(through);
         Directory.CreateDirectory(config.Workspace);
         var marker = Path.Combine(config.Workspace, ".h3vr-converter-workspace");
         if (!File.Exists(marker))
