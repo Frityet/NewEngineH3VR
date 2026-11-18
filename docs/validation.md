@@ -25,11 +25,11 @@ Unity test scene and native mod-host fixture use independently authored assets.
   built Atlas scene bundle. Assembly and manifest rejection was checked.
 - The shader exporter recovered 277 raw files from 390 serialized Shader
   objects in the installed Steam build. All 277 exported files match their
-  original serialized identities and recovered project GUIDs. An eight-file
-  Unity Metal probe identified missing variants in three Alloy files. Those
-  three passed the same probe after adjusting mutually exclusive keyword
-  groups according to the original programs. Full material and scene
-  validation remains pending. [Shader recovery](shader-recovery.md)
+  original serialized identities and recovered project GUIDs. The complete
+  generated set imported on Metal with zero shader errors. This isolated
+  check covers default compilation. Exact stock variant checks included
+  lighting, fog, LOD crossfade, instancing and SpeedTree geometry. Full player
+  and scene rendering validation remains pending. [Shader recovery](shader-recovery.md)
 - All 22 kernels translated from the extracted Direct3D compute programs
   compiled on Apple M5 Max Metal with their original thread-group sizes.
   Metal dispatch/readback verified a 128-entry histogram clear and linear
@@ -55,19 +55,16 @@ vertical marker orientation. [Trace analysis command](platform-integrations.md)
 
 ## Open gates
 
-The stock player and its production mod bundle still need complete validation
-of the identity-matched shader overlay. A successful Unity validation reports
-the Metal device and records any shader changes applied by Unity's source
-upgrader. The first cold validation loaded 46 scenes and inspected 8,293
-prefabs. It recorded 41 shader asset failures. The compiler diagnostics include
-missing variant guards, undeclared resource bindings, a dropped texture gather,
-and malformed texture loads. The same run found 16 missing EventSystem components
-across eight scenes. A targeted Unity retest confirmed all 16 bindings through
-the original file IDs. The same retest imported the 11 translated compute
-assets with their original GUIDs and found all 22 kernels on Metal.
+The first cold validation loaded 46 scenes and inspected 8,293 prefabs. It
+recorded 41 shader asset failures and 16 missing EventSystem components
+across eight scenes. A targeted Unity retest confirmed all 16 bindings
+through the original file IDs. The current isolated Metal import covers all
+277 graphics shaders and the 11 compute assets with their original GUIDs
+and 22 kernels. Full project validation combines these inputs and records
+shader upgrades applied by Unity.
 
-The next Unity build must preserve original
-scene/script bindings and bundle addresses, verify the assembled app
+The Unity build must preserve original scene and script bindings and bundle
+addresses, verify the assembled app
 signature, and run through Steam authorization and stock startup. Actual
 gameplay, seeded Atlas acceptance and performance on the stock, Facility
 door and Level 0 routes remain open. Physical headset readiness, presentation,
