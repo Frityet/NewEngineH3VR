@@ -87,6 +87,11 @@ python3 tools/ShaderExporter/link-exports.py \
 Unmatched project paths fail the command and appear in the correspondence
 report. The join verifies hashes and matches source objects by their
 serialized identities. Matching shader names provide no identity evidence.
+After a complete match, `--overlay-candidate` can stage private diagnostic
+sources with the original project GUIDs and a correspondence receipt. Use the
+candidate to measure import, shader and material failures. The rendering
+gate still requires compiling and exercising the original reachable variants
+on Metal.
 
 The receipt intentionally labels the result `raw-export-unvalidated`. Passing
 this raw export to the converter as `ShaderSources` is not supported. In

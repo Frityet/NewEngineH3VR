@@ -4,7 +4,9 @@ import argparse
 import hashlib
 import json
 from pathlib import Path
+import shutil
 import sys
+import tempfile
 
 
 def digest(path):
@@ -25,11 +27,11 @@ def check_hash(path, expected):
         raise ValueError(f"Receipt hash mismatch: {path}")
 
 
-def original_key(row):
+def original_key(row, path_id):
     bundle = Path(row["source"]).name.casefold() if row["bundleEntry"] is not None else ""
     # Both imported and raw AssetRipper identify members by FilenameUtils' archive leaf.
     member = row["serializedName"].replace("\\", "/").rsplit("/", 1)[-1].casefold()
-    return bundle, member, int(row["pathId"])
+    return bundle, member, int(path_id)
 
 
 def project_key(row):
@@ -73,14 +75,14 @@ def find_links(recovery, workspace, steam):
         elif verified[source] != entry["sha256"]:
             raise ValueError(f"Inconsistent input hashes for {source}")
         for path_id in entry["pathIds"]:
-            key = original_key({**entry, "pathId": path_id})
+            key = original_key(entry, path_id)
             if key in source_ids:
                 raise ValueError(f"Ambiguous original serialized object: {key}")
             source_ids[key] = (source, entry["bundleEntry"], entry["sha256"])
 
     raw_rows = {}
     for row in json.loads(identity.read_text())["bindings"]:
-        key = original_key(row)
+        key = original_key(row, row["PathId"])
         source = (row["source"], row["bundleEntry"], row["sourceSha256"])
         if source_ids.get(key) != source or key in raw_rows:
             raise ValueError(f"Unproven raw shader identity: {key}")
@@ -101,13 +103,15 @@ def find_links(recovery, workspace, steam):
         used.add(key)
         target_path = child(project, target["ExportPath"])
         target_hash = extract["Files"][str(target_path)]
+        target_meta_hash = extract["Files"][str(target_path) + ".meta"]
         check_hash(target_path, target_hash)
-        check_hash(Path(str(target_path) + ".meta"), extract["Files"][str(target_path) + ".meta"])
+        check_hash(Path(str(target_path) + ".meta"), target_meta_hash)
         raw_path = child(raw_project, source["rawPath"])
         raw_hash = receipt["sha256"]["ExportedProject/" + source["rawPath"]]
         check_hash(raw_path, raw_hash)
         links.append({**source, "rawSha256": raw_hash, "projectGuid": target["Guid"],
-                      "projectPath": target["ExportPath"], "projectSha256": target_hash})
+                      "projectPath": target["ExportPath"], "projectSha256": target_hash,
+                      "projectMetaSha256": target_meta_hash})
 
     return {
         "schemaVersion": 1,
@@ -121,12 +125,36 @@ def find_links(recovery, workspace, steam):
     }
 
 
+def stage_candidate(result, recovery, workspace, destination):
+    project = workspace / "recovery/ExportedProject"
+    raw = recovery / "assetripper-export/ExportedProject"
+    if result["unmappedProjectPaths"] or not result["links"]:
+        raise ValueError("The raw source cannot be staged until all project shaders have identities")
+    if destination.exists() or any(destination.is_relative_to(root) for root in (recovery, workspace)):
+        raise ValueError("Choose a new candidate shader overlay outside both workspaces")
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix=".shader-candidate-", dir=destination.parent) as temporary:
+        candidate = Path(temporary) / "candidate"
+        candidate.mkdir()
+        for row in result["links"]:
+            target = candidate / row["projectPath"]
+            metadata = Path(str(target) + ".meta")
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(child(raw, row["rawPath"]), target)
+            shutil.copyfile(child(project, row["projectPath"] + ".meta"), metadata)
+            check_hash(target, row["rawSha256"])
+            check_hash(metadata, row["projectMetaSha256"])
+        (candidate / "shader-overlay-candidate.json").write_text(json.dumps(result, indent=2) + "\n")
+        candidate.rename(destination)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--recovery", type=Path, required=True)
     parser.add_argument("--workspace", type=Path, required=True)
     parser.add_argument("--steam-install", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--overlay-candidate", type=Path, help="Stage identity-matched raw shaders for private diagnosis")
     args = parser.parse_args()
     recovery, workspace, steam = (path.resolve() for path in (args.recovery, args.workspace, args.steam_install))
     output = args.output.resolve()
@@ -139,6 +167,11 @@ def main():
         with output.open("x") as stream:
             json.dump(result, stream, indent=2)
             stream.write("\n")
+        if args.overlay_candidate:
+            candidate = args.overlay_candidate.resolve()
+            if candidate.is_relative_to(steam):
+                raise ValueError("Candidate overlay must be outside Steam")
+            stage_candidate(result, recovery, workspace, candidate)
     except (OSError, KeyError, ValueError) as error:
         parser.exit(1, str(error) + "\n")
     linked = len(result["links"])
