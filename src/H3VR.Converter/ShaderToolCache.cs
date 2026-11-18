@@ -6,15 +6,16 @@ namespace H3VR.Converter;
 
 public sealed class ShaderToolCacheManifest
 {
-    public int schemaVersion = 1;
+    public int schemaVersion = 2;
     public string upstreamCommit = "";
-    public string sourcePatchSha256 = "";
+    public string forkRepository = "";
+    public string forkCommit = "";
     public string runtimeIdentifier = "";
     public string executable = "";
     public Dictionary<string, string> files = new(StringComparer.Ordinal);
 }
 
-/// <summary>Content-addressed, integrity-checked per-user cache for the locally patched exporter.</summary>
+/// <summary>Content-addressed, integrity-checked per-user cache for the pinned fork exporter.</summary>
 public static class ShaderToolCache
 {
     private const string ManifestName = "h3vr-shader-tool-cache.json";
@@ -26,11 +27,10 @@ public static class ShaderToolCache
         var root = Path.GetFullPath(cacheDirectory);
         Directory.CreateDirectory(root);
         var commit = ShaderExporter.UpstreamCommit;
-        var patchHash = SafeFiles.HashText(ShaderExporter.ReadSourcePatch());
         var rid = CurrentRuntimeIdentifier();
         // Include the provisioning recipe version as well as the upstream patch.
         // A publish can succeed while omitting runtime dependencies.
-        var key = $"{commit}-{patchHash}-recipe6-{rid}";
+        var key = $"{ShaderExporter.ForkCommit}-{rid}";
         var destination = Path.Combine(root, key);
         var locks = Path.Combine(root, ".locks");
         Directory.CreateDirectory(locks);
@@ -38,7 +38,7 @@ public static class ShaderToolCache
 
         if (Directory.Exists(destination))
         {
-            if (TryValidate(destination, commit, patchHash, rid, out var existing, out var reason)) return existing;
+            if (TryValidate(destination, commit, rid, out var existing, out var reason)) return existing;
             throw new InvalidDataException($"Cached ShaderExporter is invalid at '{destination}': {reason} Preserve or inspect that directory, then choose a fresh tool cache path; it was not deleted or replaced.");
         }
         if (File.Exists(destination))
@@ -50,10 +50,10 @@ public static class ShaderToolCache
         try
         {
             var executable = await ShaderExporter.ProvisionAsync(staging, cancellation);
-            if (!TryCreateManifest(staging, commit, patchHash, rid, executable, out var manifest, out var reason))
+            if (!TryCreateManifest(staging, commit, rid, executable, out var manifest, out var reason))
                 throw new InvalidDataException("Provisioned ShaderExporter failed integrity checks: " + reason);
             await File.WriteAllTextAsync(Path.Combine(staging, ManifestName), JsonSerializer.Serialize(manifest, Json) + "\n", cancellation);
-            if (!TryValidate(staging, commit, patchHash, rid, out _, out reason))
+            if (!TryValidate(staging, commit, rid, out _, out reason))
                 throw new InvalidDataException("Provisioned ShaderExporter cache failed its post-write verification: " + reason);
             Directory.Move(staging, destination);
         }
@@ -63,7 +63,7 @@ public static class ShaderToolCache
             throw;
         }
 
-        if (!TryValidate(destination, commit, patchHash, rid, out var finalExecutable, out var finalReason))
+        if (!TryValidate(destination, commit, rid, out var finalExecutable, out var finalReason))
             throw new InvalidDataException($"Published ShaderExporter cache failed integrity verification at '{destination}': {finalReason}");
         return finalExecutable;
     }
@@ -82,7 +82,7 @@ public static class ShaderToolCache
         return $"{platform}-{architecture}";
     }
 
-    internal static bool TryValidate(string directory, string commit, string patchHash, string rid, out string executable, out string reason)
+    internal static bool TryValidate(string directory, string commit, string rid, out string executable, out string reason)
     {
         executable = "";
         reason = "";
@@ -93,8 +93,8 @@ public static class ShaderToolCache
             if (!File.Exists(manifestPath)) { reason = "integrity manifest is missing"; return false; }
             var manifest = JsonSerializer.Deserialize<ShaderToolCacheManifest>(File.ReadAllText(manifestPath), Json)
                 ?? throw new InvalidDataException("manifest is empty");
-            if (manifest.schemaVersion != 1 || manifest.upstreamCommit != commit || manifest.sourcePatchSha256 != patchHash || manifest.runtimeIdentifier != rid)
-            { reason = "manifest provenance does not match the pinned source patch and host runtime"; return false; }
+            if (manifest.schemaVersion != 2 || manifest.upstreamCommit != commit || manifest.forkRepository != ShaderExporter.ForkRepository || manifest.forkCommit != ShaderExporter.ForkCommit || manifest.runtimeIdentifier != rid)
+            { reason = "manifest provenance does not match the pinned fork, upstream and host runtime"; return false; }
             if (manifest.files.Count == 0) { reason = "manifest contains no output hashes"; return false; }
             executable = SafeFiles.Inside(directory, manifest.executable);
             if (!File.Exists(executable)) { reason = "manifest executable is missing"; return false; }
@@ -120,7 +120,7 @@ public static class ShaderToolCache
         }
     }
 
-    internal static bool TryCreateManifest(string directory, string commit, string patchHash, string rid, string executablePath,
+    internal static bool TryCreateManifest(string directory, string commit, string rid, string executablePath,
         out ShaderToolCacheManifest manifest, out string reason)
     {
         manifest = new ShaderToolCacheManifest();
@@ -135,7 +135,8 @@ public static class ShaderToolCache
             manifest = new ShaderToolCacheManifest
             {
                 upstreamCommit = commit,
-                sourcePatchSha256 = patchHash,
+                forkRepository = ShaderExporter.ForkRepository,
+                forkCommit = ShaderExporter.ForkCommit,
                 runtimeIdentifier = rid,
                 executable = relativeExecutable,
                 files = files.ToDictionary(p => Path.GetRelativePath(directory, p).Replace(Path.DirectorySeparatorChar, '/'), SafeFiles.Hash, StringComparer.Ordinal)
@@ -144,11 +145,8 @@ public static class ShaderToolCache
                 !manifest.files.Keys.Any(k => k.Equals("AssetRipper-LICENSE.md", StringComparison.Ordinal)))
                 throw new InvalidDataException("provisioner omitted required source and license provenance files");
             var sourceNotice = File.ReadAllText(Path.Combine(directory, "AssetRipper-SOURCE.md"));
-            if (!sourceNotice.Contains(commit, StringComparison.Ordinal) || !sourceNotice.Contains("1.0.15", StringComparison.Ordinal))
+            if (!sourceNotice.Contains(commit, StringComparison.Ordinal) || !sourceNotice.Contains(ShaderExporter.ForkRepository, StringComparison.Ordinal) || !sourceNotice.Contains(ShaderExporter.ForkCommit, StringComparison.Ordinal) || !sourceNotice.Contains("1.0.15", StringComparison.Ordinal))
                 throw new InvalidDataException("provisioned source notice does not identify the pinned AssetRipper commit and version");
-            var patchPath = Path.Combine(directory, "AssetRipper-ShaderExporter.patch");
-            if (!File.Exists(patchPath) || !File.ReadAllText(patchPath).StartsWith(ShaderExporter.ReadSourcePatch(), StringComparison.Ordinal))
-                throw new InvalidDataException("provisioned source patch does not contain the pinned embedded patch bytes");
             return true;
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException or InvalidDataException or ArgumentException)

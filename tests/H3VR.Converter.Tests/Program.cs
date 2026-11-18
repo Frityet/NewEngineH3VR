@@ -3,9 +3,8 @@ using H3VR.Converter.Tests;
 
 var cases = new List<(string Name, Action Run)>
 {
-    ("embedded upstream patch retains its reviewed bytes", () => {
-        var patch = ShaderExporter.ReadSourcePatch();
-        Check(patch.StartsWith("diff --git ", StringComparison.Ordinal), "source patch was not decoded");
+    ("shader exporter pins the reviewed fork and upstream", () => {
+        Check(ShaderExporter.ForkCommit.Length == 40 && ShaderExporter.UpstreamCommit.Length == 40 && ShaderExporter.ForkCommit != ShaderExporter.UpstreamCommit, "source revisions are not pinned");
     }),
     ("publication rejects recovered assets and old probe trees", () => {
         foreach (var name in new[] { "recovered/Game.cs", "src/Game.dll", "editor/Game.shader", "src/bin/Generated.cs", "probe/Assets/Editor/Test.cs" })

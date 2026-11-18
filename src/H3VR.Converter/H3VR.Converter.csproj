@@ -5,6 +5,5 @@
     <PackageReference Include="AssetsTools.NET" Version="3.0.5" />
     <PackageReference Include="Spectre.Console" Version="0.57.2" />
     <PackageReference Include="Spectre.Console.Cli" Version="0.57.2" />
-    <EmbeddedResource Include="AssetRipper.ShaderExporter.patch" LogicalName="H3VR.Converter.AssetRipper.ShaderExporter.patch" />
   </ItemGroup>
 </Project>
