@@ -12,6 +12,7 @@ public static class ProjectMigrationTests
     {
         yield return ("MD4 vectors and Unity file ID", Md4Vectors);
         yield return ("project migration rebinds scripts and keeps recovery immutable", MigrateFixture);
+        yield return ("legacy UI assembly references bind EventSystems components", RebindEventSystem);
         yield return ("OpenXR input staging copies the manifest and every referenced binding", SteamVrActions);
         yield return ("missing referenced controller bindings fail closed", MissingSteamVrBinding);
         yield return ("shader overlay rejects dummy exports", RejectDummyShader);
@@ -69,6 +70,26 @@ public static class ProjectMigrationTests
         Check(File.Exists(Path.Combine(target, "actions.json")), "root action manifest was not staged");
         Check(File.Exists(Path.Combine(target, "bindings_knuckles.json")) && File.Exists(Path.Combine(target, "bindings_touch.json")), "not every referenced controller binding was staged");
         Check(SafeFiles.Hash(Path.Combine(target, "actions.json")) == SafeFiles.Hash(Path.Combine(fixture.Game, "actions.json")), "action manifest bytes changed while staging");
+    }
+
+    private static void RebindEventSystem()
+    {
+        using var fixture = new Fixture();
+        fixture.CreateManaged("UnityEngine.UI", "UnityEngine.UI", "UnityEngine.EventSystems", "EventSystem");
+        fixture.WriteSteamActions("{\"default_bindings\":[{\"binding_url\":\"fixture.json\"}]}", ("fixture.json", "{}"));
+        var config = fixture.Config();
+        var package = Path.Combine(config.UnityData, "Resources/PackageManager/BuiltInPackages/com.unity.ugui");
+        Directory.CreateDirectory(package);
+        var source = Path.Combine(package, "EventSystem.cs");
+        File.WriteAllText(source, "namespace UnityEngine.EventSystems { public class EventSystem { } }");
+        File.WriteAllText(source + ".meta", "fileFormatVersion: 2\nguid: 77610ee63b9e42949f0ed72377faa0b7\n");
+        const string prefab = "Assets/EventSystem.prefab";
+        var fileId = Md4.UnityFileId("UnityEngine.EventSystems", "EventSystem");
+        fixture.WriteCandidate(prefab, $"  m_Script: {{fileID: {fileId}, guid: f5f67c52d1564df4a8936ccd202a3bd8, type: 3}}\n");
+        new ProjectMigration(config, fixture.Candidate).Run();
+        var guid = GuidFrom(File.ReadAllText(Path.Combine(fixture.Candidate, "Assets/Plugins/UnityEngine.UI.dll.meta")));
+        Check(File.ReadAllText(Path.Combine(fixture.Candidate, prefab)).Contains($"fileID: {fileId}, guid: {guid}, type: 3", StringComparison.Ordinal),
+            "the EventSystem script did not bind to the UI assembly with its original file ID");
     }
 
     private static void MissingSteamVrBinding()

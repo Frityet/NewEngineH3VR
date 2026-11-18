@@ -235,7 +235,8 @@ public sealed class ProjectMigration(ConversionConfig config, string candidate)
             if (bindings.TryGetValue(key, out var previous) && previous != target)
                 throw new InvalidDataException("Built-in UGUI script GUID conflicts with another recovered script mapping: " + oldGuid);
             bindings[key] = target; rows.Add(new { source_guid = oldGuid, source_path = source, assembly = target.Assembly, @namespace = ns, class_name = className, guid = target.Guid, fileID = target.FileId });
-            if (ns == "UnityEngine.UI") bindings[(target.FileId, "f5f67c52d1564df4a8936ccd202a3bd8")] = target;
+            // The legacy UI assembly GUID covers controls and EventSystems components.
+            bindings[(target.FileId, "f5f67c52d1564df4a8936ccd202a3bd8")] = target;
         }
     }
 
