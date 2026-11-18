@@ -1,4 +1,5 @@
 using H3VR.Converter;
+using System.Text.Json;
 
 namespace H3VR.Converter.Tests;
 
@@ -9,6 +10,42 @@ public static class ShaderRecoveryTests
         yield return ("shader recovery rejects output aliased under game data through a symlink parent", SymlinkParentOverlap);
         yield return ("shader recovery rejects symlink children before probing exporter", SymlinkInputChild);
         yield return ("shader identities preserve signed path IDs and reject duplicates", ShaderIdentity);
+        yield return ("raw export identities join by source object and require matching metadata", ExportIdentity);
+    }
+
+    private static void ExportIdentity()
+    {
+        using var temp = new Temp();
+        Directory.CreateDirectory(temp.Root);
+        var trace = Path.Combine(temp.Root, "trace.jsonl");
+        var receipt = Path.Combine(temp.Root, "receipt.json");
+        var shader = Path.Combine(temp.Root, "synthetic.shader");
+        const string guid = "11111111111111111111111111111111";
+        File.WriteAllText(shader, "Shader \"Fixture\" {}");
+        File.WriteAllText(shader + ".meta", $"guid: {guid}\n");
+        using var inventory = JsonDocument.Parse("""
+            {"files":[{"source":"source.assets","serializedName":"source.assets","bundleEntry":null,
+                "copy":"copy.assets","pathIds":[-44],"sha256":"fixture"}]}
+            """);
+        string Row(long id, string metadataGuid) => JsonSerializer.Serialize(new
+        {
+            collection = "copy.assets",
+            pathId = id,
+            guid = metadataGuid,
+            path = "synthetic.shader",
+        });
+        File.WriteAllText(trace, Row(-44, guid) + "\n");
+        ShaderRecovery.VerifyExportIdentities(inventory.RootElement, trace, temp.Root, [shader], receipt);
+        Check(File.Exists(receipt), "a verified source reference must be emitted");
+        File.WriteAllText(trace, Row(44, guid) + "\n");
+        Check(Capture(() => ShaderRecovery.VerifyExportIdentities(inventory.RootElement, trace, temp.Root, [shader], receipt)) is InvalidDataException,
+            "an unknown signed path ID must not match");
+        File.WriteAllText(trace, Row(-44, "22222222222222222222222222222222") + "\n");
+        Check(Capture(() => ShaderRecovery.VerifyExportIdentities(inventory.RootElement, trace, temp.Root, [shader], receipt)) is InvalidDataException,
+            "a different GUID must not match the exported file");
+        File.WriteAllText(trace, Row(-44, guid) + "\n" + Row(-44, guid) + "\n");
+        Check(Capture(() => ShaderRecovery.VerifyExportIdentities(inventory.RootElement, trace, temp.Root, [shader], receipt)) is InvalidDataException,
+            "duplicate rows must fail closed");
     }
 
     private static void ShaderIdentity()

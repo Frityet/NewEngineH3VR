@@ -145,7 +145,8 @@ public sealed class ConverterApplication(string repository, IAnsiConsole console
         try
         {
             SafeFiles.CopyTree(Path.GetDirectoryName(exporter)!, runtimeCopy);
-            var result = await ShaderRecovery.RecoverAsync(new(config.GameData, output, Path.Combine(runtimeCopy, Path.GetFileName(exporter))), cancellation);
+            var result = await ShaderRecovery.RecoverAsync(new(config.GameData, output,
+                Path.Combine(runtimeCopy, Path.GetFileName(exporter))), cancellation);
             console.WriteLine($"Recovered {result.ExportedShaders} shader files to {result.OutputDirectory}.");
             console.WriteLine("These are raw, unvalidated sources. Validate and assemble an identity-matched overlay before using --shaders; see docs/shader-recovery.md.");
             return 0;

@@ -67,6 +67,7 @@ public static class ShaderExporter
             await Run("git", ["apply", patchPath], checkout, cancellationToken);
             await Run("git", ["diff", "--check"], checkout, cancellationToken);
             var buildFixPatch = await EnsureCommandLineDependency(checkout, cancellationToken);
+            var identityPatch = await InstrumentShaderExport(checkout, cancellationToken);
 
             var project = Path.Combine(checkout, ProjectPath.Replace('/', Path.DirectorySeparatorChar));
             await Run("dotnet", ["publish", project, "--configuration", "Release", "--runtime", RuntimeIdentifier,
@@ -84,7 +85,8 @@ public static class ShaderExporter
             CopyTree(buildOutput, staging);
             File.Copy(Path.Combine(checkout, "LICENSE.md"), Path.Combine(staging, "AssetRipper-LICENSE.md"));
             await File.WriteAllTextAsync(Path.Combine(staging, "AssetRipper-SOURCE.md"), SourceNotice, new UTF8Encoding(false), cancellationToken);
-            await File.WriteAllTextAsync(Path.Combine(staging, "AssetRipper-ShaderExporter.patch"), patch + "\n" + buildFixPatch, new UTF8Encoding(false), cancellationToken);
+            await File.WriteAllTextAsync(Path.Combine(staging, "AssetRipper-ShaderExporter.patch"),
+                patch + "\n" + buildFixPatch + "\n" + identityPatch, new UTF8Encoding(false), cancellationToken);
             Directory.Move(staging, destination);
             return Path.Combine(destination, executableName);
         }
@@ -97,6 +99,41 @@ public static class ShaderExporter
         {
             if (Directory.Exists(workspace)) Directory.Delete(workspace, recursive: true);
         }
+    }
+
+    private static async Task<string> InstrumentShaderExport(string checkout, CancellationToken cancellationToken)
+    {
+        const string relative = "Source/AssetRipper.Export.UnityProjects/Shaders/ShaderExportCollection.cs";
+        var path = Path.Combine(checkout, relative.Replace('/', Path.DirectorySeparatorChar));
+        var source = File.ReadAllText(path);
+        const string marker = "\tprotected override IUnityObjectBase CreateImporter(IExportContainer container)";
+        if (source.Split(marker, StringSplitOptions.None).Length != 2)
+            throw new InvalidDataException("The pinned shader collection no longer matches the export identity hook.");
+        var method = """
+                protected override bool ExportInner(IExportContainer container, string filePath, string dirPath)
+                {
+                    bool written = base.ExportInner(container, filePath, dirPath);
+                    string? trace = System.Environment.GetEnvironmentVariable("NATIVEH3VR_SHADER_EXPORT_TRACE");
+                    if (written && trace is not null)
+                    {
+                        string relative = System.IO.Path.GetRelativePath(dirPath, filePath).Replace('\\', '/');
+                        string line = System.Text.Json.JsonSerializer.Serialize(new {
+                            collection = Asset.Collection.Name,
+                            pathId = Asset.PathID,
+                            guid = GUID.ToString(),
+                            path = relative
+                        });
+                        System.IO.File.AppendAllText(trace, line + "\n");
+                    }
+                    return written;
+                }
+
+            """;
+        var newline = source.Contains("\r\n", StringComparison.Ordinal) ? "\r\n" : "\n";
+        var utf8Bom = File.ReadAllBytes(path).AsSpan().StartsWith(Encoding.UTF8.Preamble);
+        File.WriteAllText(path, source.Replace(marker, method.ReplaceLineEndings(newline) + newline + marker, StringComparison.Ordinal),
+            new UTF8Encoding(utf8Bom));
+        return await Capture("git", ["diff", "--", relative], checkout, cancellationToken);
     }
 
     private static void CopyTree(string source, string destination)

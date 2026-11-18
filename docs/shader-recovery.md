@@ -23,7 +23,8 @@ dotnet run --project src/H3VR.Converter -- recover-shaders \
 The converter provisions the exporter on first use under `~/.cache/h3vr-converter`, then reuses a verified cache keyed by source commit, patch, provisioning recipe and host runtime. `--cache` changes the location; `--offline` requires an existing verified cache and skips provisioning. The output defaults to the conversion workspace path plus `-shaders`. This raw export does **not** automatically supply the validated `--shaders` overlay required by project preparation.
 
 The command creates `shader-inputs/`, `assetripper-export/`,
-`shader-input-manifest.json`, `assetripper.log`, and `recovery-receipt.json` under the output
+`shader-input-manifest.json`, `shader-export-identities.json`,
+`assetripper.log`, and `recovery-receipt.json` under the output
 directory. It refuses to overwrite a non-empty output or overlap the game, checkout,
 workspace or tool cache. The legacy exporter starts on an ephemeral loopback port
 and is stopped when the export finishes or is cancelled. Its standard output and
@@ -69,6 +70,23 @@ hooks. Follow the license and source notice in the generated directory when
 redistributing the patched executable.
 
 ## Validation boundary
+
+The cold extractor records each exported shader's serialized member, bundle,
+path ID, Unity GUID and project path. The raw exporter links its result to the
+hashed shader-only input and original serialized object. Join the two receipts
+after both commands complete.
+
+```sh
+python3 tools/ShaderExporter/link-exports.py \
+  --workspace "/path/to/private-workspace" \
+  --recovery "/path/to/private-raw-shaders" \
+  --steam-install "/path/to/H3VR" \
+  --output "/path/to/private-shader-correspondence.json"
+```
+
+Unmatched project paths fail the command and appear in the correspondence
+report. The join verifies hashes and matches source objects by their
+serialized identities. Matching shader names provide no identity evidence.
 
 The receipt intentionally labels the result `raw-export-unvalidated`. Passing
 this raw export to the converter as `ShaderSources` is not supported. In
