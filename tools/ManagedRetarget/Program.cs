@@ -1,7 +1,8 @@
 using Mono.Cecil;
 using Mono.Cecil.Cil;
 using System.Text.Json;
-if (args.Length != 4) throw new ArgumentException("Expected: input-managed output-managed unity-engine-assemblies compatibility.dll");
+if (args.Length != 4 && !(args.Length == 5 && args[4] == "--metal-buffer-bounds"))
+    throw new ArgumentException("Expected input-managed output-managed unity-engine-assemblies compatibility.dll [--metal-buffer-bounds]");
 var input = Path.GetFullPath(args[0]);
 var output = Path.GetFullPath(args[1]);
 var engine = Path.GetFullPath(args[2]);
@@ -28,6 +29,10 @@ var types = runtime.SelectMany(a => a.MainModule.Types.SelectMany(Types))
                 .ToDictionary(g => g.Key, g => g.First());
 var shim = AssemblyDefinition.ReadAssembly(shimPath);
 var compatibility = shim.MainModule.GetType("NativeH3VR.Compatibility");
+var bufferBindings = args.Length == 5
+    ? shim.MainModule.GetType("NativeH3VR.ShaderBufferBindings")
+        ?? throw new InvalidDataException("The Metal compatibility assembly is missing shader buffer bindings.")
+    : null;
 var renames =
     new Dictionary<string, string> { { "Assembly-CSharp", "NativeH3VR.Game" },
                                      { "Assembly-CSharp-firstpass", "NativeH3VR.FirstPass" },
@@ -51,6 +56,26 @@ MethodDefinition New(string type, string name,
 MethodDefinition Shim(string name) => compatibility.Methods.Single(m => m.Name == name);
 bool IsOldEngine(TypeReference t) => t.Scope.Name is "UnityEngine" or "UnityEngine.dll" or
                                                      "UnityEngine.VR" or "UnityEngine.VR.dll";
+MethodDefinition? MetalBufferBinding(MethodReference method, OpCode opcode)
+{
+    if (bufferBindings is null || opcode != OpCodes.Call && opcode != OpCodes.Callvirt)
+        return null;
+    var owner = method.DeclaringType.FullName;
+    if (owner == "UnityEngine.Shader" && method.Name == "PropertyToID" && !method.HasThis &&
+        method.Parameters.Count == 1 && method.Parameters[0].ParameterType.FullName == "System.String")
+        return bufferBindings.Methods.Single(candidate => candidate.Name == "PropertyToID");
+    if (owner is not ("UnityEngine.Material" or "UnityEngine.MaterialPropertyBlock") ||
+        method.Name != "SetBuffer" || !method.HasThis || method.Parameters.Count != 2 ||
+        method.Parameters[1].ParameterType.FullName != "UnityEngine.ComputeBuffer")
+        return null;
+    var nameType = method.Parameters[0].ParameterType.FullName;
+    if (nameType is not ("System.String" or "System.Int32"))
+        return null;
+    return bufferBindings.Methods.Single(candidate => candidate.Name == "SetBuffer" &&
+        candidate.Parameters[0].ParameterType.FullName == owner &&
+        candidate.Parameters[1].ParameterType.FullName == nameType);
+}
+
 foreach (var filename in keep)
 {
     using var a =
@@ -66,7 +91,7 @@ foreach (var filename in keep)
         {
             if (ins.Operand is MethodReference mr && IsOldEngine(mr.DeclaringType))
             {
-                MethodDefinition? replacement = null;
+                var replacement = MetalBufferBinding(mr, ins.OpCode);
                 string key = mr.DeclaringType.FullName + "::" + mr.Name;
                 switch (key)
                 {

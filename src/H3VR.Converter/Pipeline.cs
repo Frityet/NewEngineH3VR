@@ -184,7 +184,11 @@ public sealed class Pipeline(string repository, ConversionConfig config)
             var compat = Path.Combine(candidate, "compat");
             await Processes.Run("dotnet", ["build", Path.Combine(repository, "runtime/Compatibility/Compatibility.csproj"), "-c", "Release", "-o", compat, "-p:UnityEngineAssemblies=" + config.EngineAssemblies], repository, cancellation: cancellation);
             var retargeted = Path.Combine(candidate, "retargeted");
-            await Processes.Run("dotnet", ["run", "--project", Path.Combine(repository, "tools/ManagedRetarget"), "-c", "Release", "--", config.ManagedInput, retargeted, config.EngineAssemblies, Path.Combine(compat, "NativeH3VR.Compat.dll")], repository, cancellation: cancellation);
+            var retargetArgs = new List<string> { "run", "--project", Path.Combine(repository, "tools/ManagedRetarget"),
+                "-c", "Release", "--", config.ManagedInput, retargeted, config.EngineAssemblies,
+                Path.Combine(compat, "NativeH3VR.Compat.dll") };
+            if (config.BuildTarget == "StandaloneOSX") retargetArgs.Add("--metal-buffer-bounds");
+            await Processes.Run("dotnet", retargetArgs, repository, cancellation: cancellation);
             if (config.BuildTarget == "StandaloneOSX") await ApplyMacPlatform(retargeted, candidate, cancellation);
             await VerifyManaged(retargeted, cancellation);
             var adapter = Path.Combine(candidate, "adapter");

@@ -42,6 +42,13 @@ conversion. The built player is ad-hoc signed locally. Its receipt records
 Steam build and extraction identities, Unity version, architecture, executable
 and managed DLL hashes.
 
+The macOS managed retargeter records names from legacy `Shader.PropertyToID`
+calls. When the game binds a `ComputeBuffer` to a material or property block,
+the compatibility assembly sets an integer `_NativeH3VRBufferCount` companion
+with the same scope. Metal translations can use the bound element count without
+querying the buffer size in the shader. The Windows retargeter uses the original
+binding calls. [Unity material property bindings](https://github.com/Unity-Technologies/UnityCsReference/blob/2021.3/Runtime/Export/Shaders/MaterialPropertyBlock.cs)
+
 ## Launch an imported player
 
 Build a MacVR export with `xmake openxr-export --output=/absolute/new/path`.
