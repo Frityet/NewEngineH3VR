@@ -29,7 +29,7 @@ internal static class MetalSmoke
         File.WriteAllText(Path.Combine(assets, "csc.rsp"), "-define:NATIVEH3VR_METAL\n");
         File.WriteAllText(Path.Combine(packages, "manifest.json"),
             "{\"dependencies\":{\"com.unity.modules.xr\":\"1.0.0\",\"com.unity.modules.vr\":\"1.0.0\"}}\n");
-        foreach (string file in IntegrationBuild.BridgeSources.Concat(["H3VRMetalBinding.cs", "SyntheticHands.cs"]))
+        foreach (string file in IntegrationBuild.BridgeSources.Concat(["H3VRMetalBinding.cs", "SyntheticHands.cs", "StockGearNormals.cs"]))
             File.Copy(Path.Combine(source, file), Path.Combine(assets, file));
         File.Copy(Path.Combine(root, "runtime", "OpenXR", "OpenXRDeviceState.cs"), Path.Combine(assets, "OpenXRDeviceState.cs"));
         File.Copy(Path.Combine(fixture, "IndexRawPose.cs"), Path.Combine(assets, "IndexRawPose.cs"));

@@ -33,6 +33,7 @@ namespace NativeH3VR
             try
             {
                 XRBridge.Register(new H3VRMetalBinding(NativeStereoRenderer.Install()));
+                StockGearNormals.Install();
                 Debug.Log("NATIVEH3VR_METAL_HOST_READY");
             }
             catch (Exception error)
