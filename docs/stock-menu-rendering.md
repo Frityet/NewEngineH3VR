@@ -15,7 +15,9 @@ python3 tests/StockMenuRendering/run.py \
 uv run tests/StockMenuRendering/measure.py "/path/to/fresh/output" --verify-stock
 
 python3 tests/StockMenuRendering/verify_profiles.py \
-  "/path/to/recovery/ExportedProject" "/path/to/retargeted/project"
+  "/path/to/recovery/ExportedProject" "/path/to/retargeted/project" > stock-profiles.json
+
+python3 tests/StockMenuRendering/verify_scenes.py stock-profiles.json /path/to/completed/scene-runs/*
 ```
 
 The report records the actual HDR camera, eye transforms, frusta, render formats, active and inactive materials, lights, cubemaps and post-processing resources. Each eye is captured twice with identical settings to establish the noise floor. Further captures switch off the grade, switch off bloom, toggle AO, disable the whole layer and restore the original settings. The neutral test card samples five known material input values and the black surround beside an HDR patch. The test also records the blended grading settings, the five sampled curve values and the full 33³ floating-point LUT. Use `--gear` to capture the stock Index controller wire meshes at fixed poses. Each `--survey-scene` enters another official scene through the stock scene loader and records its two eyes.
@@ -37,7 +39,7 @@ The recovered stock materials also required migration of their saved HDR colors.
 
 On the signed player, mean menu luminance on the left was 75.93 on Metal and 75.88 on D3D11. The right eye measured 75.83 and 75.84. The three sampled wall panels differed by at most 0.61 across both eyes. Bright interior pixels in the title and welcome lettering had median luminance within one code of Windows. Bloom and grading were enabled in both games. On Metal, turning on the stock menu's optional ambient occlusion changed over a third of each eye by more than five RGB codes. The repeat capture with unchanged settings recorded zero pixels above that threshold.
 
-The survey covered 14 official scenes, including the title, day and night outdoor ranges, the indoor range, warehouse and grillhouse. Every assigned shader on an active renderer in these samples reported Metal support. Each Friendly45 variant retains three inactive fir meshes with an empty stock material. Their original Windows material has a null shader pointer and their common root is disabled. Runtime surveys include these placeholders and empty particle or equipment slots so the captured state can be inspected.
+All 46 official scenes loaded through the stock scene loader and submitted color images for both eyes. The survey found 51 distinct supported material shaders and zero unsupported shaders assigned to an active scene renderer. Each Friendly45 variant retains three inactive fir meshes with an empty stock material. Their original Windows material has a null shader pointer and their common root is disabled. Runtime surveys include these placeholders and empty particle or equipment slots so the captured state can be inspected.
 
 The 46 original scenes contain 155 post-processing volumes. Their 25 shared profiles comprise 13 grading presets, eight bloom presets and four ambient occlusion presets. The migrated Unity project preserves the original weights, curves, colors, profile GUIDs and every serialized setting in these volumes and profiles. The source check verifies the new managed class binding for every component and compares its remaining fields verbatim.
 
