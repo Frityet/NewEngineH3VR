@@ -172,7 +172,7 @@ namespace NativeH3VR
             {
                 // The plugin retains textures until the submitted command buffer
                 // completes. A queued Unity event will drain the same session.
-                MetalOpenXR.nhxr_close();
+                MetalOpenXR.Close();
                 installed = frameOpen = false;
             }
             RestoreCamera();

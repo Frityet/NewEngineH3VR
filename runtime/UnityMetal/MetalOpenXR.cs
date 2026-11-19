@@ -99,15 +99,23 @@ namespace NativeH3VR
         [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
         internal static extern int nhxr_haptic(uint hand, float amplitude, float frequency, float seconds);
         [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
-        internal static extern int nhxr_close();
+        static extern int nhxr_close();
 
-        public static string SystemName => Marshal.PtrToStringUTF8(nhxr_system_name());
+        public static string SystemName { get; private set; } = string.Empty;
 
         internal static void Open(string loader, uint width, uint height)
         {
             if (Marshal.SizeOf<Frame>() != nhxr_frame_size() || Marshal.SizeOf<Hand>() != nhxr_hand_size())
                 throw new InvalidOperationException("The Unity and Metal OpenXR interop layouts differ.");
             Check(nhxr_open(loader, width, height));
+            // The system name is fixed for the lifetime of the OpenXR session.
+            SystemName = Marshal.PtrToStringUTF8(nhxr_system_name());
+        }
+
+        internal static void Close()
+        {
+            nhxr_close();
+            SystemName = string.Empty;
         }
 
         internal static void Check(int result)

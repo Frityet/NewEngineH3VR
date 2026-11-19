@@ -27,43 +27,38 @@ namespace NativeH3VR
         static bool[] awaitingNeutral = { true, true };
         static int lastRefreshFrame = -1;
         public static bool Synthetic { get; set; }
-#if NEWENGINE_UNITY_2021
-    // Manifest-derived strings and ABI sizes are immutable between registration
-    // batches. Keep this new state outside the existing adapter field layout.
-    sealed class ActionLookup {
-        internal readonly string name;
-        internal readonly ulong set;
-        internal readonly bool parsed;
-        internal ActionLookup(string path) {
-            name = path.Substring(path.LastIndexOf('/') + 1);
-            int separator = path.Length >= 9 ? path.IndexOf('/', 9) : -1;
-            parsed = separator >= 0;
-            if (parsed)
-                handles.TryGetValue(path.Substring(0, separator), out set);
-        }
-    }
-    static class LookupCache {
-        internal static Dictionary<ulong, ActionLookup> entries =
-            new Dictionary<ulong, ActionLookup>();
-        internal static void Rebuild() {
-            var updated = new Dictionary<ulong, ActionLookup>(paths.Count);
-            foreach (var pair in paths)
-                updated.Add(pair.Key, new ActionLookup(pair.Value));
-            entries = updated;
-        }
-    }
-    static class StructureSize<T> {
-        internal static readonly uint value = (uint)Marshal.SizeOf(typeof(T));
-    }
-#endif
-        static uint Size<T>()
+        sealed class ActionLookup
         {
-#if NEWENGINE_UNITY_2021
-        return StructureSize<T>.value;
-#else
-            return (uint)Marshal.SizeOf(typeof(T));
-#endif
+            public readonly string Name;
+            public readonly ulong Set;
+
+            public ActionLookup(string name, ulong set)
+            {
+                Name = name;
+                Set = set;
+            }
         }
+
+        static readonly Dictionary<ulong, ActionLookup> actionLookups = new Dictionary<ulong, ActionLookup>();
+
+        static class StructureSize<T>
+        {
+            public static readonly uint Value = (uint)Marshal.SizeOf(typeof(T));
+        }
+
+        static void RebuildActionLookups()
+        {
+            actionLookups.Clear();
+            foreach (var pair in paths)
+            {
+                string path = pair.Value;
+                int separator = path.Length >= 9 ? path.IndexOf('/', 9) : -1;
+                if (separator >= 0 && handles.TryGetValue(path.Substring(0, separator), out ulong set))
+                    actionLookups.Add(pair.Key, new ActionLookup(path.Substring(path.LastIndexOf('/') + 1), set));
+            }
+        }
+
+        static uint Size<T>() => StructureSize<T>.Value;
         static ulong Register(string path, string type)
         {
             ulong handle;
@@ -102,13 +97,11 @@ namespace NativeH3VR
             {
                 return EVRInputError.MismatchedActionManifest;
             }
-#if NEWENGINE_UNITY_2021
-        // Original registration retains old handles and partial registrations
-        // on failure. Rebuild after either outcome, including newly added sets.
-        finally {
-            LookupCache.Rebuild();
-        }
-#endif
+            finally
+            {
+                // Registration keeps old handles, including partial additions on failure.
+                RebuildActionLookups();
+            }
         }
         static EVRInputError Handle(string name, string kind, ref ulong output)
         {
@@ -155,7 +148,7 @@ namespace NativeH3VR
                 return fixture ? fixtureFocus : XRBridge.InputFocused;
             }
         }
-        static NativeTracking.Snapshot GateInput(NativeTracking.Snapshot sample, bool focused)
+        static NativeTracking.Snapshot GateInput(NativeTracking.Snapshot sample, bool focused, bool copy = false)
         {
             if (!focused)
             {
@@ -163,7 +156,9 @@ namespace NativeH3VR
             }
             if (sample.devices == null)
                 return sample;
-            sample.devices = (NativeTracking.Device[])sample.devices.Clone();
+            bool copied = copy;
+            if (copy)
+                sample.devices = (NativeTracking.Device[])sample.devices.Clone();
             for (int i = 0; i < sample.devices.Length && i < sample.deviceCount; i++)
             {
                 var device = sample.devices[i];
@@ -182,6 +177,11 @@ namespace NativeH3VR
                 }
                 if (!allow)
                 {
+                    if (!copied)
+                    {
+                        sample.devices = (NativeTracking.Device[])sample.devices.Clone();
+                        copied = true;
+                    }
                     device.flags &= ~NativeTracking.InputCurrent;
                     device.buttons = device.touches = 0;
                     device.axes = new float[16];
@@ -220,7 +220,7 @@ namespace NativeH3VR
             fixture = true;
             fixtureFocus = focused;
             previous = current;
-            current = GateInput(sample, focused);
+            current = GateInput(sample, focused, copy: true);
         }
         internal static void EndFixture()
         {
@@ -234,7 +234,8 @@ namespace NativeH3VR
         {
             if (size != Size<VRActiveActionSet_t>() || sets == null)
                 return EVRInputError.InvalidParam;
-            activeSets.Clear();
+            foreach (var sources in activeSets.Values)
+                sources.Clear();
             foreach (var set in sets)
             {
                 if (!types.ContainsKey(set.ulActionSet) || types[set.ulActionSet] != "set")
@@ -281,29 +282,21 @@ namespace NativeH3VR
             if (types[action] != type)
                 return EVRInputError.WrongType;
             ulong set;
-#if NEWENGINE_UNITY_2021
-        ActionLookup lookup;
-        if (LookupCache.entries.TryGetValue(action, out lookup) && lookup.parsed) {
-            name = lookup.name;
-            set = lookup.set;
-        } else {
-            // Preserve malformed-path exception timing and any registration
-            // outside manifest batches instead of accepting a new path shape.
-            string path = paths[action];
-            name = path.Substring(path.LastIndexOf('/') + 1);
-            string setPath = path.Substring(0, path.IndexOf('/', 9));
-            if (!handles.TryGetValue(setPath, out set))
-                return EVRInputError.None;
-        }
-#else
-            string path = paths[action];
-            name = path.Substring(path.LastIndexOf('/') + 1);
-            string setPath = path.Substring(0, path.IndexOf('/', 9));
-            if (!handles.TryGetValue(setPath, out set))
-                return EVRInputError.None;
-#endif
+            if (actionLookups.TryGetValue(action, out var lookup))
+            {
+                name = lookup.Name;
+                set = lookup.Set;
+            }
+            else
+            {
+                string path = paths[action];
+                name = path.Substring(path.LastIndexOf('/') + 1);
+                string setPath = path.Substring(0, path.IndexOf('/', 9));
+                if (!handles.TryGetValue(setPath, out set))
+                    return EVRInputError.None;
+            }
             HashSet<ulong> allowed;
-            if (!activeSets.TryGetValue(set, out allowed))
+            if (!activeSets.TryGetValue(set, out allowed) || allowed.Count == 0)
                 return EVRInputError.None;
             uint role = Role(source);
             if (source == 0)

@@ -158,6 +158,7 @@ public:
     std::array<XrAction, ActionCount> actions{};
     std::array<XrPath, 2> handPaths{};
     XrPath indexProfile = XR_NULL_PATH;
+    std::array<XrPath, hands.size()> profiles{};
     std::array<XrSpace, 2> gripSpaces{}, aimSpaces{};
     std::array<NhxrHand, 2> samples{};
     std::array<XrView, 2> views{};
@@ -397,6 +398,11 @@ public:
             if (result == XR_EVENT_UNAVAILABLE) return true;
             if (!check(result, "xrPollEvent")) return false;
             if (data.type == XR_TYPE_EVENT_DATA_INSTANCE_LOSS_PENDING) exiting = true;
+            if (data.type == XR_TYPE_EVENT_DATA_INTERACTION_PROFILE_CHANGED) {
+                const auto &change = reinterpret_cast<const XrEventDataInteractionProfileChanged &>(data);
+                if (change.session == session) profiles = {};
+            }
+            if (data.type == XR_TYPE_EVENT_DATA_EVENTS_LOST) profiles = {};
             if (data.type != XR_TYPE_EVENT_DATA_SESSION_STATE_CHANGED) continue;
             const auto &change = reinterpret_cast<const XrEventDataSessionStateChanged &>(data);
             if (change.session != session) continue;
@@ -476,10 +482,13 @@ public:
             CHECK(LocateSpace, aimSpaces[i], stage, timing.predictedDisplayTime, &aim);
             NhxrHand &hand = samples[i];
             hand.flags = NHXR_CONNECTED | NHXR_INPUT_CURRENT;
-            XrInteractionProfileState profile{};
-            profile.type = XR_TYPE_INTERACTION_PROFILE_STATE;
-            if (XR_SUCCEEDED(xr.GetCurrentInteractionProfile(session, handPaths[i], &profile)) &&
-                profile.interactionProfile == indexProfile)
+            if (profiles[i] == XR_NULL_PATH) {
+                XrInteractionProfileState profile{};
+                profile.type = XR_TYPE_INTERACTION_PROFILE_STATE;
+                if (XR_SUCCEEDED(xr.GetCurrentInteractionProfile(session, handPaths[i], &profile)))
+                    profiles[i] = profile.interactionProfile;
+            }
+            if (profiles[i] == indexProfile)
                 hand.profile = NHXR_PROFILE_VALVE_INDEX;
             if ((grip.locationFlags & validPose) == validPose) {
                 hand.grip = pose(grip.pose);
@@ -624,6 +633,7 @@ public:
         copyPipeline = nil;
         sources[0] = sources[1] = nil;
         samples = {};
+        profiles = {};
         state = XR_SESSION_STATE_UNKNOWN;
         phase = Phase::Idle;
         running = exiting = closeRequested = false;
