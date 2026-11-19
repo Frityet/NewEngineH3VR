@@ -11,8 +11,10 @@ Unity test scene and native mod-host fixture use independently authored assets.
   zero unresolved type, method or engine field references. Project migration
   resolved 4,387 original asset-bundle addresses across 18 bundles.
 - The rebuilt Steam and FMOD shims resolved all 850 inspected CSteamworks and
-  545 FMOD imports by symbol. Steam client authorization, spatial audio and
-  video playback still need stock-player runs.
+  545 FMOD imports by symbol. The stock player initialized the running Steam
+  client after the two native shims and their dependencies moved directly into
+  the player's PlugIns directory. Spatial audio and video playback still need
+  dedicated acceptance checks.
 - A signed arm64 Unity fixture loaded the MacVR 0.4.0 runtime through the
   Khronos loader and ran on Apple M5 Max Metal. It acquired focus, read two
   tracked controller poses, reached the configured 2 m stage bounds and
@@ -28,8 +30,9 @@ Unity test scene and native mod-host fixture use independently authored assets.
   original serialized identities and recovered project GUIDs. The complete
   generated set imported on Metal with zero shader errors. This isolated
   check covers default compilation. Exact stock variant checks included
-  lighting, fog, LOD crossfade, instancing and SpeedTree geometry. Full player
-  and scene rendering validation remains pending. [Shader recovery](shader-recovery.md)
+  lighting, fog, LOD crossfade, instancing and SpeedTree geometry. The strict
+  stock player build serialized 46 scenes and all 18 native asset bundles.
+  [Shader recovery](shader-recovery.md)
 - All 22 kernels translated from the extracted Direct3D compute programs
   compiled on Apple M5 Max Metal with their original thread-group sizes.
   Metal dispatch/readback verified a 128-entry histogram clear and linear
@@ -63,13 +66,15 @@ through the original file IDs. The current isolated Metal import covers all
 and 22 kernels. Full project validation combines these inputs and records
 shader upgrades applied by Unity.
 
-The Unity build must preserve original scene and script bindings and bundle
-addresses, verify the assembled app
-signature, and run through Steam authorization and stock startup. Actual
-gameplay, seeded Atlas acceptance and performance on the stock, Facility
-door and Level 0 routes remain open. Physical headset readiness, presentation,
-controller handling and player acceptance require a live session.
+The assembled app verified as thin ARM64 with a strict deep signature. The
+converter restored 1,962 original lighting probe sets across 15 scenes. The
+stock player loaded through Steamworks and rendered the main menu at
+1,440 × 1,600 per eye. Atlas loaded five external mod assemblies and registered
+its map from the same signed player. Seeded gameplay, lighting appearance and
+performance on the stock, Facility door and Level 0 routes need runtime
+acceptance. Physical presentation, controller handling and player acceptance
+require a live session.
 
-Unity 2021.3.45f2 stays selected for this checkpoint. The Metal and external
-mod smoke tests passed there. The stock shader gate currently precedes any
-comparable game trace, so engine comparison is deferred.
+Unity 2021.3.45f2 stays selected for this checkpoint. It produced the cold
+player, rebuilt the stock bundles and ran the external mod smoke. A comparable
+gameplay trace will inform any engine change.

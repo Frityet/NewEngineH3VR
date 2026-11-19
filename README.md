@@ -4,7 +4,7 @@ Tooling for importing your installed Steam copy of H3VR into a private Unity **2
 
 This repository contains conversion tools, compatibility code and tests. It contains no game assemblies, extracted assets, shaders, Unity editor/player binaries, or prebuilt game. All extraction and rebuilding happen in a private workspace on your computer.
 
-**Status.** Cold extraction, managed migration and a synthetic Apple Silicon Metal/OpenXR player have passed. The fresh stock game build still requires an identity-matched, validated shader overlay recovered from the Steam input. See [validation](docs/validation.md).
+**Status.** A cold Steam import produced a signed ARM64 Metal player. It initialized Steamworks and rendered the stock menu in both eyes through MacVR's synthetic OpenXR runtime. The importer requires a validated, identity-matched shader overlay. [Validation and remaining gates](docs/validation.md)
 
 ## Requirements
 

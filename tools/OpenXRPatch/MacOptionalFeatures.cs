@@ -50,7 +50,24 @@ public static class MacOptionalFeatures
                 changed.Add(method.FullName);
             }
         }
+        if (UseDefaultAudio(module) is { } audio) changed.Add(audio);
         return changed;
+    }
+
+    public static string? UseDefaultAudio(ModuleDefinition module)
+    {
+        var ears = module.GetType("Valve.VR.SteamVR_Ears");
+        if (ears is null) return null;
+        var onEnable = ears.Methods.Single(method => method.Name == "OnEnable" && method.HasBody);
+        var settings = onEnable.Body.Instructions.Single(instruction =>
+            instruction.OpCode == OpCodes.Call &&
+            instruction.Operand is MethodReference target &&
+            target.FullName == "Valve.VR.CVRSettings Valve.VR.OpenVR::get_Settings()");
+        // OpenXR leaves endpoint selection to macOS. Follow the listener's
+        // existing default path when there is no legacy surround setting.
+        settings.OpCode = OpCodes.Ldnull;
+        settings.Operand = null;
+        return onEnable.FullName;
     }
 
     private static void ReturnUnavailable(MethodDefinition method)
