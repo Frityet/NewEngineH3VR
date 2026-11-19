@@ -8,7 +8,7 @@ namespace H3VR.Converter;
 
 /// <summary>
 /// Stages a probe-set-only Steam GI repair for an unsigned Unity player. It never
-/// modifies either input; callers must separately review and install the staged delta.
+/// modifies either input. A separate, receipt-pinned installation retains rollback evidence.
 /// </summary>
 public static class PlayerEnlighten
 {
@@ -88,6 +88,167 @@ public static class PlayerEnlighten
             manager.UnloadAllAssetsFiles(true);
             if (Directory.Exists(staging)) Directory.Delete(staging, true);
         }
+    }
+
+    public sealed record InstalledFile(string Path, string InstalledSha256, string? PreviousSha256, string? Backup);
+    public sealed record InstallReceipt(int SchemaVersion, string TargetData, string StageReceiptSha256,
+        string TargetBuildSettingsSha256, InstalledFile[] Files);
+    public sealed record Installation(string EvidenceDirectory, string ReceiptSha256);
+
+    /// <summary>Installs a hash-pinned staged delta into a private unsigned player and retains backups.</summary>
+    public static Installation Install(string stagedDelta, string targetData, string expectedStageReceiptSha256, string evidenceDirectory)
+    {
+        string stage = Path.GetFullPath(stagedDelta), target = Path.GetFullPath(targetData), evidence = Path.GetFullPath(evidenceDirectory);
+        if (!Directory.Exists(stage) || !Directory.Exists(target)) throw new DirectoryNotFoundException("Stage or player data is missing.");
+        SafeFiles.RequireSeparate(stage, target); SafeFiles.RequireSeparate(stage, evidence); SafeFiles.RequireSeparate(target, evidence);
+        if (Directory.Exists(evidence) || File.Exists(evidence)) throw new IOException("Evidence destination already exists: " + evidence);
+        RejectLinks(stage); RejectLinks(target);
+        string stageReceipt = Path.Combine(stage, "enlighten-stage.json");
+        RequireHash(stageReceipt, expectedStageReceiptSha256);
+        var receipt = JsonSerializer.Deserialize<Receipt>(File.ReadAllText(stageReceipt)) ?? throw new InvalidDataException("Empty stage receipt.");
+        if (receipt.SchemaVersion != 1 || Path.GetFullPath(receipt.TargetData) != target || receipt.Scenes == null || receipt.Files == null)
+            throw new InvalidDataException("Stage receipt does not identify this target.");
+        RequireHash(Path.Combine(target, "globalgamemanagers"), receipt.TargetBuildSettingsSha256);
+        var expected = new HashSet<string>(StringComparer.Ordinal);
+        var levels = new Dictionary<string, SceneReceipt>(StringComparer.Ordinal);
+        foreach (var scene in receipt.Scenes)
+        {
+            CanonicalScene(scene.Scene);
+            if (!System.Text.RegularExpressions.Regex.IsMatch(scene.TargetLevel, @"^level(0|[1-9][0-9]*)$") ||
+                scene.ProbeHashes == null || scene.ProbeSets != scene.ProbeHashes.Length || !levels.TryAdd(scene.TargetLevel, scene))
+                throw new InvalidDataException("Invalid staged scene record.");
+            CreateProbeMapping(scene.ProbeHashes);
+            expected.Add(scene.TargetLevel);
+            foreach (string hash in scene.ProbeHashes)
+            {
+                expected.Add("GI/" + scene.TargetLevel + "/" + hash[..2] + "/" + hash + ".pos");
+                expected.Add("GI/" + scene.TargetLevel + "/" + hash[..2] + "/" + hash + ".rpc.sse");
+            }
+        }
+        if (!expected.SetEquals(receipt.Files.Keys)) throw new InvalidDataException("Stage receipt file set differs from its probe records.");
+        var actual = SafeFiles.Files(stage).Select(p => Path.GetRelativePath(stage, p).Replace('\\', '/')).ToHashSet(StringComparer.Ordinal);
+        expected.Add("enlighten-stage.json");
+        if (!expected.SetEquals(actual)) throw new InvalidDataException("Staged directory has missing or unexpected files.");
+        expected.Remove("enlighten-stage.json");
+        var work = new List<InstalledFile>();
+        foreach (string relative in expected.Order(StringComparer.Ordinal))
+        {
+            string from = SafeFiles.Inside(stage, relative), to = SafeFiles.Inside(target, relative);
+            RequireDirectoryAncestors(target, to);
+            string hash = receipt.Files[relative]; RequireHash(from, hash);
+            if (levels.TryGetValue(relative, out var scene))
+            {
+                if (hash != scene.StagedTargetSha256) throw new InvalidDataException("Level hash differs from scene receipt: " + relative);
+                RequireHash(to, scene.OriginalTargetSha256);
+                work.Add(new(relative, hash, scene.OriginalTargetSha256, "backup/" + relative));
+            }
+            else if (File.Exists(to))
+            {
+                // Equal pre-existing files are left alone and never removed by cleanup.
+                RequireHash(to, hash);
+            }
+            else if (Directory.Exists(to)) throw new IOException("GI destination is a directory: " + relative);
+            else work.Add(new(relative, hash, null, null));
+        }
+        string parent = Path.GetDirectoryName(evidence)!; Directory.CreateDirectory(parent);
+        string pending = Path.Combine(parent, ".enlighten-install-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(pending);
+        var committed = new List<InstalledFile>();
+        bool keepEvidence = false;
+        try
+        {
+            foreach (var item in work.Where(x => x.Backup != null))
+            {
+                string backup = SafeFiles.Inside(pending, item.Backup!);
+                Directory.CreateDirectory(Path.GetDirectoryName(backup)!);
+                File.Copy(SafeFiles.Inside(target, item.Path), backup, false);
+                RequireHash(backup, item.PreviousSha256!);
+            }
+            var installReceipt = new InstallReceipt(1, target, expectedStageReceiptSha256.ToLowerInvariant(), receipt.TargetBuildSettingsSha256, work.ToArray());
+            string journal = Path.Combine(pending, "enlighten-install.json");
+            File.WriteAllText(journal, JsonSerializer.Serialize(installReceipt, new JsonSerializerOptions { WriteIndented = true }) + "\n");
+            Directory.Move(pending, evidence); keepEvidence = true;
+            RequireHash(stageReceipt, expectedStageReceiptSha256);
+            RequireHash(Path.Combine(target, "globalgamemanagers"), receipt.TargetBuildSettingsSha256);
+            foreach (var item in work)
+            {
+                string destination = SafeFiles.Inside(target, item.Path);
+                if (item.PreviousSha256 != null) RequireHash(destination, item.PreviousSha256);
+                else if (File.Exists(destination) || Directory.Exists(destination)) throw new IOException("GI destination appeared during install: " + item.Path);
+                CopyVerified(SafeFiles.Inside(stage, item.Path), destination, item.InstalledSha256, item.PreviousSha256);
+                committed.Add(item);
+            }
+            return new(evidence, SafeFiles.Hash(Path.Combine(evidence, "enlighten-install.json")));
+        }
+        catch (Exception installError)
+        {
+            try
+            {
+                if (committed.Count > 0) RestoreFiles(target, evidence, committed.AsEnumerable().Reverse().ToArray());
+                if (Directory.Exists(evidence)) Directory.Delete(evidence, true);
+                keepEvidence = false;
+            }
+            catch (Exception rollbackError) { throw new AggregateException("GI installation failed and rollback was incomplete; evidence retained at " + evidence, installError, rollbackError); }
+            throw;
+        }
+        finally { if (Directory.Exists(pending)) Directory.Delete(pending, true); if (!keepEvidence && Directory.Exists(evidence)) Directory.Delete(evidence, true); }
+    }
+
+    /// <summary>Restores the previous levels and removes only GI files created by this installation.</summary>
+    public static void Cleanup(string targetData, string evidenceDirectory, string expectedReceiptSha256)
+    {
+        string target = Path.GetFullPath(targetData), evidence = Path.GetFullPath(evidenceDirectory);
+        SafeFiles.RequireSeparate(target, evidence);
+        RejectLinks(target); RejectLinks(evidence);
+        string path = Path.Combine(evidence, "enlighten-install.json"); RequireHash(path, expectedReceiptSha256);
+        var receipt = JsonSerializer.Deserialize<InstallReceipt>(File.ReadAllText(path)) ?? throw new InvalidDataException("Empty installation receipt.");
+        if (receipt.SchemaVersion != 1 || Path.GetFullPath(receipt.TargetData) != target || receipt.Files == null) throw new InvalidDataException("Installation receipt does not identify this target.");
+        RequireHash(Path.Combine(target, "globalgamemanagers"), receipt.TargetBuildSettingsSha256);
+        // Validate the complete cleanup before removing or restoring anything.
+        foreach (var item in receipt.Files)
+        {
+            RequireHash(SafeFiles.Inside(target, item.Path), item.InstalledSha256);
+            if (item.Backup != null) RequireHash(SafeFiles.Inside(evidence, item.Backup), item.PreviousSha256 ?? throw new InvalidDataException("Missing backup hash."));
+            else if (item.PreviousSha256 != null) throw new InvalidDataException("Missing backup path.");
+        }
+        RestoreFiles(target, evidence, receipt.Files.Reverse().ToArray());
+    }
+
+    private static void RestoreFiles(string target, string evidence, IEnumerable<InstalledFile> files)
+    {
+        foreach (var item in files)
+        {
+            string destination = SafeFiles.Inside(target, item.Path); RequireHash(destination, item.InstalledSha256);
+            if (item.Backup == null) File.Delete(destination);
+            else CopyVerified(SafeFiles.Inside(evidence, item.Backup), destination, item.PreviousSha256!, item.InstalledSha256);
+        }
+    }
+    private static void RequireDirectoryAncestors(string root, string destination)
+    {
+        string? path = Path.GetDirectoryName(destination);
+        while (path != null && path != root)
+        {
+            if (File.Exists(path)) throw new IOException("A destination parent is a file: " + path);
+            path = Path.GetDirectoryName(path);
+        }
+        if (path == null) throw new InvalidDataException("Destination is outside player data.");
+    }
+    private static void RequireHash(string path, string expected)
+    {
+        if (expected == null || expected.Length != 64 || !expected.All(Uri.IsHexDigit) || !File.Exists(path) ||
+            !SafeFiles.Hash(path).Equals(expected, StringComparison.OrdinalIgnoreCase)) throw new InvalidDataException("Missing file or SHA-256 mismatch: " + path);
+    }
+    private static void CopyVerified(string source, string destination, string expected, string? expectedDestination)
+    {
+        RequireHash(source, expected); Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
+        string temp = destination + ".nativeh3vr-" + Guid.NewGuid().ToString("N") + ".tmp";
+        try
+        {
+            File.Copy(source, temp, false); RequireHash(temp, expected);
+            if (expectedDestination != null) RequireHash(destination, expectedDestination);
+            File.Move(temp, destination, expectedDestination != null);
+        }
+        finally { if (File.Exists(temp)) File.Delete(temp); }
     }
 
     private static string[] ReadScenePaths(AssetsManager manager, string root, string expectedVersion)
