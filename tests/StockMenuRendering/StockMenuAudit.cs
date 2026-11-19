@@ -99,6 +99,7 @@ namespace NativeH3VR.QA
             var bloom = scene.Vol_Bloom;
             var ao = scene.Vol_AO;
             SaveReport("menu", Inspect(camera, layer));
+            CaptureStockResourceBindings(output);
             if (cc == null || bloom == null || ao == null || layer == null)
                 throw new InvalidDataException("Missing stock post-processing control. See menu.json");
             bool aoEnabled = ao.enabled, ccEnabled = cc.enabled, bloomEnabled = bloom.enabled;
