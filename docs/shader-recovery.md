@@ -51,11 +51,11 @@ manifest identifies the fork and its upstream base.
 ## Exporter provenance
 
 The provisioning command builds Frityet's AssetRipper fork at
-`8af5aec03cc580d8632cf8a4645f35d7d47c77c8` and verifies its upstream base
+`ef5ae7280209224e9ba5f49ce61634288de65dcb` and verifies its upstream base
 `d142a4b46586acdf931aaefc34d3e9eed4b7158e`. It removes its temporary checkout
 after publishing a self-contained executable and keeps the GPL-3.0-only
 license and the source URL alongside it. The standalone provisioning command
-can also write to a new local directory. [Pinned source](https://github.com/Frityet/AssetRipper/tree/8af5aec03cc580d8632cf8a4645f35d7d47c77c8)
+can also write to a new local directory. [Pinned source](https://github.com/Frityet/AssetRipper/tree/ef5ae7280209224e9ba5f49ce61634288de65dcb)
 
 ```sh
 dotnet run --project tools/ShaderExporter -- provision cache/assetripper-shader-manual
@@ -66,7 +66,8 @@ output directory. The exporter preserves all recovered shader keyword variants
 and includes Direct3D texture and structured-buffer translations. Translated
 Metal structured-buffer reads use a companion element count and a valid
 bound buffer. The managed macOS retargeter supplies the companion on the
-same material or property block as the stock binding.
+same material or property block as the stock binding. Direct3D 11 and
+Vulkan query the buffer dimensions in the shader.
 Follow the license and source notice in the generated directory when
 redistributing the fork executable.
 

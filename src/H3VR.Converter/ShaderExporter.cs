@@ -11,7 +11,7 @@ public static class ShaderExporter
 {
     public const string UpstreamCommit = "d142a4b46586acdf931aaefc34d3e9eed4b7158e";
     public const string ForkRepository = "https://github.com/Frityet/AssetRipper.git";
-    public const string ForkCommit = "8af5aec03cc580d8632cf8a4645f35d7d47c77c8";
+    public const string ForkCommit = "ef5ae7280209224e9ba5f49ce61634288de65dcb";
     private const string ProjectPath = "Source/AssetRipper.GUI.Free/AssetRipper.GUI.Free.csproj";
     private static string RuntimeIdentifier
     {
