@@ -6,6 +6,19 @@ var cases = new List<(string Name, Action Run)>
     ("shader exporter pins the reviewed fork and upstream", () => {
         Check(ShaderExporter.ForkCommit.Length == 40 && ShaderExporter.UpstreamCommit.Length == 40 && ShaderExporter.ForkCommit != ShaderExporter.UpstreamCommit, "source revisions are not pinned");
     }),
+    ("stock particle fallbacks point at the renamed Unity built-in", () => {
+        const string legacy = "Fallback \"Particles/Alpha Blended\"";
+        const string current = "Fallback \"Legacy Shaders/Particles/Alpha Blended\"";
+        foreach (var name in new[] { "WFX/Transparent Diffuse", "WFX/Transparent Specular" })
+        {
+            var source = $"Shader \"{name}\" {{\r\n// {legacy}\r\n\t{legacy} // stock fallback\r\n}}";
+            var updated = ProjectMigration.UpdateLegacyParticleFallback(source);
+            Check(updated == source.Replace("\t" + legacy, "\t" + current), "changed more than the fallback directive");
+            Check(ProjectMigration.UpdateLegacyParticleFallback(updated) == updated, "fallback migration is not idempotent");
+        }
+        var other = $"Shader \"Custom/Particles\" {{\n{legacy}\n}}";
+        Check(ProjectMigration.UpdateLegacyParticleFallback(other) == other, "custom fallback changed");
+    }),
     ("publication rejects recovered assets and old probe trees", () => {
         foreach (var name in new[] { "recovered/Game.cs", "src/Game.dll", "editor/Game.shader", "src/bin/Generated.cs", "probe/Assets/Editor/Test.cs" })
             Check(!Publication.Allowed(name), name);
