@@ -14,7 +14,7 @@ This repository contains conversion tools, compatibility code and tests. It cont
 - Git and internet access on first extraction. The converter manages the pinned [AssetRipper 2.0.0](https://github.com/AssetRipper/AssetRipper/releases/tag/2.0.0) dependency and caches its worker.
 - A local, identity-matched shader source overlay, including its original `.meta` files and include files. [Shader recovery tooling and limitations](docs/shader-recovery.md).
 
-Apple Silicon selects the macOS target by default. The supported Steam input is app 450540 build 25002541. Build the local Metal, Steamworks and FMOD integration before generating the player project. The converter also retains the Windows x64 target with Unity OpenXR. [Platform prerequisites and commands](docs/platform-integrations.md)
+Apple Silicon selects the macOS target by default. The supported Steam input is app 450540 build 25002541. Build the local Metal, Steamworks and FMOD integration before generating the player project. The macOS build also uses the pinned Unity class database to restore Steam's realtime lighting probes before signing. Place the database in the selected converter cache. The converter also retains the Windows x64 target with Unity OpenXR. [Platform prerequisites and commands](docs/platform-integrations.md) · [Class database and digest](docs/shader-recovery.md#validation-boundary)
 
 ## Run
 
@@ -62,7 +62,7 @@ The output is `workspace/project` and, after a successful macOS build, `workspac
 
 `extern/AssetRipper` is a submodule pinned to **2.0.0**, commit `1ac666f47d8e9dedf96afb0b914c70d7656151ea`. On first extraction, the converter initializes that submodule and builds `tools/AssetRipper.Worker` against its C# export API. Later runs verify and reuse a content-addressed worker cache. Local changes or an unexpected revision are never reset automatically. The CLI and synthetic tests build without initializing the submodule.
 
-The worker runs as an owned child process, writes `.conversion/assetripper.log`, and stops when conversion is cancelled. Extraction goes into a temporary candidate, published only after a project is produced. Failed candidates are removed. Shader source recovery is available through the same CLI and automatically provisions its separately pinned, patched legacy exporter; [its output still requires validation](docs/shader-recovery.md).
+The worker runs as an owned child process, writes `.conversion/assetripper.log`, and stops when conversion is cancelled. Extraction goes into a temporary candidate, published only after a project is produced. Failed candidates are removed. Shader source recovery uses the same CLI and builds the pinned AssetRipper fork. [Shader recovery and validation](docs/shader-recovery.md)
 
 ## Storage
 

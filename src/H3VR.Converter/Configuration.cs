@@ -105,6 +105,8 @@ public sealed record ConversionConfig
         if (through is not ("extract" or "managed") && BuildTarget != "StandaloneWindows64" && IntegrationManifest is null)
             throw new InvalidDataException("Non-Windows builds require a compatible platform integration manifest; Windows native plugins cannot run on other platforms.");
         ValidateToolCache(repository, GameDirectory, string.IsNullOrEmpty(UnityEditor) ? null : UnityData, Workspace, RecoveredProject, ShaderSources);
+        if (through == "build" && BuildTarget == "StandaloneOSX")
+            PlayerEnlighten.RequireClassDatabase(CacheDirectory(repository));
         if (RecoveredProject is not null && !Directory.Exists(Path.Combine(RecoveredProject, "Assets")))
             throw new InvalidDataException("RecoveredProject must contain Assets. Recovery input is never modified.");
     }

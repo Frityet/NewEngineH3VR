@@ -61,6 +61,11 @@ public sealed partial class Pipeline(string repository, ConversionConfig config)
 
         AddUnityInputs();
         Add(config.BuildTarget);
+        if (step == "build" && config.BuildTarget == "StandaloneOSX")
+        {
+            PlayerEnlighten.RequireClassDatabase(config.CacheDirectory(repository));
+            Add(PlayerEnlighten.ClassDatabaseSha256);
+        }
         if (step is "project" or "validate" or "build")
         {
             Add(JsonSerializer.Serialize(config with { Offline = false, ToolCacheDirectory = null }));
@@ -269,6 +274,7 @@ public sealed partial class Pipeline(string repository, ConversionConfig config)
         RefreshEditorSettingsReceipt(logfile, shaderUpgrades);
         if (build)
         {
+            var evidence = new List<string> { report, logfile, shaderUpgrades };
             if (!File.Exists(output) && !Directory.Exists(output)) throw new InvalidDataException("Unity reported success without creating the player.");
             if (config.BuildTarget == "StandaloneOSX")
             {
@@ -288,14 +294,31 @@ public sealed partial class Pipeline(string repository, ConversionConfig config)
                         throw new InvalidDataException("The built player is missing its native plug-in " + Path.GetFileName(expected));
                 foreach (var library in libraries)
                     await Processes.Run("lipo", ["-verify_arch", "arm64", library], repository, cancellation: cancellation);
+                evidence.AddRange(RestorePlayerEnlighten(output, run, bundleWork));
+                evidence.Add(architectureLog);
                 await Processes.Run("codesign", ["--force", "--deep", "--sign", "-", output], repository, cancellation: cancellation);
                 await Processes.Run("codesign", ["--verify", "--deep", "--strict", output], repository, cancellation: cancellation);
             }
             if (Directory.Exists(bundleWork)) Directory.Delete(bundleWork, true);
             return BuildOutputFiles(Path.Combine(config.Workspace, "player"), Path.Combine(config.Project, "Assets/StreamingAssets"))
-                .Concat([report, logfile, shaderUpgrades]).ToList();
+                .Concat(evidence).ToList();
         }
         return [report, logfile, shaderUpgrades];
+    }
+
+    private string[] RestorePlayerEnlighten(string app, string run, string scratch)
+    {
+        var playerData = Path.Combine(app, "Contents", "Resources", "Data");
+        var database = PlayerEnlighten.RequireClassDatabase(config.CacheDirectory(repository));
+        var stage = Path.Combine(scratch, "enlighten-stage");
+        var data = PlayerEnlighten.Stage(config.GameData, playerData, database, PlayerEnlighten.ClassDatabaseSha256, stage);
+        var stageReceipt = Path.Combine(Receipts, run + "-enlighten-stage.json");
+        File.Copy(Path.Combine(stage, "enlighten-stage.json"), stageReceipt);
+        var installed = PlayerEnlighten.Install(stage, playerData, SafeFiles.Hash(stageReceipt), Path.Combine(scratch, "enlighten-backups"));
+        var installReceipt = Path.Combine(Receipts, run + "-enlighten-install.json");
+        File.Copy(Path.Combine(installed.EvidenceDirectory, "enlighten-install.json"), installReceipt);
+        Console.WriteLine($"Restored {data.Scenes.Sum(scene => scene.ProbeSets)} Steam Enlighten probe sets across {data.Scenes.Length} scenes.");
+        return [stageReceipt, installReceipt];
     }
 
     /// <summary>Inventory the player and the rebuilt bundle artifacts that Unity emits into the project.</summary>

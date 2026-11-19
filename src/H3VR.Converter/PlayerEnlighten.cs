@@ -12,12 +12,24 @@ namespace H3VR.Converter;
 /// </summary>
 public static class PlayerEnlighten
 {
+    internal const string ClassDatabaseName = "legacy-unity-classdata.tpk";
+    internal const string ClassDatabaseSha256 = "129e1f80f930415db6779fe6089afa75280cb51462bcee812beab6cd81a764c6";
+
     public sealed record SceneReceipt(string Scene, string SourceLevel, string TargetLevel, int ProbeSets,
         string SourceLevelSha256, string OriginalTargetSha256, string StagedTargetSha256, string[] ProbeHashes);
     public sealed record Receipt(int SchemaVersion, string SourceData, string TargetData, string ClassDatabaseSha256,
         string SourceBuildSettingsSha256, string TargetBuildSettingsSha256, SceneReceipt[] Scenes, Dictionary<string, string> Files);
     private sealed record SourceScene(string Scene, string Level, string[] Hashes, byte[] Mapping, string SourceLevelSha256, Dictionary<string, string> Files);
     private static readonly string[] MappingFields = ["m_Renderers", "m_Systems", "m_Probesets", "m_SystemAtlases", "m_TerrainChunks"];
+
+    internal static string RequireClassDatabase(string cacheDirectory)
+    {
+        string database = Path.Combine(cacheDirectory, ClassDatabaseName);
+        if (!File.Exists(database) || new FileInfo(database).LinkTarget is not null ||
+            SafeFiles.Hash(database) != ClassDatabaseSha256)
+            throw new InvalidDataException($"The macOS build requires the pinned Unity class database at {database} (SHA-256 {ClassDatabaseSha256}). See docs/shader-recovery.md.");
+        return database;
+    }
 
     public static Receipt Stage(string sourceData, string targetData, string classDatabase, string expectedDatabaseSha256, string output)
     {
