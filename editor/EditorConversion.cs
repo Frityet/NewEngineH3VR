@@ -122,14 +122,30 @@ namespace H3VRConverter
                 BundleConversion.Validate(plan);
                 if (build && errors.Count == 0)
                 {
-                    BundleConversion.Build(plan, Argument("-h3vrBundleOutput"));
-                    AssetDatabase.Refresh(ImportAssetOptions.ForceSynchronousImport);
+                    var bundleOutput = Argument("-h3vrBundleOutput");
+                    bool mac = target == BuildTarget.StandaloneOSX;
+                    if (!mac)
+                    {
+                        BundleConversion.Build(plan, bundleOutput);
+                        AssetDatabase.Refresh(ImportAssetOptions.ForceSynchronousImport);
+                    }
                     EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
                     var output = Argument("-h3vrOutput");
                     Directory.CreateDirectory(Path.GetDirectoryName(output));
                     var built = BuildPipeline.BuildPlayer(new BuildPlayerOptions { scenes = scenes, target = target, locationPathName = output, options = BuildOptions.StrictMode });
                     if (built.summary.result != BuildResult.Succeeded) errors.Add("Player build: " + built.summary.result);
-                    else report.player = output;
+                    else
+                    {
+                        // The macOS player reads these opaque bundles from StreamingAssets at runtime.
+                        // Compile its scenes first so a scene error does not force a bundle rebuild.
+                        if (mac)
+                        {
+                            var data = Path.Combine(output, "Contents", "Resources", "Data");
+                            if (!Directory.Exists(data)) throw new DirectoryNotFoundException("The macOS player data directory is missing: " + data);
+                            BundleConversion.Build(plan, bundleOutput, Path.Combine(data, "StreamingAssets"));
+                        }
+                        report.player = output;
+                    }
                 }
                 AssetDatabase.SaveAssets();
             }

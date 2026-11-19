@@ -31,12 +31,16 @@ namespace H3VRConverter
             Debug.Log("H3VR_BUNDLE_PLAN_VALIDATION bundles=" + plan.bundles.Length + " addresses=" + plan.bundles.Sum(b => b.assets.Length));
         }
 
-        public static void Build(string planPath, string outputDirectory)
+        public static void Build(string planPath, string outputDirectory, string streamingDestination = null)
         {
             var plan = ReadAndValidate(planPath, true);
             var projectRoot = Path.GetFullPath(Path.Combine(Application.dataPath, ".."));
             var assetBundleOutput = Path.GetFullPath(outputDirectory);
+            var streamingAssets = Path.GetFullPath(streamingDestination ?? Path.Combine(projectRoot, "Assets", "StreamingAssets"));
             if (IsInside(projectRoot, assetBundleOutput)) throw new InvalidOperationException("Temporary bundle output must be outside the Unity project.");
+            if (IsInside(assetBundleOutput, streamingAssets) || IsInside(streamingAssets, assetBundleOutput)
+                || IsInside(plan.sourceStreamingAssets, streamingAssets) || IsInside(streamingAssets, plan.sourceStreamingAssets))
+                throw new InvalidOperationException("The original, temporary and installed bundle directories must be separate.");
             if (Directory.Exists(assetBundleOutput) && Directory.EnumerateFileSystemEntries(assetBundleOutput).Any()) throw new IOException("Temporary bundle output directory must be empty: " + assetBundleOutput);
             Directory.CreateDirectory(assetBundleOutput);
 
@@ -64,7 +68,6 @@ namespace H3VRConverter
             foreach (var item in generated) if (!File.Exists(item)) throw new FileNotFoundException("Unity did not produce a planned bundle output.", item);
             // Validate every destination before copying the first file. A conflict must not leave a
             // partially replaced set of runtime bundles in the candidate project.
-            var streamingAssets = Path.Combine(projectRoot, "Assets", "StreamingAssets");
             foreach (var item in generated)
             {
                 var destination = Path.Combine(streamingAssets, Path.GetFileName(item));
@@ -73,8 +76,9 @@ namespace H3VRConverter
                 if (File.Exists(destination) && !HashFile(destination).Equals(HashFile(item), StringComparison.Ordinal))
                     throw new IOException("Refusing to replace an existing StreamingAssets file: " + Path.GetFileName(item));
             }
-            foreach (var item in generated) CopyIntoStreamingAssets(projectRoot, item);
-            AssetDatabase.Refresh(ImportAssetOptions.ForceSynchronousImport);
+            foreach (var item in generated) CopyIntoStreamingAssets(streamingAssets, item);
+            if (IsInside(projectRoot, streamingAssets))
+                AssetDatabase.Refresh(ImportAssetOptions.ForceSynchronousImport);
             Debug.Log("H3VR_BUNDLE_REBUILD_COMPLETE bundles=" + plan.bundles.Length + " addresses=" + plan.bundles.Sum(b => b.assets.Length) + " target=" + EditorUserBuildSettings.activeBuildTarget);
         }
 
@@ -140,9 +144,8 @@ namespace H3VRConverter
             yield return OutputPath(output, manifestName); yield return OutputPath(output, manifestName + ".manifest");
         }
 
-        private static void CopyIntoStreamingAssets(string projectRoot, string source)
+        private static void CopyIntoStreamingAssets(string root, string source)
         {
-            var root = Path.Combine(projectRoot, "Assets", "StreamingAssets");
             var name = Path.GetFileName(source); var destination = Path.Combine(root, name);
             if (!destination.StartsWith(Path.GetFullPath(root) + Path.DirectorySeparatorChar, StringComparison.Ordinal)) throw new InvalidDataException("Bundle output target escaped StreamingAssets.");
             if (File.Exists(destination))
