@@ -16,6 +16,7 @@ public sealed record ConversionConfig
     public bool Offline { get; init; }
     public string? IntegrationManifest { get; init; }
     public bool BuildProbe { get; init; }
+    public bool CompactPlayerData { get; init; }
     public string BuildTarget { get; init; } = OperatingSystem.IsMacOS() && System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture == System.Runtime.InteropServices.Architecture.Arm64 ? "StandaloneOSX" : "StandaloneWindows64";
 
     public static readonly JsonSerializerOptions Json = new() { WriteIndented = true, PropertyNameCaseInsensitive = true };

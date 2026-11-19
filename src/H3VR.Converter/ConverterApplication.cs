@@ -78,6 +78,7 @@ public sealed class ConverterApplication(string repository, IAnsiConsole console
             ExtractionWorkspace = options.ExtractionWorkspace ?? config.ExtractionWorkspace,
             IntegrationManifest = options.Integration ?? config.IntegrationManifest,
             BuildProbe = options.BuildProbe ?? config.BuildProbe,
+            CompactPlayerData = options.CompactPlayerData ?? config.CompactPlayerData,
             ToolCacheDirectory = options.Cache ?? config.ToolCacheDirectory,
             Offline = options.Offline ?? config.Offline,
             BuildTarget = options.Target is null ? config.BuildTarget : options.Target.ToLowerInvariant() switch
@@ -164,6 +165,7 @@ public sealed class ConverterApplication(string repository, IAnsiConsole console
         Add("Workspace", config.Workspace);
         Add("Target", config.BuildTarget);
         if (config.BuildProbe) Add("Build profile", "Linux cross-build probe (no XR or native game plug-ins)");
+        if (config.CompactPlayerData) Add("Player data", "Chunked LZ4");
         Add("Recovery", config.ExtractionWorkspace ?? config.RecoveredProject ?? "AssetRipper 2.0.0 (automatic)");
         Add("Shaders", config.ShaderSources ?? "Not set");
         Add("Cache", config.CacheDirectory(repository));

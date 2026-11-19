@@ -65,6 +65,10 @@ public sealed class ConversionOptions : CommandSettings
     [Description("Cross-build Linux scenes and bundles without a Linux XR provider. The probe is not a playable build.")]
     public bool? BuildProbe { get; init; }
 
+    [CommandOption("--compact-player-data")]
+    [Description("Losslessly compress scene data after building the player.")]
+    public bool? CompactPlayerData { get; init; }
+
     [CommandOption("--cache <PATH>")]
     [Description("Tool download and build cache directory. Defaults to cache/ in this checkout.")]
     public string? Cache { get; init; }

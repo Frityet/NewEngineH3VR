@@ -68,7 +68,8 @@ public sealed partial class Pipeline(string repository, ConversionConfig config)
         }
         if (step is "project" or "validate" or "build")
         {
-            Add(JsonSerializer.Serialize(config with { Offline = false, ToolCacheDirectory = null }));
+            Add(JsonSerializer.Serialize(config with { Offline = false, ToolCacheDirectory = null,
+                CompactPlayerData = step == "build" && config.CompactPlayerData }));
             if (config.ShaderSources is not null)
                 foreach (var file in SafeFiles.Files(config.ShaderSources)
                     .Where(p => Path.GetExtension(p).ToLowerInvariant() is ".shader" or ".cginc" or ".hlsl" or ".compute" or ".glslinc" or ".meta" ||
@@ -329,7 +330,8 @@ public sealed partial class Pipeline(string repository, ConversionConfig config)
         {
             var evidence = new List<string> { report, logfile, shaderUpgrades };
             if (!File.Exists(output) && !Directory.Exists(output)) throw new InvalidDataException("Unity reported success without creating the player.");
-            if (config.BuildTarget == "StandaloneOSX")
+            bool mac = config.BuildTarget == "StandaloneOSX";
+            if (mac)
             {
                 if (!OperatingSystem.IsMacOS()) throw new PlatformNotSupportedException("The macOS player must be signed and verified on macOS.");
                 Integration.PlaceMacPlayerLibraries(output);
@@ -350,6 +352,19 @@ public sealed partial class Pipeline(string repository, ConversionConfig config)
                     await Processes.Run("lipo", ["-verify_arch", "arm64", library], repository, cancellation: cancellation);
                 evidence.AddRange(RestorePlayerEnlighten(output, run, bundleWork));
                 evidence.Add(architectureLog);
+            }
+            if (config.CompactPlayerData)
+            {
+                string data = mac ? Path.Combine(output, "Contents", "Resources", "Data")
+                    : Path.Combine(Path.GetDirectoryName(output)!, Path.GetFileNameWithoutExtension(output) + "_Data");
+                string archiveReceipt = Path.Combine(Receipts, run + "-archive.json");
+                await Processes.Run("dotnet", ["run", "--project", Path.Combine(repository, "tools", "PlayerDataArchive"),
+                    "-c", "Release", "--", data, Path.Combine(bundleWork, "archive"), archiveReceipt],
+                    repository, cancellation: cancellation);
+                evidence.Add(archiveReceipt);
+            }
+            if (mac)
+            {
                 await Processes.Run("codesign", ["--force", "--deep", "--sign", "-", output], repository, cancellation: cancellation);
                 await Processes.Run("codesign", ["--verify", "--deep", "--strict", output], repository, cancellation: cancellation);
             }

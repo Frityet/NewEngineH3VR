@@ -99,6 +99,12 @@ reuse it across builds. Unity's `Library` directories and .NET `bin`/`obj`
 directories are regenerable and can be removed once their editor or process is
 closed.
 
+Add `--compact-player-data` to a build to pack the player's scene data and
+lighting into Unity's chunked LZ4 archive. The converter checks each unpacked
+file against the original bytes before publishing the archive and writes a
+size and hash receipt under `.conversion`. StreamingAssets bundles remain
+in their existing chunked format.
+
 ## Development
 
 - `src/H3VR.Converter`: CLI, safe staging, project/bundle migration and publication checks.
