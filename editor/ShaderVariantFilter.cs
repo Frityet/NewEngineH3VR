@@ -11,7 +11,7 @@ using UnityEngine.Rendering;
 
 namespace H3VRConverter
 {
-    /// <summary>Strip Metal requests excluded by a complete original pass group.</summary>
+    /// <summary>Strip requests excluded by a complete original pass group.</summary>
     internal sealed class ShaderVariantFilter : IPreprocessShaders
     {
         private static readonly Lazy<Dictionary<string, KnownShader>> Catalog =
@@ -23,7 +23,7 @@ namespace H3VRConverter
         {
             if (snippet.shaderType != ShaderType.Vertex && snippet.shaderType != ShaderType.Fragment) return;
             var mode = LightMode(snippet.passType);
-            if (mode == null || !data.Any(IsMetalMac)) return;
+            if (mode == null || !data.Any(IsRecoveredPlatform)) return;
 
             var path = AssetDatabase.GetAssetPath(shader);
             var name = (snippet.passName ?? "").Trim().ToUpperInvariant();
@@ -37,7 +37,7 @@ namespace H3VRConverter
             for (int index = data.Count - 1; index >= 0; index--)
             {
                 var variant = data[index];
-                if (!IsMetalMac(variant)) continue;
+                if (!IsRecoveredPlatform(variant)) continue;
                 var active = variant.shaderKeywordSet.GetShaderKeywords();
                 if (domains.Any(domain => domain.Contains(active, variant.platformKeywordSet))) continue;
                 data.RemoveAt(index);
@@ -47,8 +47,16 @@ namespace H3VRConverter
                 Debug.Log($"NATIVEH3VR_SHADER_VARIANT_FILTER shader={path} pass={mode}/{name} stage={snippet.shaderType} stripped={removed}");
         }
 
-        private static bool IsMetalMac(ShaderCompilerData variant) =>
-            variant.buildTarget == BuildTarget.StandaloneOSX && variant.shaderCompilerPlatform == ShaderCompilerPlatform.Metal;
+        private static bool IsRecoveredPlatform(ShaderCompilerData variant)
+        {
+            switch (variant.buildTarget)
+            {
+                case BuildTarget.StandaloneOSX: return variant.shaderCompilerPlatform == ShaderCompilerPlatform.Metal;
+                case BuildTarget.StandaloneWindows64: return variant.shaderCompilerPlatform == ShaderCompilerPlatform.D3D;
+                case BuildTarget.StandaloneLinux64: return variant.shaderCompilerPlatform == ShaderCompilerPlatform.Vulkan;
+                default: return false;
+            }
+        }
 
         private static string LightMode(PassType type)
         {

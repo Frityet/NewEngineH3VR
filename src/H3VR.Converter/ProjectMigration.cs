@@ -301,7 +301,10 @@ public sealed class ProjectMigration(ConversionConfig config, string candidate)
         var shaders = SafeFiles.Files(sourceAssets).Where(p => p.EndsWith(".shader", StringComparison.OrdinalIgnoreCase)).ToArray();
         var includes = SafeFiles.Files(sourceAssets).Where(GraphicsShaderOverlay.IsInclude).ToArray();
         if (shaders.Length == 0) throw new InvalidDataException("ShaderSources must contain a local Assets-shaped overlay with shader files.");
-        var variantCatalog = config.BuildTarget == "StandaloneOSX"
+        bool verifyGraphics = config.BuildTarget == "StandaloneOSX"
+            || File.Exists(Path.Combine(overlayRoot, GraphicsShaderOverlay.ReceiptName))
+            || File.Exists(Path.Combine(overlayRoot, SourceStaging.ShaderVariantCatalogName));
+        var variantCatalog = verifyGraphics
             ? GraphicsShaderOverlay.Verify(config, overlayRoot, sourceAssets, shaders, includes) : null;
         foreach (var source in shaders)
         {
