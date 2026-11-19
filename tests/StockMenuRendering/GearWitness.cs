@@ -20,10 +20,15 @@ namespace NativeH3VR.QA
         readonly List<Renderer> hidden = new List<Renderer>();
         readonly Dictionary<Material, Texture> savedNormals = new Dictionary<Material, Texture>();
         readonly List<string> evidence = new List<string>();
+        readonly Dictionary<Material, Vector4> savedRim = new Dictionary<Material, Vector4>();
         Texture2D neutral;
+        readonly Vector3 viewpointDelta;
 
-        internal StockIndexGearWitness()
+        internal StockIndexGearWitness() : this(Vector3.zero) { }
+
+        internal StockIndexGearWitness(Vector3 offsetFromWindowsReference)
         {
+            viewpointDelta = offsetFromWindowsReference;
             root = new GameObject("Fixed stock IndexWire witness");
             try {
                 var source = FindOriginalIndexMeshes();
@@ -53,6 +58,7 @@ namespace NativeH3VR.QA
                 neutral.name = "Diagnostic neutral AG normal";
                 neutral.SetPixel(0, 0, new Color(1f, .5f, 1f, .5f));
                 neutral.Apply(false, true);
+                root.transform.position = viewpointDelta;
 
                 foreach (var renderer in Resources.FindObjectsOfTypeAll<Renderer>()) {
                     if (renderer.gameObject.scene != SceneManager.GetActiveScene()
@@ -109,6 +115,7 @@ namespace NativeH3VR.QA
             materials.Add(material);
             Texture fromAsset = material.GetTexture(BumpMap);
             savedNormals.Add(material, fromAsset);
+            savedRim.Add(material, material.GetVector("_RimColor"));
 
             string origin = fromAsset == null ? "(null, shader default)"
                 : fromAsset.name + " (" + fromAsset.width + "x" + fromAsset.height + ")";
@@ -133,9 +140,39 @@ namespace NativeH3VR.QA
             }
         }
 
+        internal void SetLegacyColor(bool originalUniformColor)
+        {
+            foreach (var pair in savedRim) {
+                Vector4 color = pair.Value;
+                if (originalUniformColor) {
+                    color.x = Mathf.GammaToLinearSpace(color.x);
+                    color.y = Mathf.GammaToLinearSpace(color.y);
+                    color.z = Mathf.GammaToLinearSpace(color.z);
+                }
+                pair.Key.SetVector("_RimColor", color);
+            }
+        }
+
+        internal void RecordColorSetter(string filename)
+        {
+            const string property = "_RimColor";
+            var records = new List<string>();
+            foreach (var pair in savedRim)
+            {
+                // Same literal used by the stock spawn-lock quickbelt branch.
+                var input = new Color(.3f, .3f, 1f, 1f);
+                pair.Key.SetColor(property, input);
+                var stored = pair.Key.GetVector(property);
+                pair.Key.SetVector(property, pair.Value);
+                records.Add(pair.Key.name + "\t" + input.ToString("F7") + "\t" + stored.ToString("F7"));
+            }
+            File.WriteAllLines(filename, records.ToArray());
+        }
+
         internal void SaveEvidence(string filename)
         {
             evidence.Insert(0, "mesh\tvertices\tpose\tmaterial\tshader\trim\tstock_normal\tposition\trotation\tscale");
+            evidence.Add("# Native viewpoint delta from original Windows reference	" + viewpointDelta.ToString("F7"));
             File.WriteAllLines(filename, evidence.ToArray());
         }
 
@@ -159,8 +196,12 @@ namespace NativeH3VR.QA
         {
             bool gradeEnabled = cc.enabled;
             bool bloomEnabled = bloom.enabled;
-            using (var witness = new StockIndexGearWitness()) {
+            // The Windows fixture has a 1.6 m eye height. Use the same
+            // object-to-eye pose even with the native rig's measured offset.
+            var originalHead = new Vector3(0f, 2.6999993f, -8f);
+            using (var witness = new StockIndexGearWitness(camera.transform.position - originalHead)) {
                 witness.SaveEvidence(Path.Combine(output, "gear-witness.tsv"));
+                witness.RecordColorSetter(Path.Combine(output, "gear-color-setter.tsv"));
                 try {
                     cc.enabled = true;
                     foreach (string normal in new[] { "live", "ag", "null" }) {
@@ -169,6 +210,17 @@ namespace NativeH3VR.QA
                         yield return Capture("gear-" + normal + "-bloom");
                         bloom.enabled = false;
                         yield return Capture("gear-" + normal + "-no-bloom");
+                    }
+                    // This is an explicit experiment on pre-migration input.
+                    // Normal stock captures already use the imported color.
+                    if (Environment.GetEnvironmentVariable("NATIVEH3VR_STOCK_GEAR_LEGACY_CONTROL") == "1")
+                    {
+                        witness.SetNormal("ag");
+                        witness.SetLegacyColor(true);
+                        bloom.enabled = true;
+                        yield return Capture("gear-legacy-ag-bloom");
+                        bloom.enabled = false;
+                        yield return Capture("gear-legacy-ag-no-bloom");
                     }
                 } finally {
                     cc.enabled = gradeEnabled;
