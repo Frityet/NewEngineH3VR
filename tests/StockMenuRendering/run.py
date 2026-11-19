@@ -20,7 +20,12 @@ def main():
     parser.add_argument("--gear", action="store_true", help="Compare both stock wire controllers at fixed poses")
     parser.add_argument("--quickbelt", action="store_true", help="Compare stock quickbelt indicator tint at a fixed pose")
     parser.add_argument("--tnh-colors", action="store_true", help="Compare original Take and Hold node/core tint values")
+    parser.add_argument("--emission", action="store_true", help="Compare stock scene- and item-owned HDR emission setters")
+    parser.add_argument("--require-compiled-emission", action="store_true",
+                        help="Require the loaded game assembly to apply the imported HDR material compatibility path")
     args = parser.parse_args()
+    if args.require_compiled_emission and not args.emission:
+        parser.error("--require-compiled-emission requires --emission")
     here = Path(__file__).resolve().parent
     app, runtime, launcher, out = (p.resolve() for p in (args.app, args.runtime, args.launcher, args.out))
     if out.exists():
@@ -45,11 +50,13 @@ def main():
     env = dict(os.environ, NATIVEH3VR_STOCK_MENU_AUDIT=str(out), NATIVEH3VR_STOCK_AUDIT_SCENES=",".join(args.survey_scene),
                NATIVEH3VR_STOCK_GEAR_AUDIT="1" if args.gear else "0",
                NATIVEH3VR_STOCK_QUICKBELT_AUDIT="1" if args.quickbelt else "0",
-               NATIVEH3VR_STOCK_TNH_COLORS_AUDIT="1" if args.tnh_colors else "0")
+               NATIVEH3VR_STOCK_TNH_COLORS_AUDIT="1" if args.tnh_colors else "0",
+               NATIVEH3VR_STOCK_EMISSION_AUDIT="1" if args.emission else "0",
+               NATIVEH3VR_REQUIRE_COMPILED_EMISSION="1" if args.require_compiled_emission else "0")
     subprocess.run(["dotnet", str(launcher), "run", "--app", str(app), "--runtime", str(runtime),
                     "--mods-dir", str(package.parent), "--state-dir", str(out / "state"),
                     "--log-file", str(out / "player.log"), "--capture-file", str(out / "compositor.png"),
-                    "--synthetic", "--timeout", str(150 + 90 * len(args.survey_scene))],
+                    "--synthetic", "--timeout", str(150 + 90 * len(args.survey_scene) + (210 if args.emission else 0))],
                    env=env, check=True)
     if not (out / "complete").is_file():
         raise RuntimeError("Stock eye audit did not complete. Inspect " + str(out / "player.log"))

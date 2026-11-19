@@ -102,6 +102,13 @@ namespace NativeH3VR.QA
             CaptureStockResourceBindings(output);
             if (cc == null || bloom == null || ao == null || layer == null)
                 throw new InvalidDataException("Missing stock post-processing control. See menu.json");
+            if (Environment.GetEnvironmentVariable("NATIVEH3VR_STOCK_EMISSION_AUDIT") == "1")
+            {
+                yield return EmissionWitness();
+                File.WriteAllText(Path.Combine(output, "complete"), "MainMenu3 stock emission controls\n" + stereo.CompletedFrames);
+                Application.Quit(0);
+                yield break;
+            }
             bool aoEnabled = ao.enabled, ccEnabled = cc.enabled, bloomEnabled = bloom.enabled;
             bool layerEnabled = layer.enabled;
             float originalTime = Time.timeScale;
