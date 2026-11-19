@@ -82,6 +82,8 @@ foreach (var filename in keep)
         AssemblyDefinition.ReadAssembly(Path.Combine(input, filename + ".dll"), parameters);
     var module = a.MainModule;
     var log = new List<object>();
+    if (filename == "UnityEngine.UI")
+        log.Add(new { caller = LegacyTextMesh.Retarget(module), target = "Unity 2021 TextGenerator vertex count" });
     // Rewrite narrow method boundaries before mutating old declaring type metadata.
     foreach (var m in module.Types.SelectMany(Types)
                  .SelectMany(t => t.Methods)
