@@ -1,31 +1,25 @@
-# Managed OpenXR compatibility
+# How VR works
 
-The converter retargets the game assemblies and then applies its managed
-SteamVR adapter. It preserves serialized fields and disables the stock
-SteamVR render loop and legacy XR loader request. Unknown legacy methods return
-an unsuccessful API result where possible or raise a descriptive exception.
-The workspace's `openxr-patch-manifest.json` records forwarded methods,
-unsupported calls and the audited call sites.
+The game was built for SteamVR. The converter patches it to use our own SteamVR replacement, which runs on OpenXR.
 
-On macOS, `NativeH3VRMetal` uses the Khronos loader and `XR_KHR_metal_enable`.
-It locates the head and both eyes at the predicted display time, reads standard
-Index grip/aim poses and actions, and hands the managed game adapter floor-space
-poses. Stage bounds come from OpenXR. Input remains gated until the session is
-focused and the controls return to neutral. Haptics use the runtime's action
-interface. Controller-based estimates supply finger curls where the stock hand
-code expects a summary. Physical wear sensing and tracked finger joints remain
-unverified.
+- Saved fields on game objects don't change.
+- SteamVR's render loop and the old XR loader are turned off.
+- Unsupported SteamVR calls return a failure, or throw an error naming the call.
 
-The player renders the original camera twice using the two asymmetric OpenXR
-projections. The plug-in encodes the eye copies on Unity's Metal command
-buffer, then releases the images and submits the projection layer after the
-GPU completes. The same session persists across game scene changes. The
-host's synthetic hand override requires explicit acceptance diagnostics and
-headless OpenXR simulation.
+The workspace's `openxr-patch-manifest.json` lists forwarded calls, unsupported calls and where they're used.
 
-The Windows adapter uses Unity's OpenXR provider and built-in XR input APIs.
-Unity's session feature carries focus changes and frequency-aware haptics to
-the adapter on that target.
+## macOS
 
-See [platform integrations](platform-integrations.md) for the macOS build and
-launch commands.
+The `NativeH3VRMetal` plug-in uses the Khronos loader and `XR_KHR_metal_enable`.
+
+- **Tracking:** head and eye poses are read for the time the frame will be shown. Index controller grip/aim poses are passed to the game in floor space. The play area comes from OpenXR.
+- **Input:** ignored until the session has focus and the controls are at rest. Haptics use OpenXR actions. Finger curl is estimated from the controller.
+- **Rendering:** the camera renders once per eye with that eye's projection. Eye images are copied on Unity's Metal command buffer and handed to OpenXR after the GPU finishes. One session lasts across scene changes.
+
+Untested: the wear sensor and tracked finger joints. Fake (synthetic) hands only run under explicit test checks with headless OpenXR simulation.
+
+## Windows
+
+Uses Unity's OpenXR support and XR input. Unity passes focus changes and haptics (with frequency) to our adapter.
+
+Mac build and launch steps: [platform integrations](platform-integrations.md).

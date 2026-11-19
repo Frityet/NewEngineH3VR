@@ -1,23 +1,21 @@
 # Native platform adapters
 
-These authored compatibility sources and `tools/PlatformPatch` were transferred
-from MacVR commit `043eb90`, `integrations/h3vr/platform/{steamworks,fmod,audio-spatial,video}`.
-They contain no Steamworks SDK, FMOD SDK, game assemblies or media. Their APIs
-are matched to the user's locally installed game at conversion time. Steam
-initialization, `RestartAppIfNecessary`, and ownership checks remain real Steam
-operations; the bridge does not synthesize ownership.
+These let the game's Steam, FMOD and video code run natively on macOS. They and `tools/PlatformPatch` came from MacVR commit `043eb90` (`integrations/h3vr/platform/{steamworks,fmod,audio-spatial,video}`).
 
-`dotnet run --project tools/PlatformPatch/NativeBuilder -c Release --` takes explicit local paths for the
-CSteamworks wrapper at commit `407dcba0151cfa52d1814a752e3038f16dbedc4d` with
-its Steamworks 1.41 headers, the installed Steam client's `libsteam_api.dylib`,
-and FMOD Studio/Core 2.03.15 SDK. It builds and signs private arm64 shims and
-writes `platform.json` and plugin metadata in a new caller-selected directory.
-It neither downloads nor redistributes those SDKs. Feed that directory to the
-UnityMetal integration builder's `--platform` option.
+No SDKs, game code or media are included. The adapters are matched to your installed game during conversion. Steam stays real: startup, `RestartAppIfNecessary` and ownership checks all go to the actual Steam client.
 
-The macOS managed conversion stage applies the Darwin Steam ABI adjustment,
-redirects FMOD native calls to the bridge, and adapts AVPro's factory to the
-Unity VideoPlayer backend. A successful managed or native build does not prove
-Steam client authorization, audio parity, decoding, or gameplay. FMOD's older
-unsupported callback cases and the video adapter's DRM, embedded subtitle,
-custom HTTP header, and AVPro buffered synchronization gaps remain open.
+## Building the shims
+
+`dotnet run --project tools/PlatformPatch/NativeBuilder -c Release --` takes local paths to:
+
+- CSteamworks at `407dcba0151cfa52d1814a752e3038f16dbedc4d`, with its Steamworks 1.41 headers
+- `libsteam_api.dylib` from your Steam client
+- FMOD Studio/Core 2.03.15 SDK
+
+It builds and signs arm64 shims into a new folder, with `platform.json` and plug-in metadata. It never downloads or redistributes the SDKs. Pass the folder to the integration builder's `--platform` ([full commands](../../docs/platform-integrations.md)).
+
+During conversion on macOS, Steam calls are adjusted for the Darwin ABI, FMOD calls go to the bridge, and AVPro video is swapped for Unity's VideoPlayer.
+
+## Known gaps
+
+A working build doesn't prove Steam authorization, audio, video or gameplay work. Still open: some older FMOD callbacks, and video DRM, embedded subtitles, custom HTTP headers and AVPro buffered sync.

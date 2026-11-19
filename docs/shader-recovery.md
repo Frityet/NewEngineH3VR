@@ -1,86 +1,81 @@
-# Shader source recovery
+# Getting the shaders back
 
-The normal AssetRipper 2 export does not reconstruct H3VR's compiled Unity 5.6
-shader programs into usable source. This bootstrap uses AssetsTools.NET 3.0.5
-to write read-only, shader-only copies of serialized Shader objects from a
-locally installed game, then asks a separate AssetRipper 1.0.15 build to
-decompile them. It does not modify Steam files.
+H3VR's shaders ship compiled for Unity 5.6, and the normal AssetRipper 2 export can't turn them back into usable source. So shader recovery is its own step:
 
-## Prerequisites
+1. AssetsTools.NET 3.0.5 copies just the shader objects out of your installed game (read-only).
+2. A separate AssetRipper 1.0.15 build decompiles those copies.
 
-- .NET 10 SDK, Git, network access, and the platform's native build tools.
-- No prebuilt binary, Unity player, game asset, or recovered game shader is checked in.
+Your Steam files are never changed.
 
-## Run from the converter
+The output is a **raw export**, not something the converter can use directly. You have to link it and check it first (see [Linking and checking](#validation-boundary)).
 
-No exporter executable path or configuration file is required:
+## What you need
+
+.NET 10 SDK, Git, internet access and your platform's native build tools. Nothing prebuilt, and no game files or shaders, is stored in this repo.
+
+## Recovering the shaders
 
 ```sh
 dotnet run --project src/H3VR.Converter -- recover-shaders \
   --game "/path/to/H3VR" --output "/path/to/private-raw-shaders"
 ```
 
-The converter provisions the exporter on first use in the checkout's ignored `cache/` directory. It verifies the fork commit, upstream base, host runtime and payload hashes on reuse. Use `--cache` to specify an external path and `--offline` to require a verified cached tool build. The output defaults to the conversion workspace path plus `-shaders`. Project preparation requires a validated `--shaders` overlay.
+- The first run builds the exporter and caches it in the repo's ignored `cache/` folder. Later runs check its hashes before reusing it.
+- `--cache` puts the cache somewhere else. `--offline` only uses a cached build that's already been checked.
+- If you leave out `--output`, it uses your workspace path with `-shaders` on the end.
+- The output folder must be empty, and can't be inside the game, this repo, the workspace or the tool cache.
+- Big shaders can take many minutes. Each request has a two-hour limit, and you can cancel.
 
-The command creates `shader-inputs/`, `assetripper-export/`,
-`shader-input-manifest.json`, `shader-export-identities.json`,
-`assetripper.log`, and `recovery-receipt.json` under the output
-directory. It refuses to overwrite a non-empty output or overlap the game, checkout,
-workspace or tool cache. The legacy exporter starts on an ephemeral loopback port
-and is stopped when the export finishes or is cancelled. Its standard output and
-error are drained to the log. Choose a private output with enough free space.
-Large shaders may take many minutes; each local service request has a two-hour
-limit and can be cancelled. An exporter exception invalidates the entire export,
-even if its service returned success and some files were written. Failed output
-is retained for diagnosis and must not be treated as an overlay.
+You get these files in the output folder:
 
-Input manifest schema 3 records each source file's SHA-256, the serialized bundle
-entry index (null for a standalone assets file), the serialized member name, each
-Shader's signed path ID, and the hash of the shader-only copy. Together these identify the original
-serialized objects in the same local Steam input; a bundle entry index is scoped
-to that exact source hash. The two export identity manifests associate the
-original objects with exported paths and the recovered project GUIDs. An exact
-identity match establishes provenance. Shader semantics, Metal compilation and
-visual behavior are checked separately.
-The schema 2 recovery receipt hashes that input manifest, the exporter executable,
-every exported shader and, when available, the verified tool manifest with the
-pinned fork and cached file hashes. It also records
-whether the converter started the exporter locally. A locally verified tool
-manifest identifies the fork and its upstream base.
+| File | What it is |
+|---|---|
+| `shader-inputs/` | the shader-only copies from the game |
+| `assetripper-export/` | the decompiled shaders |
+| `shader-input-manifest.json` | where each shader came from |
+| `shader-export-identities.json` | which original object each exported file came from |
+| `assetripper.log` | the exporter's output |
+| `recovery-receipt.json` | hashes of everything above |
 
-## Exporter provenance
+**If the exporter throws any error, the whole export is bad**, even if files were written. Failed output is kept for debugging. Don't use it as an overlay.
 
-The provisioning command builds Frityet's AssetRipper fork at
-`ef5ae7280209224e9ba5f49ce61634288de65dcb` and verifies its upstream base
-`d142a4b46586acdf931aaefc34d3e9eed4b7158e`. It removes its temporary checkout
-after publishing a self-contained executable and keeps the GPL-3.0-only
-license and the source URL alongside it. The standalone provisioning command
-can also write to a new local directory. [Pinned source](https://github.com/Frityet/AssetRipper/tree/ef5ae7280209224e9ba5f49ce61634288de65dcb)
+### How it tracks where shaders came from
+
+The input manifest (schema 3) records, for each shader:
+- the source file's SHA-256
+- its entry index in the bundle (null for a plain assets file)
+- its member name and path ID
+- the hash of the shader-only copy
+
+That pins down the exact original object. The identity files connect each original to its exported path and project GUID. This proves where a shader came from, not that it's correct.
+
+The recovery receipt (schema 2) hashes the input manifest, exporter, every exported shader and the tool manifest, and notes whether the converter started the exporter.
+
+## The exporter
+
+We use a fork of AssetRipper, pinned to [`ef5ae7280209224e9ba5f49ce61634288de65dcb`](https://github.com/Frityet/AssetRipper/tree/ef5ae7280209224e9ba5f49ce61634288de65dcb), on top of upstream `d142a4b46586acdf931aaefc34d3e9eed4b7158e`. It's built as a standalone executable, and its GPL-3.0-only license and source link are kept next to it. Follow that license if you share the executable.
+
+To build it into a folder by hand:
 
 ```sh
 dotnet run --project tools/ShaderExporter -- provision cache/assetripper-shader-manual
 ```
 
-The command prints the executable path. It refuses to overwrite an existing
-output directory. The exporter preserves all recovered shader keyword variants
-and includes Direct3D texture and structured-buffer translations. Translated
-Metal structured-buffer reads use a companion element count and a valid
-bound buffer. The managed macOS retargeter supplies the companion on the
-same material or property block as the stock binding. Direct3D 11 and
-Vulkan query the buffer dimensions in the shader.
-Follow the license and source notice in the generated directory when
-redistributing the fork executable.
+It prints the executable's path, and won't overwrite an existing folder.
 
-## Validation boundary
+What the fork adds:
+- keeps every shader keyword variant
+- translates Direct3D texture and structured buffer code
+- on Metal, structured buffer reads use a separate element count (see [compute buffer sizes](platform-integrations.md#compute-buffer-sizes-on-metal)). Direct3D 11 and Vulkan get the size from the buffer itself.
 
-The extraction receipt binds the Steam inputs and the extraction worker.
-Shader recovery and linking can iterate against that receipt in the same
-private workspace while the game and extractor stay fixed.
+<a id="validation-boundary"></a>
+## Linking and checking
 
-The cold extractor records each exported shader's serialized member, bundle,
-path ID, Unity GUID and project path. The raw exporter links its result to the
-hashed shader-only input and original serialized object. Join the two receipts
-after both commands complete.
+You can rerun recovery and linking as often as you like in the same workspace, as long as the game and extractor stay the same.
+
+### 1. Link the export to the extraction
+
+Extraction and shader recovery each record where every shader came from. This step joins the two:
 
 ```sh
 dotnet run --project tools/ShaderOverlay -c Release -- link \
@@ -90,69 +85,54 @@ dotnet run --project tools/ShaderOverlay -c Release -- link \
   --output "/path/to/private-shader-correspondence.json"
 ```
 
-Unmatched project paths fail the command and appear in the correspondence
-report. The join verifies hashes and matches source objects by their
-serialized identities. Matching shader names provide no identity evidence.
-After a complete match, `--overlay-candidate` can stage private diagnostic
-sources with the original project GUIDs and a correspondence receipt. Use the
-candidate to measure import, shader and material failures. The rendering
-gate still requires compiling and exercising the original reachable variants
-on Metal.
+Shaders are matched by their saved identity and hashes, never by name. Any project path that doesn't match fails the command and is listed in the report.
 
-Use `--repair-exclusive-keywords` alongside `--overlay-candidate` to recover
-keyword groups from the original paired Direct3D vertex and fragment programs.
-The linker checks that their keyword sets match every generated guard. It
-recovers required choices, optional choices and constants. When those groups
-cannot express the entire variant table, the linker preserves verified
-required lighting and geometry modes and keeps the explicit guards for unsupported
-combinations. The compiler can still reject some combinations in those passes.
-Save the generic class database at `cache/legacy-unity-classdata.tpk` or
-supply `--class-database` with its local path. The tested database has SHA-256
-`129e1f80f930415db6779fe6089afa75280cb51462bcee812beab6cd81a764c6`. [Pinned class database](https://github.com/nesrak1/UABEA/blob/057e2f6ae67ebc94a38faca9f946f8577162fa99/ReleaseFiles/classdata.tpk)
+### 2. Build an overlay candidate
 
-`shader-overlay-candidate.json` records the database hash, changed passes,
-recovered groups, whether the groups describe the exact variant domain, and
-before and after shader hashes. The linker partitions large passes into
-guarded includes. The compiler selects the same exact guard and original
-program body, and the receipt records each include's hash. The project stage
-verifies a supplied receipt against the extraction and checks that every
-original graphics shader and generated include is present. This receipt is
-required for the macOS target and for any overlay that supplies a catalog.
+Once everything matches, add `--overlay-candidate` to stage the shaders with their original GUIDs. Use it to find import, shader and material errors. Proving they render correctly still means compiling and running the original variants on Metal.
 
-The same link command writes `shader-variant-domains.json` for pass groups
-whose original Direct3D programs match every generated guard. The receipt
-seals the catalog. When Unity builds Metal, Direct3D 11 or Vulkan bundles or
-players, the preprocessor compares requested keywords and platform defines
-with those original rows. It removes combinations absent from every verified
-domain for the matched pass group. Source guards still surface combinations
-the catalog cannot prove. [Unity shader preprocessing](https://docs.unity3d.com/2021.3/Documentation/ScriptReference/Build.IPreprocessShaders.OnProcessShader.html)
+Also add `--repair-exclusive-keywords`. This rebuilds keyword groups from the original Direct3D vertex and fragment program pairs:
+- It checks that their keywords match every generated guard.
+- It recovers required choices, optional choices and constants.
+- If the groups can't describe every variant, it keeps the verified lighting and geometry modes and leaves explicit guards on the rest. The compiler may still reject some of those.
 
-When a material enables several keywords from one group, Unity can choose a
-closest variant. Matching Unity 5.6's visual choice requires a rendering
-comparison. [Unity shader keywords](https://docs.unity3d.com/cn/2021.3/Manual/shader-keywords-scripts.html)
+This needs Unity's class database. Save it at `cache/legacy-unity-classdata.tpk`, or pass `--class-database`. The tested file is [this one](https://github.com/nesrak1/UABEA/blob/057e2f6ae67ebc94a38faca9f946f8577162fa99/ReleaseFiles/classdata.tpk), SHA-256 `129e1f80f930415db6779fe6089afa75280cb51462bcee812beab6cd81a764c6`.
 
-The receipt intentionally labels the result `raw-export-unvalidated`. Passing
-this raw export to the converter as `ShaderSources` is not supported. In
-particular, non-dummy output does not establish correct channel masks, texture
-swizzles, offsets, reflection metadata, shader keyword variants, Unity import,
-Metal pipeline creation, or visual equivalence. AssetRipper's decompiler has
-had known semantic loss in these areas.
+The output is `shader-overlay-candidate.json`. It records:
+- the database hash
+- which passes changed, and the recovered groups
+- whether the groups cover every variant exactly
+- shader hashes before and after
 
-The prior local recovery reached a stronger state only after custom fixes and
-targeted Unity/Metal tests. That workflow used generated identity maps and
-manually reviewed source restorations (including public historical sources for
-some shader families); its full validated overlay is not reconstructable from
-the game directory by this bootstrap. A fresh installation still needs a
-separate review and validation pass before an overlay can be trusted. Do not
-replace every shader with one fallback shader to make the project compile.
+Large passes are split into guarded include files (hashed in the receipt) that compile to the same original program. The converter checks this receipt against the extraction and makes sure every shader and include is there. **The receipt is required for macOS**, and for any overlay that comes with a variant catalog.
+
+### Variant catalog
+
+The link step also writes `shader-variant-domains.json`. It lists the real keyword combinations for every pass group whose original Direct3D programs match all the generated guards.
+
+When Unity builds for Metal, Direct3D 11 or Vulkan, the build strips any combination that isn't in that list for its pass group ([how Unity does this](https://docs.unity3d.com/2021.3/Documentation/ScriptReference/Build.IPreprocessShaders.OnProcessShader.html)). The guards in the source still catch anything the catalog can't vouch for.
+
+If a material turns on several keywords from the same group, Unity picks the closest variant it has ([shader keywords](https://docs.unity3d.com/cn/2021.3/Manual/shader-keywords-scripts.html)). Making sure that matches what Unity 5.6 did means comparing renders.
+
+### Why the raw export isn't enough
+
+The recovery receipt marks the output `raw-export-unvalidated`, and the converter won't accept it as `ShaderSources`. AssetRipper's decompiler is known to get things wrong, so a file that isn't empty might still have bad:
+
+- channel masks, texture swizzles or offsets
+- reflection metadata or keyword variants
+- Unity import, Metal pipeline creation, or how it looks
+
+Our earlier working overlay needed custom fixes, targeted Unity/Metal tests, and some hand-restored shaders (partly from public historical sources). These tools alone can't rebuild it. A fresh install needs its own review and testing.
+
+**Don't replace every shader with one fallback shader just to make the project compile.**
 
 ## Compute shader recovery
 
-The raw exporter covers Unity `Shader` objects. Steam build `25002541` also
-contains eleven serialized `ComputeShader` objects with 22 Direct3D kernels.
-Use a local build of `dxil-spirv` at
-`a781dce9b5f2dd076f419d7f98dcc2dcf5f011d5`, and SPIRV-Cross from Vulkan SDK
-`1.4.357.0`. [dxil-spirv build instructions](https://github.com/HansKristian-Work/dxil-spirv/tree/a781dce9b5f2dd076f419d7f98dcc2dcf5f011d5) · [SPIRV-Cross](https://github.com/KhronosGroup/SPIRV-Cross)
+The steps above only cover regular shaders. Steam build `25002541` also has 11 compute shaders, with 22 Direct3D kernels between them.
+
+You need:
+- [dxil-spirv](https://github.com/HansKristian-Work/dxil-spirv/tree/a781dce9b5f2dd076f419d7f98dcc2dcf5f011d5) at `a781dce9b5f2dd076f419d7f98dcc2dcf5f011d5`, built locally
+- [SPIRV-Cross](https://github.com/KhronosGroup/SPIRV-Cross) from Vulkan SDK `1.4.357.0`
 
 ```sh
 dotnet run --project tools/ShaderOverlay -c Release -- compute \
@@ -162,12 +142,11 @@ dotnet run --project tools/ShaderOverlay -c Release -- compute \
   --spirv-cross "/path/to/spirv-cross"
 ```
 
-The command adds `Assets/ComputeShader` to the existing local overlay.
-It verifies the serialized exports against the extraction receipt, translates
-the original DXBC through SPIR-V and restores the resource and constant
-names from the same Unity metadata. It records the tool, source and output
-hashes, each kernel and its original thread-group size. The importer verifies
-that receipt, keeps the original GUIDs and changes the serialized references
-to use Unity's compute source importer. Missing bindings and unsupported
-layouts stop the translation. Unity's Metal validation checks for Windows-only
-programs, compiler errors and missing entry points.
+This adds `Assets/ComputeShader` to your overlay. It:
+
+1. checks the exported compute shaders against the extraction receipt
+2. translates the original DXBC to Metal by way of SPIR-V
+3. puts back the original resource and constant names from Unity's metadata
+4. records tool, source and output hashes, plus each kernel and its thread-group size
+
+On import, the converter checks that receipt, keeps the GUIDs and uses Unity's compute shader importer. Translation stops on missing bindings or unsupported layouts. Unity's Metal check catches Windows-only programs, compile errors and missing entry points.

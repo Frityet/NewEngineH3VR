@@ -1,19 +1,20 @@
-# Native macOS integration
+# Building and running on macOS
 
-Apple Silicon conversion targets Unity **2021.3.45f2**, the Mono scripting
-backend and Metal. The host creates one OpenXR session in its ARM64 Metal
-plug-in. It reads tracking and actions and submits the two eye images through
-the Khronos loader. Unity's OpenXR 1.13 package supports the converter's Windows
-target. The macOS target uses the Metal plug-in. [Unity's runtime matrix](https://docs.unity3d.com/Packages/com.unity.xr.openxr@1.13/manual/index.html#runtimes) · [OpenXR Metal specification](https://registry.khronos.org/OpenXR/specs/1.1/html/xrspec.html#XR_KHR_metal_enable)
+On Apple Silicon, the game builds with Unity **2021.3.45f2**, Mono and Metal. VR goes through our own ARM64 Metal plug-in, which opens one OpenXR session through the Khronos loader. It reads tracking and input and sends both eye images.
 
-## Prepare the local integration
+Unity's OpenXR 1.13 package is only used for the Windows build. ([Unity's runtime list](https://docs.unity3d.com/Packages/com.unity.xr.openxr@1.13/manual/index.html#runtimes), [OpenXR Metal spec](https://registry.khronos.org/OpenXR/specs/1.1/html/xrspec.html#XR_KHR_metal_enable))
 
-Use the OpenXR headers from the same MacVR source revision as the runtime
-package. Install the .NET 10 SDK, Xcode command line tools and the Unity
-2021.3.45f2 Apple Silicon editor with Mac Standalone Support. Supply the
-[CSteamworks and FMOD inputs](../runtime/Platform/README.md) locally.
+## What you need
 
-Run these commands from the NativeH3VR checkout with new private paths.
+- .NET 10 SDK
+- Xcode command line tools
+- Unity 2021.3.45f2 for Apple Silicon, with Mac Standalone Support
+- MacVR, plus the OpenXR headers from the same MacVR version
+- CSteamworks and the FMOD SDK (see [platform adapters](../runtime/Platform/README.md))
+
+## 1. Build the integration
+
+Run these from this repo. Use new, empty output folders.
 
 ```sh
 dotnet run --project tools/PlatformPatch/NativeBuilder -c Release -- \
@@ -29,32 +30,31 @@ dotnet run --project tools/UnityMetalCli -c Release -- build \
   --output "/path/to/private/integration"
 ```
 
-Pass `--integration /path/to/private/integration/integration.json` to the
-converter. The manifest binds each authored source and local plug-in to the
-exact target and a SHA-256 digest. The Unity editor selects the Metal backend
-and uses its runtime initialization to attach the game camera after rig
-expansion.
+## 2. Convert the game
 
-The macOS editor stage requires the pinned editor and its native player module.
-Use a fresh private project with that project closed before running batch
-conversion. The built player is ad-hoc signed locally. Its receipt records
-Steam build and extraction identities, Unity version, architecture, executable,
-managed DLL hashes and the supported mod manifest version.
+Pass the integration to the converter:
 
-The macOS managed retargeter records names from legacy `Shader.PropertyToID`
-calls. When the game binds a `ComputeBuffer` to a material or property block,
-the compatibility assembly sets an integer `_NativeH3VRBufferCount` companion
-with the same scope. Metal translations can use that value as the bound element
-count. [Unity material property bindings](https://github.com/Unity-Technologies/UnityCsReference/blob/2021.3/Runtime/Export/Shaders/MaterialPropertyBlock.cs)
+```sh
+--integration /path/to/private/integration/integration.json
+```
 
-## Launch an imported player
+That file pins every source file and plug-in to the target with a SHA-256 hash.
 
-Build a MacVR export with `xmake openxr-export --output=/absolute/new/path`.
-The launcher verifies the runtime files and the signed app, selects the runtime
-with a process-local `XR_RUNTIME_JSON`, and directs Unity preferences and saves
-into the supplied state directory. It passes the real H3VR app ID to Steam.
-The Steam libraries still perform their own initialization and ownership
-operations.
+Things to know:
+- You need the exact Unity version above, with its Mac player module.
+- Use a fresh project, and keep it closed in Unity while the converter runs.
+- The finished app is signed ad-hoc on your machine.
+- Its receipt records the Steam build, extraction, Unity version, architecture, executable, DLL hashes and the mod manifest version it supports.
+
+## 3. Run it
+
+First build a MacVR export:
+
+```sh
+xmake openxr-export --output=/absolute/new/path
+```
+
+Then launch the game:
 
 ```sh
 dotnet run --project tools/UnityMetalCli -c Release -- run \
@@ -64,17 +64,22 @@ dotnet run --project tools/UnityMetalCli -c Release -- run \
   --synthetic --log-file "/path/to/new-player.log"
 ```
 
-For a modded session, add `--mods-dir /path/to/external-mods` to the same
-command. Each package has its own folder with a schema 2 `native-mod.json`.
-The host verifies that `hostBuildSha256` matches its signed
-`Contents/Resources/nativeh3vr-build.json` and checks the assembly hashes
-before invoking package entry points. Leave out `--mods-dir` for a stock
-session.
+- `--synthetic` uses a fake headset. Use `--headset` for a real one.
+- `--state-dir` is where Unity keeps settings and saves.
+- The launcher checks the runtime and the app signature first. It points only this process at MacVR, through `XR_RUNTIME_JSON`.
+- Steam gets the real H3VR app ID and does its own startup and ownership checks.
 
-Use `--headset` for a physical session. For synthetic timing, supply
-`--trace-file` and `--unity-profile-file` with fresh paths, and keep
-`NATIVEH3VR_EYE_WIDTH`, `NATIVEH3VR_EYE_HEIGHT` and `VR_OPENXR_TARGET_HZ` fixed
-across runs. The profiler joins Unity rows to MacVR by predicted display time.
+### With mods
+
+Add `--mods-dir /path/to/mods`. Leave it out for an unmodded game.
+
+Each mod goes in its own folder with a schema 2 `native-mod.json`. Before loading a mod, the game checks two things:
+- its `hostBuildSha256` matches the app's signed `Contents/Resources/nativeh3vr-build.json`
+- its assembly hashes are correct
+
+### Profiling
+
+Add `--trace-file` and `--unity-profile-file` (new paths) to the run command. Keep `NATIVEH3VR_EYE_WIDTH`, `NATIVEH3VR_EYE_HEIGHT` and `VR_OPENXR_TARGET_HZ` the same between runs you want to compare. Then:
 
 ```sh
 dotnet run --project tools/UnityMetalCli -c Release -- profile \
@@ -82,10 +87,22 @@ dotnet run --project tools/UnityMetalCli -c Release -- profile \
   --warmup-seconds 2 --window-seconds 10
 ```
 
-Use `--unity-frames START END` for an inclusive range of known scene frames.
-Unsupported Unity recorder counters appear as missing data. MacVR completion
-records report GPU completion. Physical scanout requires separate evidence.
+This lines up Unity's frames with MacVR's by predicted display time.
 
-For callers such as the Backrooms launch tool, build with
-`dotnet build tools/UnityMetalCli -c Release`, then invoke
-`dotnet /absolute/path/to/UnityMetalCli.dll run` with the same options.
+- To look at specific frames instead, use `--unity-frames START END` (both ends included).
+- Counters Unity doesn't support show up as missing.
+- MacVR's timings are for when the GPU finished, not when the display showed the frame.
+
+### Calling it from other tools
+
+Tools like the Backrooms launcher can build the CLI once:
+
+```sh
+dotnet build tools/UnityMetalCli -c Release
+```
+
+Then run `dotnet /absolute/path/to/UnityMetalCli.dll run` with the same options.
+
+## Compute buffer sizes on Metal
+
+Metal shaders can't ask a buffer how big it is the way Direct3D 11 and Vulkan can. On macOS the converter records the property names the game creates with `Shader.PropertyToID`. When the game binds a `ComputeBuffer` to a material or property block, it also sets `_NativeH3VRBufferCount` in the same place. The translated Metal shaders read that as the element count. ([how Unity binds material properties](https://github.com/Unity-Technologies/UnityCsReference/blob/2021.3/Runtime/Export/Shaders/MaterialPropertyBlock.cs))

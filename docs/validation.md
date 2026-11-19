@@ -1,48 +1,45 @@
-# Validation and open gates
+# What's been tested
 
-The macOS candidate targets Unity **2021.3.45f2**, Mono and ARM64 Metal. The
-Unity test scene and native mod-host fixture use independently authored assets.
+The Mac build uses Unity **2021.3.45f2**, Mono and ARM64 Metal. The Unity test scene and the mod-host test use our own assets, not the game's.
 
-## Verified locally
+## What works
 
-- A fresh Steam extraction of app 450540 build 25002541 completed. The
-  converter retargets the installed managed assemblies and preserves their
-  serialized field layout. A private managed verification run passed with
-  zero unresolved type, method or engine field references. Project migration
-  resolved 4,387 original asset-bundle addresses across 18 bundles.
-- The rebuilt Steam and FMOD shims resolved all 850 inspected CSteamworks and
-  545 FMOD imports by symbol. The stock player initialized the running Steam
-  client after the two native shims and their dependencies moved directly into
-  the player's PlugIns directory. Spatial audio and video playback still need
-  dedicated acceptance checks.
-- A signed arm64 Unity fixture loaded the MacVR 0.4.0 runtime through the
-  Khronos loader and ran on Apple M5 Max Metal. It acquired focus, read two
-  tracked controller poses, reached the configured 2 m stage bounds and
-  submitted accepted synthetic haptics to both hands. The captured
-  compositor image showed upright markers and 22 px of binocular disparity
-  at 800 × 800 per eye. The measured head height was 1.6 m with 64 mm IPD.
-  Unity resolved its persistent data into the launcher's private state path.
-- The generic native mod host registered an external assembly before the
-  first scene and resolved that assembly's MonoBehaviour in an independently
-  built Atlas scene bundle. Assembly and manifest rejection was checked.
-- The shader exporter recovered 277 raw files from 390 serialized Shader
-  objects in the installed Steam build. All 277 exported files match their
-  original serialized identities and recovered project GUIDs. The complete
-  generated set imported on Metal with zero shader errors. This isolated
-  check covers default compilation. Exact stock variant checks included
-  lighting, fog, LOD crossfade, instancing and SpeedTree geometry. The strict
-  stock player build serialized 46 scenes and all 18 native asset bundles.
-  [Shader recovery](shader-recovery.md)
-- All 22 kernels translated from the extracted Direct3D compute programs
-  compiled on Apple M5 Max Metal with their original thread-group sizes.
-  Metal dispatch/readback verified a 128-entry histogram clear and linear
-  interpolation over 64 texture voxels. The actual game effects still
-  require integration testing. [Compute recovery](shader-recovery.md#compute-shader-recovery)
+All of this was tested on Steam app 450540, build 25002541.
 
-## Reproduce the Unity fixture
+**Extraction and code**
+- A fresh extraction finished.
+- The retargeted game code kept its saved field layout. A verification run found no unresolved types, methods or engine fields.
+- 4,387 original asset bundle addresses across 18 bundles were mapped.
 
-From this checkout, with a built MacVR runtime and a closed, isolated target
-project:
+**Steam and FMOD**
+- The rebuilt shims resolved all 850 CSteamworks imports and 545 FMOD imports.
+- The game started up with the running Steam client once the shims and their dependencies were in the app's `PlugIns` folder.
+- Spatial audio and video still need their own tests.
+
+**VR (test scene)**
+- A signed arm64 Unity test app loaded the MacVR 0.4.0 runtime and ran on an Apple M5 Max.
+- It got focus, tracked both controllers, saw the 2 m play area and sent haptics to both hands.
+- The captured image had both eyes upright, at 800 × 800 per eye with 22 px between them. Head height was 1.6 m and IPD 64 mm.
+- Unity stored its save data in the launcher's private folder.
+
+**Mods**
+- The mod host loaded an outside assembly before the first scene, and used its scripts in a separately built Atlas scene bundle.
+- Bad assemblies and bad manifests were rejected.
+
+**Shaders** ([details](shader-recovery.md))
+- 277 shader files were recovered from 390 shader objects. All 277 match their originals and keep the right project GUIDs.
+- All of them imported on Metal with no errors (default variants).
+- Specific variants were checked for lighting, fog, LOD crossfade, instancing and SpeedTree.
+- The full game build packed all 46 scenes and all 18 asset bundles.
+
+**Compute shaders** ([details](shader-recovery.md#compute-shader-recovery))
+- All 22 translated kernels compiled on Metal with their original thread-group sizes.
+- Two were run and checked on the GPU: a 128-entry histogram clear, and interpolation over 64 voxels.
+- The in-game effects that use them haven't been tested yet.
+
+## Running the VR test yourself
+
+You need a built MacVR runtime and a new, closed Unity project folder:
 
 ```sh
 dotnet run --project tools/UnityMetalCli -c Release -- smoke \
@@ -52,29 +49,24 @@ dotnet run --project tools/UnityMetalCli -c Release -- smoke \
   --work "/path/to/new-metal-smoke"
 ```
 
-The fixture writes the editor and player logs, the composited stereo image and
-separate Unity and MacVR traces. The capture check verifies both eyes and the
-vertical marker orientation. [Trace analysis command](platform-integrations.md)
+It saves the editor and player logs, the stereo image, and Unity and MacVR traces. It checks that both eyes are there and right side up. To compare timings, see [profiling](platform-integrations.md#profiling).
 
-## Open gates
+## Still to do
 
-The first cold validation loaded 46 scenes and inspected 8,293 prefabs. It
-recorded 41 shader asset failures and 16 missing EventSystem components
-across eight scenes. A targeted Unity retest confirmed all 16 bindings
-through the original file IDs. The current isolated Metal import covers all
-277 graphics shaders and the 11 compute assets with their original GUIDs
-and 22 kernels. Full project validation combines these inputs and records
-shader upgrades applied by Unity.
+**Project validation.** The first full check loaded 46 scenes and 8,293 prefabs. It found 41 broken shader assets and 16 missing EventSystem components across eight scenes. Since then:
+- a follow-up test fixed all 16 EventSystem bindings
+- all 277 shaders and 11 compute shaders (22 kernels) import on Metal with their original GUIDs
 
-The assembled app verified as thin ARM64 with a strict deep signature. The
-converter restored 1,962 original lighting probe sets across 15 scenes. The
-stock player loaded through Steamworks and rendered the main menu at
-1,440 × 1,600 per eye. Atlas loaded five external mod assemblies and registered
-its map from the same signed player. Seeded gameplay, lighting appearance and
-performance on the stock, Facility door and Level 0 routes need runtime
-acceptance. Physical presentation, controller handling and player acceptance
-require a live session.
+A full project check that combines these, and records Unity's own shader upgrades, is still needed.
 
-Unity 2021.3.45f2 stays selected for this checkpoint. It produced the cold
-player, rebuilt the stock bundles and ran the external mod smoke. A comparable
-gameplay trace will inform any engine change.
+**The game itself.**
+- The app is a properly signed ARM64-only build.
+- 1,962 original lighting probe sets were restored across 15 scenes.
+- The game started through Steam and showed the main menu at 1,440 × 1,600 per eye.
+- Atlas loaded five mods and registered its map in the same app.
+
+Not yet tested:
+- actual gameplay, lighting and performance on the stock game, the Facility door and Level 0
+- a real headset: how it looks, how the controllers feel, and whether it's playable
+
+**Unity version.** We're staying on 2021.3.45f2 for now, since it built the game, rebuilt the bundles and ran the mod test. A gameplay trace will decide whether to change engine versions.
