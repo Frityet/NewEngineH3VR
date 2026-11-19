@@ -13,6 +13,9 @@ python3 tests/StockMenuRendering/run.py \
   --survey-scene WarehouseRange_Rebuilt --survey-scene ArizonaTargets
 
 uv run tests/StockMenuRendering/measure.py "/path/to/fresh/output" --verify-stock
+
+python3 tests/StockMenuRendering/verify_profiles.py \
+  "/path/to/recovery/ExportedProject" "/path/to/retargeted/project"
 ```
 
 The report records the actual HDR camera, eye transforms, frusta, render formats, active and inactive materials, lights, cubemaps and post-processing resources. Each eye is captured twice with identical settings to establish the noise floor. Further captures switch off the grade, switch off bloom, toggle AO, disable the whole layer and restore the original settings. The neutral test card samples five known material input values and the black surround beside an HDR patch. The test also records the blended grading settings, the five sampled curve values and the full 33³ floating-point LUT. Use `--gear` to capture the stock Index controller wire meshes at fixed poses. Each `--survey-scene` enters another official scene through the stock scene loader and records its two eyes.
@@ -36,4 +39,6 @@ On the signed player, mean menu luminance on the left was 75.93 on Metal and 75.
 
 The survey covered 14 official scenes, including the title, day and night outdoor ranges, the indoor range, warehouse and grillhouse. Every assigned shader on an active renderer in these samples reported Metal support. Each Friendly45 variant retains three inactive fir meshes with an empty stock material. Their original Windows material has a null shader pointer and their common root is disabled. Runtime surveys include these placeholders and empty particle or equipment slots so the captured state can be inspected.
 
-All 34 post-processing shader and compute references resolved. The signed release also resolved all five terrain shader lookups through Unity's public `Shader.GetDependency` API, including grass, terrain detail and billboard trees. All 18 rebuilt asset bundles opened in Unity and exposed their original 4,387 addresses. These checks cover resource bindings and the effects exercised above. Other post-processing modes, every third-party material and physical headset optics require their own comparisons.
+The 46 original scenes contain 155 post-processing volumes. Their 25 shared profiles comprise 13 grading presets, eight bloom presets and four ambient occlusion presets. The migrated Unity project preserves the original weights, curves, colors, profile GUIDs and every serialized setting in these volumes and profiles. The source check verifies the new managed class binding for every component and compares its remaining fields verbatim.
+
+All 34 post-processing shader and compute references resolved. The signed release also resolved all five terrain shader lookups through Unity's public `Shader.GetDependency` API, including grass, terrain detail and billboard trees. All 18 rebuilt asset bundles opened in Unity and exposed their original 4,387 addresses. These checks cover the original preset data and the three effect families exercised in the player. Individual presets, external mod shaders and physical headset optics require separate visual comparisons.
