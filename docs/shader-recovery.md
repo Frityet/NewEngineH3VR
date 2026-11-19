@@ -50,12 +50,14 @@ manifest identifies the fork and its upstream base.
 
 ## Exporter provenance
 
+The exporter writes HLSL `log2` and `exp2` for Direct3D's logarithm and exponential instructions. The stock HDR grading shader uses the base-two logarithm when it looks up a color in its 3D table. The instruction base also matters for unpaired uses in lighting and other image effects. [Direct3D log instruction](https://learn.microsoft.com/en-us/windows/win32/direct3dhlsl/log--sm4---asm-) · [Direct3D exp instruction](https://learn.microsoft.com/en-us/windows/win32/direct3dhlsl/exp--sm4---asm-)
+
 The provisioning command builds Frityet's AssetRipper fork at
-`ef5ae7280209224e9ba5f49ce61634288de65dcb` and verifies its upstream base
+`c742ca8c960a4c8bb187ec04ee61d1d58fc65e64` and verifies its upstream base
 `d142a4b46586acdf931aaefc34d3e9eed4b7158e`. It removes its temporary checkout
 after publishing a self-contained executable and keeps the GPL-3.0-only
 license and the source URL alongside it. The standalone provisioning command
-can also write to a new local directory. [Pinned source](https://github.com/Frityet/AssetRipper/tree/ef5ae7280209224e9ba5f49ce61634288de65dcb)
+can also write to a new local directory. [Pinned source](https://github.com/Frityet/AssetRipper/tree/c742ca8c960a4c8bb187ec04ee61d1d58fc65e64)
 
 ```sh
 dotnet run --project tools/ShaderExporter -- provision cache/assetripper-shader-manual
