@@ -47,12 +47,16 @@ internal static class LegacyHdrMaterials
         return MathF.Pow(value, 2.2f);
     }
 
+    internal static bool IsLinearProject(string root)
+    {
+        var settings = Path.Combine(root, "ProjectSettings", "ProjectSettings.asset");
+        return File.Exists(settings) && LinearColorSpace.IsMatch(File.ReadAllText(settings));
+    }
+
     internal static string? Apply(ConversionConfig config, string root, string assets,
         Dictionary<string, HashSet<string>> properties)
     {
-        if (properties.Count == 0) return null;
-        var settings = Path.Combine(config.Export, "ProjectSettings", "ProjectSettings.asset");
-        if (!File.Exists(settings) || !LinearColorSpace.IsMatch(File.ReadAllText(settings))) return null;
+        if (properties.Count == 0 || !IsLinearProject(config.Export)) return null;
         var extraction = JsonSerializer.Deserialize<StepReceipt>(File.ReadAllText(
             Path.Combine(config.Workspace, ".conversion", "extract.json")), ConversionConfig.Json)
             ?? throw new InvalidDataException("Missing extraction receipt for stock HDR material migration.");

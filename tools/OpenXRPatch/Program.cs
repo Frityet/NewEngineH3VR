@@ -2,9 +2,9 @@ using Mono.Cecil;
 using Mono.Cecil.Cil;
 using System.Text.Json;
 
-if (args.Length != 3 && args.Length != 5)
+if (args.Length is not (3 or 5 or 6) || (args.Length == 6 && args[5] != "--legacy-quickbelt-rim"))
 {
-    Console.Error.WriteLine("usage: OpenXRPatch <managed-input-dir> <NativeH3VR.OpenXR.dll> <patched-output-dir> [--unity-engine <Managed/UnityEngine-dir>]");
+    Console.Error.WriteLine("usage: OpenXRPatch <managed-input-dir> <NativeH3VR.OpenXR.dll> <patched-output-dir> [--unity-engine <Managed/UnityEngine-dir> [--legacy-quickbelt-rim]]");
     return 64;
 }
 
@@ -12,7 +12,7 @@ string input = Path.GetFullPath(args[0]);
 string adapterPath = Path.GetFullPath(args[1]);
 string output = Path.GetFullPath(args[2]);
 string? unityManaged = null;
-if (args.Length == 5)
+if (args.Length >= 5)
 {
     if (args[3] != "--unity-engine") throw new ArgumentException("Expected --unity-engine <Managed/UnityEngine-dir>.");
     unityManaged = Path.GetFullPath(args[4]);
@@ -312,6 +312,8 @@ foreach (string name in assemblyNames)
     {
         foreach (var method in MacOptionalFeatures.Apply(module))
             changes.Add(new { assembly = name, method, kind = "unavailable-on-macos" });
+        if (LegacyQuickbeltColors.Apply(module, args.Length == 6) != 0)
+            changes.Add(new { assembly = name, method = "System.Void FistVR.FVRQuickBeltSlot::Update()", kind = "legacy-quickbelt-rim" });
         PatchMetalCameras(module, name);
     }
 
