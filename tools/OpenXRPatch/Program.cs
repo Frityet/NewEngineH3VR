@@ -2,9 +2,9 @@ using Mono.Cecil;
 using Mono.Cecil.Cil;
 using System.Text.Json;
 
-if (args.Length is not (3 or 5 or 6) || (args.Length == 6 && args[5] != "--legacy-quickbelt-rim"))
+if (args.Length is not (3 or 5 or 6) || (args.Length == 6 && args[5] is not ("--legacy-quickbelt-rim" or "--legacy-stock-rim")))
 {
-    Console.Error.WriteLine("usage: OpenXRPatch <managed-input-dir> <NativeH3VR.OpenXR.dll> <patched-output-dir> [--unity-engine <Managed/UnityEngine-dir> [--legacy-quickbelt-rim]]");
+    Console.Error.WriteLine("usage: OpenXRPatch <managed-input-dir> <NativeH3VR.OpenXR.dll> <patched-output-dir> [--unity-engine <Managed/UnityEngine-dir> [--legacy-stock-rim]]");
     return 64;
 }
 
@@ -314,6 +314,9 @@ foreach (string name in assemblyNames)
             changes.Add(new { assembly = name, method, kind = "unavailable-on-macos" });
         if (LegacyQuickbeltColors.Apply(module, args.Length == 6) != 0)
             changes.Add(new { assembly = name, method = "System.Void FistVR.FVRQuickBeltSlot::Update()", kind = "legacy-quickbelt-rim" });
+        int tnhCalls = LegacyTnhColors.Apply(module, args.Length == 6 && args[5] == "--legacy-stock-rim");
+        if (tnhCalls != 0)
+            changes.Add(new { assembly = name, calls = tnhCalls, kind = "legacy-tnh-rim" });
         PatchMetalCameras(module, name);
     }
 
