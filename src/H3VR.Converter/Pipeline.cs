@@ -68,8 +68,12 @@ public sealed partial class Pipeline(string repository, ConversionConfig config)
         }
         if (step is "project" or "validate" or "build")
         {
-            Add(JsonSerializer.Serialize(config with { Offline = false, ToolCacheDirectory = null,
-                CompactPlayerData = step == "build" && config.CompactPlayerData }));
+            Add(JsonSerializer.Serialize(config with
+            {
+                Offline = false,
+                ToolCacheDirectory = null,
+                CompactPlayerData = step == "build" && config.CompactPlayerData
+            }));
             if (config.ShaderSources is not null)
                 foreach (var file in SafeFiles.Files(config.ShaderSources)
                     .Where(p => Path.GetExtension(p).ToLowerInvariant() is ".shader" or ".cginc" or ".hlsl" or ".compute" or ".glslinc" or ".meta" ||

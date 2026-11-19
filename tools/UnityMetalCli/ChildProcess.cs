@@ -43,7 +43,7 @@ internal static class ChildProcess
             if (!process.HasExited)
             {
                 try { process.Kill(entireProcessTree: true); }
-                catch (InvalidOperationException) when (process.HasExited) {}
+                catch (InvalidOperationException) when (process.HasExited) { }
             }
             await process.WaitForExitAsync();
             _ = await read;

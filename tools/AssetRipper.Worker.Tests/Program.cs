@@ -2,6 +2,7 @@ using AssetsTools.NET;
 using AssetsTools.NET.Extra;
 using H3VR.Converter;
 using System.Diagnostics;
+using System.Reflection;
 using System.Text;
 using System.Text.Json;
 
@@ -14,7 +15,6 @@ var secondExport = Path.Combine(root, "export-offline");
 var config = new ConversionConfig { GameDirectory = input, ToolCacheDirectory = Path.Combine(root, "cache") };
 try
 {
-    ValidateSyntheticShaderIdentity();
     CreateSyntheticTextAsset(Path.Combine(input, "synthetic.assets"), "2021.3.45f1", "SyntheticHello", "ASSET-RIPPER-FIXTURE-TEST");
 
     var repository = Repository.Find();
@@ -38,6 +38,7 @@ try
     Console.WriteLine("PASS synthetic TextAsset exported through online build and verified offline cache.");
 
     var worker = Directory.EnumerateFiles(AssetRipperIntegration.DefaultCacheDirectory(config, repository), "AssetRipper.Worker.dll", SearchOption.AllDirectories).Single();
+    ValidateSyntheticShaderIdentity(worker);
     File.AppendAllText(worker, "tampered fixture");
     if (AssetRipperIntegration.CheckAvailability(offline, repository, out _))
         throw new InvalidDataException("A modified worker was accepted by the integrity check.");
@@ -56,25 +57,50 @@ finally
     if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
 }
 
-void ValidateSyntheticShaderIdentity()
+void ValidateSyntheticShaderIdentity(string workerPath)
 {
+    // The converter provisions the worker during the cold export above.
+    var worker = Assembly.Load(File.ReadAllBytes(workerPath));
+    var identityType = worker.GetType("ShaderIdentity", throwOnError: true)!;
+    var recorderType = worker.GetType("ShaderIdentityRecorder", throwOnError: true)!;
+    var add = recorderType.GetMethod("Add", BindingFlags.Instance | BindingFlags.NonPublic)!;
+    var write = recorderType.GetMethod("Write")!;
     var output = Path.Combine(root, "identity-fixture");
-    var shader = Path.Combine(output, "ExportedProject", "Assets", "Synthetic.shader");
+    const string shaderPath = "Assets/Synthetic.shader";
+    var shader = Path.Combine(output, "ExportedProject", shaderPath);
     Directory.CreateDirectory(Path.GetDirectoryName(shader)!);
     Directory.CreateDirectory(Path.Combine(output, "AuxiliaryFiles"));
     File.WriteAllText(shader, "synthetic shader");
     var guid = new string('a', 32);
     File.WriteAllText(shader + ".meta", "fileFormatVersion: 2\nguid: " + guid + "\n");
-    var record = new ShaderIdentity("source", "synthetic", ["fixture"], -7, guid, "Assets/Synthetic.shader", "DummyShaderTextExporter");
-    var recorder = new ShaderIdentityRecorder(); recorder.Add(record); recorder.Write(output);
+
+    object Identity(string id, string exportPath) =>
+        Activator.CreateInstance(identityType, ["source", "synthetic", new[] { "fixture" }, -7L, id, exportPath, "DummyShaderTextExporter"])!;
+
+    Action<string> CreateWriter(params object[] records)
+    {
+        var recorder = Activator.CreateInstance(recorderType)!;
+        foreach (var record in records)
+            add.Invoke(recorder, [record]);
+        return write.CreateDelegate<Action<string>>(recorder);
+    }
+
+    void Reject(Action<string> writeMap, string message)
+    {
+        try { writeMap(output); }
+        catch (InvalidDataException) { return; }
+        throw new InvalidOperationException(message);
+    }
+
+    var identity = Identity(guid, shaderPath);
+    var writeIdentity = CreateWriter(identity);
+    writeIdentity(output);
     using var json = JsonDocument.Parse(File.ReadAllText(Path.Combine(output, "AuxiliaryFiles", "shader-identity-v2.json")));
     if (json.RootElement.GetProperty("shaders")[0].GetProperty("PathId").GetInt64() != -7) throw new InvalidDataException("Synthetic identity lost its signed path ID.");
-    var duplicate = new ShaderIdentityRecorder(); duplicate.Add(record); duplicate.Add(record);
-    try { duplicate.Write(output); throw new Exception("Duplicate shader identity was accepted."); } catch (InvalidDataException) { }
-    var ambiguous = new ShaderIdentityRecorder(); ambiguous.Add(record); ambiguous.Add(record with { Guid = new string('b', 32), ExportPath = "Assets/Other.shader" });
-    try { ambiguous.Write(output); throw new Exception("Ambiguous original shader identity was accepted."); } catch (InvalidDataException) { }
+    Reject(CreateWriter(identity, identity), "Duplicate shader identity was accepted.");
+    Reject(CreateWriter(identity, Identity(new string('b', 32), "Assets/Other.shader")), "Ambiguous original shader identity was accepted.");
     File.WriteAllText(shader + ".meta", "guid: " + new string('b', 32) + "\n");
-    try { recorder.Write(output); throw new Exception("Mismatched shader GUID was accepted."); } catch (InvalidDataException) { }
+    Reject(writeIdentity, "Mismatched shader GUID was accepted.");
     Console.WriteLine("PASS synthetic shader identities preserve path IDs and reject duplicates or metadata mismatches.");
 }
 

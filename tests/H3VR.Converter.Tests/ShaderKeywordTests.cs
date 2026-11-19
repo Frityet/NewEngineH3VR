@@ -176,8 +176,11 @@ internal static class ShaderKeywordTests
         const string enabled = "#elif defined(INSTANCING_ON)";
         const string fallback = "#else\n#error Original shader has no recovered variant\n#endif";
         var repaired = Repair(body);
-        Check(repaired is not null && repaired.Bindings is { VariantCount: 1, InstanceIdReads: 2,
-            ObjectToWorldReads: 1, WorldToObjectReads: 1 });
+        Check(repaired is not null && repaired.Bindings is
+        {
+            VariantCount: 1, InstanceIdReads: 2,
+            ObjectToWorldReads: 1, WorldToObjectReads: 1
+        });
         Check(repaired!.Source.StartsWith($"{disabled}\n{body}\n{enabled}", StringComparison.Ordinal));
         var active = repaired.Source[(repaired.Source.IndexOf(enabled, StringComparison.Ordinal) + enabled.Length)..];
         Check(!active.Contains("CBUFFER_START(UnityDrawCallInfo)", StringComparison.Ordinal));

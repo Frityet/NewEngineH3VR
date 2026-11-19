@@ -45,25 +45,25 @@ public static class PlayerEnlightenTests
             Write(stage, "level0", "staged-level"); Write(stage, pos, "position"); Write(stage, rpc, "probe-core");
             Write(target, pos, "position"); // Already matching files are never claimed or removed.
             var files = new Dictionary<string, string> { ["level0"] = SafeFiles.Hash(Path.Combine(stage, "level0")), [pos] = SafeFiles.Hash(Path.Combine(stage, pos)), [rpc] = SafeFiles.Hash(Path.Combine(stage, rpc)) };
-            var scene = new PlayerEnlighten.SceneReceipt("Assets/Scenes/Test.unity", "level38", "level0", 1, new string('0',64), SafeFiles.Hash(Path.Combine(target,"level0")), files["level0"], [probe]);
-            var receipt = new PlayerEnlighten.Receipt(1, Path.Combine(root,"source"), target, new string('0',64), new string('0',64), SafeFiles.Hash(Path.Combine(target,"globalgamemanagers")), [scene], files);
+            var scene = new PlayerEnlighten.SceneReceipt("Assets/Scenes/Test.unity", "level38", "level0", 1, new string('0', 64), SafeFiles.Hash(Path.Combine(target, "level0")), files["level0"], [probe]);
+            var receipt = new PlayerEnlighten.Receipt(1, Path.Combine(root, "source"), target, new string('0', 64), new string('0', 64), SafeFiles.Hash(Path.Combine(target, "globalgamemanagers")), [scene], files);
             Write(stage, "enlighten-stage.json", System.Text.Json.JsonSerializer.Serialize(receipt));
             string receiptHash = SafeFiles.Hash(Path.Combine(stage, "enlighten-stage.json"));
             Write(stage, "unexpected", "x");
             try { PlayerEnlighten.Install(stage, target, receiptHash, evidence); throw new Exception("Unexpected staged file accepted"); } catch (InvalidDataException) { }
-            File.Delete(Path.Combine(stage,"unexpected"));
+            File.Delete(Path.Combine(stage, "unexpected"));
             Write(target, rpc, "unrelated");
             try { PlayerEnlighten.Install(stage, target, receiptHash, evidence); throw new Exception("Unrelated file overwritten"); } catch (InvalidDataException) { }
-            if (File.ReadAllText(Path.Combine(target,"level0")) != "original-level" || Directory.Exists(evidence)) throw new Exception("Failed preflight changed target");
-            File.Delete(Path.Combine(target,rpc));
+            if (File.ReadAllText(Path.Combine(target, "level0")) != "original-level" || Directory.Exists(evidence)) throw new Exception("Failed preflight changed target");
+            File.Delete(Path.Combine(target, rpc));
             var installed = PlayerEnlighten.Install(stage, target, receiptHash, evidence);
-            if (File.ReadAllText(Path.Combine(target,"level0")) != "staged-level" || !File.Exists(Path.Combine(target,rpc))) throw new Exception("Installation missing files");
+            if (File.ReadAllText(Path.Combine(target, "level0")) != "staged-level" || !File.Exists(Path.Combine(target, rpc))) throw new Exception("Installation missing files");
             Write(target, rpc, "external-change");
             try { PlayerEnlighten.Cleanup(target, evidence, installed.ReceiptSha256); throw new Exception("Changed file removed"); } catch (InvalidDataException) { }
-            if (File.ReadAllText(Path.Combine(target,"level0")) != "staged-level") throw new Exception("Failed cleanup changed target");
+            if (File.ReadAllText(Path.Combine(target, "level0")) != "staged-level") throw new Exception("Failed cleanup changed target");
             Write(target, rpc, "probe-core");
             PlayerEnlighten.Cleanup(target, evidence, installed.ReceiptSha256);
-            if (File.ReadAllText(Path.Combine(target,"level0")) != "original-level" || File.Exists(Path.Combine(target,rpc)) || !File.Exists(Path.Combine(target,pos)) || !Directory.Exists(evidence))
+            if (File.ReadAllText(Path.Combine(target, "level0")) != "original-level" || File.Exists(Path.Combine(target, rpc)) || !File.Exists(Path.Combine(target, pos)) || !Directory.Exists(evidence))
                 throw new Exception("Cleanup failed to preserve original or unrelated files");
         }
         finally { if (Directory.Exists(root)) Directory.Delete(root, true); }

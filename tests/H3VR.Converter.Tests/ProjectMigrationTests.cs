@@ -282,7 +282,8 @@ public static class ProjectMigrationTests
         var receipt = Path.Combine(assets, "ComputeShader", ComputeShaderOverlay.ReceiptName);
         void WriteReceipt(string computeHash) => SafeFiles.AtomicJson(receipt, new
         {
-            schemaVersion = 1, extractionFingerprint = extract.Fingerprint,
+            schemaVersion = 1,
+            extractionFingerprint = extract.Fingerprint,
             files = new[] { new {
                 source = "Readback.asset", sourceSha256 = extract.Files[original], sourceMetaSha256 = extract.Files[original + ".meta"],
                 compute = "Readback.compute", computeSha256 = computeHash, computeMetaSha256 = SafeFiles.Hash(overlayCompute + ".meta"),
@@ -400,14 +401,19 @@ public static class ProjectMigrationTests
                 rawHash = SafeFiles.HashText("Shader \"Raw fixture\" { }");
                 repairs.Add(new
                 {
-                    path = relative, before = rawHash, after = SafeFiles.Hash(output),
+                    path = relative,
+                    before = rawHash,
+                    after = SafeFiles.Hash(output),
                     passes = new[] { new { includes = new[] { new { path = includeRelative, sha256 = SafeFiles.HashText(include) } } } }
                 });
             }
             SafeFiles.AtomicJson(Path.Combine(Shaders, GraphicsShaderOverlay.ReceiptName), new
             {
-                schemaVersion = 1, validationState = "identity-only-unvalidated", extractionFingerprint = extraction.Fingerprint,
-                unmappedProjectPaths = Array.Empty<string>(), keywordRepairs = repairs,
+                schemaVersion = 1,
+                validationState = "identity-only-unvalidated",
+                extractionFingerprint = extraction.Fingerprint,
+                unmappedProjectPaths = Array.Empty<string>(),
+                keywordRepairs = repairs,
                 links = new[] { new
                 {
                     projectPath = relative, projectSha256 = extraction.Files[original],
