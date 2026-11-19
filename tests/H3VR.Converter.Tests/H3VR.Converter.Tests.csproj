@@ -5,6 +5,7 @@
   <ItemGroup>
     <Compile Include="../../tools/OpenXRPatch/LegacyQuickbeltColors.cs" Link="LegacyQuickbeltColors.cs" />
     <Compile Include="../../tools/OpenXRPatch/LegacyTnhColors.cs" Link="LegacyTnhColors.cs" />
+    <Compile Include="../../tools/OpenXRPatch/LegacyStockMaterialColors.cs" Link="LegacyStockMaterialColors.cs" />
   </ItemGroup>
   <ItemGroup><PackageReference Include="Spectre.Console.Testing" Version="0.57.2" /></ItemGroup>
 </Project>

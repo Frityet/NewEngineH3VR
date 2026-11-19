@@ -2,6 +2,23 @@ using Mono.Cecil;
 using Mono.Cecil.Cil;
 using System.Text.Json;
 
+if (args.Length == 4 && args[0] == "--stock-hdr-materials-only")
+{
+    string source = Path.GetFullPath(args[1]), destination = Path.GetFullPath(args[2]);
+    if (source == destination || File.Exists(destination))
+        throw new IOException("Use a new output DLL for the stock HDR material patch.");
+    var stockResolver = new DefaultAssemblyResolver();
+    stockResolver.AddSearchDirectory(Path.GetFullPath(args[3]));
+    stockResolver.AddSearchDirectory(Path.GetDirectoryName(source)!);
+    using var stock = AssemblyDefinition.ReadAssembly(source,
+        new ReaderParameters { AssemblyResolver = stockResolver });
+    int setters = LegacyStockMaterialColors.Apply(stock.MainModule, true);
+    if (setters == 0) throw new InvalidDataException("No unpatched original stock HDR material setters.");
+    stock.Write(destination);
+    Console.WriteLine("Replaced " + setters + " original stock HDR material setters.");
+    return 0;
+}
+
 if (args.Length is not (3 or 5 or 6) || (args.Length == 6 && args[5] is not ("--legacy-quickbelt-rim" or "--legacy-stock-rim")))
 {
     Console.Error.WriteLine("usage: OpenXRPatch <managed-input-dir> <NativeH3VR.OpenXR.dll> <patched-output-dir> [--unity-engine <Managed/UnityEngine-dir> [--legacy-stock-rim]]");
@@ -317,6 +334,9 @@ foreach (string name in assemblyNames)
         int tnhCalls = LegacyTnhColors.Apply(module, args.Length == 6 && args[5] == "--legacy-stock-rim");
         if (tnhCalls != 0)
             changes.Add(new { assembly = name, calls = tnhCalls, kind = "legacy-tnh-rim" });
+        int materialCalls = LegacyStockMaterialColors.Apply(module, args.Length == 6 && args[5] == "--legacy-stock-rim");
+        if (materialCalls != 0)
+            changes.Add(new { assembly = name, calls = materialCalls, kind = "legacy-stock-hdr-materials" });
         PatchMetalCameras(module, name);
     }
 

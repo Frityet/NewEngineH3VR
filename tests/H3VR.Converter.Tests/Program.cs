@@ -129,6 +129,7 @@ cases.Add(("macOS project and player stages reject external recovery", () =>
 cases.AddRange(ProjectMigrationTests.Cases());
 cases.AddRange(QuickbeltColorTests.Cases());
 cases.AddRange(TnhColorTests.Cases());
+cases.AddRange(StockMaterialColorTests.Cases());
 cases.AddRange(PlayerEnlightenTests.Cases());
 cases.AddRange(PlayerReflectionProbesTests.Cases());
 cases.AddRange(BundlePlanTests.Cases());
