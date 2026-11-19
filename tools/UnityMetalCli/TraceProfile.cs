@@ -121,7 +121,15 @@ internal static class TraceProfile
 
     private static List<Row> Read(string path)
     {
-        using var csv = new TextFieldParser(path)
+        using var file = File.OpenRead(path);
+        bool terminated = file.Length == 0;
+        if (file.Length != 0)
+        {
+            file.Seek(-1, SeekOrigin.End);
+            terminated = file.ReadByte() is '\n' or '\r';
+            file.Position = 0;
+        }
+        using var csv = new TextFieldParser(file)
         {
             TextFieldType = FieldType.Delimited,
             CommentTokens = ["#"],
@@ -139,21 +147,31 @@ internal static class TraceProfile
         string[] header = ReadFields();
         if (header.Length == 0)
             throw new InvalidDataException("Empty CSV: " + path);
+        var columns = header.Select((name, index) => (name, index))
+            .ToDictionary(column => column.name, column => column.index, StringComparer.Ordinal);
         var rows = new List<Row>();
         while (!csv.EndOfData)
         {
+            long line = csv.LineNumber;
             string[] values = ReadFields();
             if (values.Length != header.Length)
-                throw new InvalidDataException($"Invalid field count in {path} at line {csv.LineNumber - 1}.");
-            rows.Add(new(header.Zip(values).ToDictionary(pair => pair.First, pair => pair.Second, StringComparer.Ordinal)));
+            {
+                if (!terminated && values.Length < header.Length && csv.EndOfData)
+                {
+                    Console.Error.WriteLine($"Ignoring the interrupted last row in {path} at line {line}.");
+                    break;
+                }
+                throw new InvalidDataException($"Invalid field count in {path} at line {line}.");
+            }
+            rows.Add(new(values, columns));
         }
         return rows;
     }
 
-    private sealed record Row(Dictionary<string, string> Fields)
+    private sealed record Row(string[] Cells, Dictionary<string, int> Columns)
     {
-        public string this[string key] => Fields[key];
+        public string this[string key] => Cells[Columns[key]];
         public long Tick(string key) => long.Parse(this[key], NumberStyles.Integer, CultureInfo.InvariantCulture);
-        public bool Has(string key) => Fields.TryGetValue(key, out string? cell) && cell.Length != 0;
+        public bool Has(string key) => Columns.TryGetValue(key, out int column) && Cells[column].Length != 0;
     }
 }
