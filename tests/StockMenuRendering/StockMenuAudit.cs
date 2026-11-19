@@ -105,6 +105,23 @@ namespace NativeH3VR.QA
             bool layerEnabled = layer.enabled;
             float originalTime = Time.timeScale;
             Time.timeScale = 0;
+            bool quickbelt = Environment.GetEnvironmentVariable("NATIVEH3VR_STOCK_QUICKBELT_AUDIT") == "1";
+            bool tnhColors = Environment.GetEnvironmentVariable("NATIVEH3VR_STOCK_TNH_COLORS_AUDIT") == "1";
+            if (quickbelt || tnhColors)
+            {
+                try
+                {
+                    if (quickbelt) yield return QuickbeltWitness(camera, cc, bloom, ao);
+                    if (tnhColors) yield return TnhColorWitness(camera, cc, bloom, ao);
+                }
+                finally
+                {
+                    Time.timeScale = originalTime;
+                }
+                File.WriteAllText(Path.Combine(output, "complete"), "MainMenu3 stock tint controls\n" + stereo.CompletedFrames);
+                Application.Quit(0);
+                yield break;
+            }
             GameObject chart = null;
             try {
                 setenv("VR_OPENXR_CAPTURE_EVERY", "1", 1);
