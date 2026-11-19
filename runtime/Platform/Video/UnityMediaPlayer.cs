@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Security.Cryptography;
 using Unity.Collections;
 using UnityEngine;
 using UnityEngine.Experimental.Audio;
@@ -66,11 +67,14 @@ namespace NativeH3VR.Platform
         {
             opening = false;
             paused = true;
-            video.controlledAudioTrackCount =
-                (ushort)Math.Min(video.audioTrackCount, VideoPlayer.controlledAudioTrackMaxCount);
-            for (ushort i = 0; i < video.controlledAudioTrackCount; i++)
-                video.EnableAudioTrack(i, i == activeAudio);
-            hasAudio = video.audioTrackCount > 0;
+            hasAudio = video.audioOutputMode != VideoAudioOutputMode.None && video.audioTrackCount > 0;
+            if (hasAudio)
+            {
+                video.controlledAudioTrackCount =
+                    (ushort)Math.Min(video.audioTrackCount, VideoPlayer.controlledAudioTrackMaxCount);
+                for (ushort i = 0; i < video.controlledAudioTrackCount; i++)
+                    video.EnableAudioTrack(i, i == activeAudio);
+            }
             audioChannelCount = hasAudio ? video.GetAudioChannelCount((ushort)activeAudio) : 0;
             ResetAudioProvider();
             for (int i = 0; i < changedTracks.Length; i++)
@@ -124,6 +128,30 @@ namespace NativeH3VR.Platform
         void SetAudioPlaying(bool value) { lock (audioLock) audioPlaying = value; }
         public override string GetVersion() => "NativeH3VR.UnityVideo/1";
         public override string GetExpectedVersion() => "NativeH3VR.UnityVideo/1";
+
+        static bool IsSilentLobbySplash(string path)
+        {
+            const string stockPath = "TutorialVideo/Splash/MainmenuLoop.mp4";
+            string relativeOrAbsolute = path.Replace('\\', '/');
+            if (!relativeOrAbsolute.Equals(stockPath, StringComparison.OrdinalIgnoreCase) &&
+                !relativeOrAbsolute.EndsWith("/" + stockPath, StringComparison.OrdinalIgnoreCase))
+                return false;
+
+            // Steam's stock clip contains 574,400 zero PCM samples per channel.
+            // Unity 2021's APIOnly path crashes in the native AVFoundation audio
+            // processing tap on this clip. The digest keeps other clips, including
+            // an audible replacement with the same filename, on the PCM path.
+            const string stockSha256 = "130B7D8973E67FD8E9CE04F5206F0BAD6E9C6915C325022DE855C95864B50526";
+            try
+            {
+                using var file = File.OpenRead(path);
+                using var sha256 = SHA256.Create();
+                return BitConverter.ToString(sha256.ComputeHash(file)).Replace("-", "") == stockSha256;
+            }
+            catch (IOException) { return false; }
+            catch (UnauthorizedAccessException) { return false; }
+        }
+
         public override bool OpenMedia(string path, long offset, string customHttpHeaders,
                                        MediaHints hints, int forceFileFormat = 0,
                                        bool startWithHighestBitrate = false)
@@ -144,6 +172,9 @@ namespace NativeH3VR.Platform
             _mediaHints = hints;
             opening = true;
             activeAudio = 0;
+            bool silentLobbySplash = IsSilentLobbySplash(path);
+            video.audioOutputMode = silentLobbySplash ? VideoAudioOutputMode.None : VideoAudioOutputMode.APIOnly;
+            video.controlledAudioTrackCount = silentLobbySplash ? (ushort)0 : (ushort)1;
             video.url = path;
             try
             {
