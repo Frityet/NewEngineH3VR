@@ -11,7 +11,8 @@ namespace NativeH3VR
 {
     internal static class NativeModHost
     {
-        private const int SchemaVersion = 1;
+        private const int SchemaVersion = 2;
+        private const string DirectoryVariable = "NATIVEH3VR_MODS_DIR";
         private const string ManifestName = "native-mod.json";
         private static readonly Regex PackageId = new Regex(@"\A[a-z0-9][a-z0-9._-]{0,63}\z");
         private static readonly Regex AssemblyFile = new Regex(@"\A[A-Za-z0-9_][A-Za-z0-9._-]*\.dll\z");
@@ -24,6 +25,7 @@ namespace NativeH3VR
             public string id = null;
             public string unityVersion = null;
             public string buildTarget = null;
+            public string hostBuildSha256 = null;
             public AssemblyEntry[] assemblies = null;
             public EntryPoint[] entryPoints = null;
         }
@@ -47,16 +49,30 @@ namespace NativeH3VR
         private static void LoadInstalledMods()
         {
             if (Application.platform != RuntimePlatform.OSXPlayer) return;
-            string root = Path.GetFullPath(Path.Combine(Application.dataPath, "Resources", "NativeMods"));
-            if (!Directory.Exists(root)) return;
+            string selected = Environment.GetEnvironmentVariable(DirectoryVariable);
+            if (string.IsNullOrEmpty(selected)) return;
             try
             {
-                RequirePhysicalPath(root);
+                if (!Path.IsPathRooted(selected))
+                    throw new InvalidDataException("The external mod directory must be an absolute path.");
+                string root = Path.GetFullPath(selected);
+                string contents = Path.GetFullPath(Application.dataPath);
+                string app = Directory.GetParent(contents).FullName;
+                if (Contains(app, root) || Contains(root, app) || !Directory.Exists(root))
+                    throw new InvalidDataException("Choose an existing external directory separate from the player app.");
+                for (var ancestor = new DirectoryInfo(root); ancestor != null; ancestor = ancestor.Parent)
+                    RequirePhysicalPath(ancestor.FullName);
+
+                string buildReceipt = Path.Combine(contents, "Resources", "nativeh3vr-build.json");
+                RequirePhysicalPath(buildReceipt);
+                string buildSha256 = FileHash(buildReceipt);
                 foreach (string package in Directory.GetDirectories(root).OrderBy(path => path, StringComparer.Ordinal))
                 {
+                    if (!Matches(PackageId, Path.GetFileName(package)) || !File.Exists(Path.Combine(package, ManifestName)))
+                        continue;
                     try
                     {
-                        LoadPackage(package);
+                        LoadPackage(package, buildSha256);
                     }
                     catch (Exception error)
                     {
@@ -66,11 +82,11 @@ namespace NativeH3VR
             }
             catch (Exception error)
             {
-                Debug.LogError($"NATIVEH3VR_MOD_FAILED directory={root} {error}");
+                Debug.LogError($"NATIVEH3VR_MOD_FAILED directory={selected} {error}");
             }
         }
 
-        private static void LoadPackage(string package)
+        private static void LoadPackage(string package, string buildSha256)
         {
             RequirePhysicalPath(package);
             string manifestPath = Path.Combine(package, ManifestName);
@@ -79,6 +95,7 @@ namespace NativeH3VR
             if (manifest == null || manifest.schemaVersion != SchemaVersion
                 || !Matches(PackageId, manifest.id) || manifest.id != Path.GetFileName(package)
                 || manifest.unityVersion != Application.unityVersion || manifest.buildTarget != "StandaloneOSX"
+                || manifest.hostBuildSha256 != buildSha256
                 || manifest.assemblies == null || manifest.assemblies.Length == 0 || manifest.entryPoints == null)
                 throw new InvalidDataException("Invalid or incompatible mod manifest.");
 
@@ -132,6 +149,14 @@ namespace NativeH3VR
         }
 
         private static bool Matches(Regex pattern, string value) => value != null && pattern.IsMatch(value);
+
+        private static bool Contains(string parent, string path)
+        {
+            var directory = parent.TrimEnd(Path.DirectorySeparatorChar);
+            var candidate = path.TrimEnd(Path.DirectorySeparatorChar);
+            return candidate.Equals(directory, StringComparison.OrdinalIgnoreCase)
+                || candidate.StartsWith(directory + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
+        }
 
         private static void RequirePhysicalPath(string path)
         {

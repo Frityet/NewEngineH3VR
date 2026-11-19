@@ -62,7 +62,18 @@ internal static class PlayerReceipt
             ?? throw new InvalidDataException("Extraction receipt is empty.");
         if (extract.Step != "extract" || !Regex.IsMatch(extract.Fingerprint, "^[0-9a-f]{64}$"))
             throw new InvalidDataException("Extraction receipt does not have a valid extract fingerprint.");
-        SafeFiles.AtomicJson(path, new { schemaVersion = 1, unityVersion = ConversionConfig.TargetVersion, buildTarget = "StandaloneOSX", architecture = "arm64", playerExecutable = executable, managedAssemblies = assemblies, steamBuildId = SteamBuildId(game), extractionFingerprint = extract.Fingerprint });
+        SafeFiles.AtomicJson(path, new
+        {
+            schemaVersion = 1,
+            modHostSchemaVersion = 2,
+            unityVersion = ConversionConfig.TargetVersion,
+            buildTarget = "StandaloneOSX",
+            architecture = "arm64",
+            playerExecutable = executable,
+            managedAssemblies = assemblies,
+            steamBuildId = SteamBuildId(game),
+            extractionFingerprint = extract.Fingerprint
+        });
         return path;
     }
 }

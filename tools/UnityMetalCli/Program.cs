@@ -14,7 +14,8 @@ internal static class Program
             [
                 PathOption("app"), PathOption("runtime"), PathOption("state-dir"), PathOption("log-file"),
                 new("synthetic"), new("headset"), PathOption("trace-file", false),
-                PathOption("unity-profile-file", false), PathOption("capture-file", false), new("timeout", "SECONDS")
+                PathOption("unity-profile-file", false), PathOption("capture-file", false), PathOption("mods-dir", false),
+                new("timeout", "SECONDS")
             ], AllowsPlayerArguments: true),
         new("profile", "Summarize one comparable interval from Unity and MacVR frame traces.",
             [
@@ -72,7 +73,7 @@ internal static class Program
                     return await PlayerRun.RunAsync(new Launch(
                         options["app"], options["runtime"], options["state-dir"], options["log-file"],
                         synthetic, options.PlayerArguments, options.Get("trace-file"), options.Get("unity-profile-file"),
-                        options.Get("capture-file"), Timeout(options)), cancellation.Token);
+                        options.Get("capture-file"), Timeout(options), options.Get("mods-dir")), cancellation.Token);
                 case "profile":
                     double warmup = options.GetSeconds("warmup-seconds", allowZero: true) ?? 2;
                     double? window = options.GetSeconds("window-seconds");

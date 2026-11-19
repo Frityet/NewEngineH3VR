@@ -68,6 +68,9 @@ cases.Add(("player receipt records manifest build and managed hashes without acc
         SafeFiles.AtomicJson(extract, new StepReceipt("extract", new string('a', 64), DateTimeOffset.UtcNow, new()));
         var receipt = File.ReadAllText(PlayerReceipt.Write(Path.GetDirectoryName(app)!, game, extract));
         Check(receipt.Contains("25002541") && receipt.Contains(SafeFiles.Hash(dll)) && receipt.Contains(new string('a', 64)) && !receipt.Contains("private"), "receipt lacks identity/hash or leaks account data");
+        using var document = System.Text.Json.JsonDocument.Parse(receipt);
+        Check(document.RootElement.GetProperty("modHostSchemaVersion").GetInt32() == 2,
+            "the stock build receipt must identify the external mod manifest version");
         File.WriteAllText(Path.Combine(apps, "appmanifest_450540.acf"), "\"appid\" \"999\"\n\"installdir\" \"H3VR\"\n\"buildid\" \"1\"");
         Throws(() => PlayerReceipt.SteamBuildId(game));
         File.WriteAllText(Path.Combine(apps, "appmanifest_450540.acf"), "\"appid\" \"450540\"\n\"installdir\" \"H3VR\"\n\"buildid\" \"1\"");

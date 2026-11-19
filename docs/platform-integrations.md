@@ -33,14 +33,13 @@ Pass `--integration /path/to/private/integration/integration.json` to the
 converter. The manifest binds each authored source and local plug-in to the
 exact target and a SHA-256 digest. The Unity editor selects the Metal backend
 and uses its runtime initialization to attach the game camera after rig
-expansion. The converter includes a generic mod host that discovers private
-mod manifests under `Contents/Resources/NativeMods`.
+expansion.
 
 The macOS editor stage requires the pinned editor and its native player module.
 Use a fresh private project with that project closed before running batch
 conversion. The built player is ad-hoc signed locally. Its receipt records
-Steam build and extraction identities, Unity version, architecture, executable
-and managed DLL hashes.
+Steam build and extraction identities, Unity version, architecture, executable,
+managed DLL hashes and the supported mod manifest version.
 
 The macOS managed retargeter records names from legacy `Shader.PropertyToID`
 calls. When the game binds a `ComputeBuffer` to a material or property block,
@@ -64,6 +63,13 @@ dotnet run --project tools/UnityMetalCli -c Release -- run \
   --state-dir "/path/to/private-state" \
   --synthetic --log-file "/path/to/new-player.log"
 ```
+
+For a modded session, add `--mods-dir /path/to/external-mods` to the same
+command. Each package has its own folder with a schema 2 `native-mod.json`.
+The host verifies that `hostBuildSha256` matches its signed
+`Contents/Resources/nativeh3vr-build.json` and checks the assembly hashes
+before invoking package entry points. Leave out `--mods-dir` for a stock
+session.
 
 Use `--headset` for a physical session. For synthetic timing, supply
 `--trace-file` and `--unity-profile-file` with fresh paths, and keep

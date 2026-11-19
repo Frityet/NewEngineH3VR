@@ -7,7 +7,7 @@ namespace UnityMetalCli;
 
 internal sealed record Launch(
     string App, string Runtime, string State, string Log, bool Synthetic, string[] PlayerArguments,
-    string? Trace = null, string? Profile = null, string? Capture = null, TimeSpan? Timeout = null);
+    string? Trace = null, string? Profile = null, string? Capture = null, TimeSpan? Timeout = null, string? Mods = null);
 
 internal static class PlayerRun
 {
@@ -15,7 +15,7 @@ internal static class PlayerRun
         ["macvr.json", "libMacVROpenXR.dylib", "libIndexCore.dylib", "libopenxr_loader.dylib"];
 
     private sealed record MacVR(string Manifest, string Loader, string Version, string Revision);
-    private sealed record Player(string Program, bool Stock);
+    private sealed record Player(string Program, bool Stock, bool SupportsExternalMods);
 
     internal static async Task<int> RunAsync(
         Launch launch, CancellationToken cancellation, IReadOnlyDictionary<string, string?>? extraEnvironment = null)
@@ -30,6 +30,15 @@ internal static class PlayerRun
         Player player = await VerifyPlayerAsync(app, cancellation);
         if (!launch.Synthetic && !player.Stock)
             throw new InvalidDataException("A headset launch requires a locally imported NativeH3VR app.");
+        string? mods = ResolveOptional(launch.Mods);
+        if (mods is not null)
+        {
+            if (!player.SupportsExternalMods)
+                throw new InvalidDataException("This player build does not support external mod directories.");
+            if (!Directory.Exists(mods))
+                throw new DirectoryNotFoundException("The external mod directory does not exist: " + mods);
+            SafeFiles.RequireSeparate(app, mods);
+        }
 
         bool InsideInput(string path) => SafeFiles.Contains(app, path) || SafeFiles.Contains(runtimeRoot, path);
         if (InsideInput(state))
@@ -64,6 +73,7 @@ internal static class PlayerRun
             environment["XR_RUNTIME_JSON"] = runtime.Manifest;
             environment["NATIVEH3VR_OPENXR_LOADER"] = runtime.Loader;
             environment["NATIVEH3VR_STATE_DIR"] = state;
+            environment["NATIVEH3VR_MODS_DIR"] = mods;
             environment["CFFIXED_USER_HOME"] = settings;
             environment["VR_OPENXR_SIMULATE"] = launch.Synthetic ? "1" : "0";
             environment["VR_OPENXR_HEADLESS"] = launch.Synthetic ? "1" : "0";
@@ -144,7 +154,7 @@ internal static class PlayerRun
 
         string stamp = Path.Combine(contents, "Resources", "nativeh3vr-build.json");
         if (!File.Exists(stamp))
-            return new(program, false);
+            return new(program, false, false);
         using JsonDocument document = JsonDocument.Parse(File.ReadAllText(stamp));
         JsonElement receipt = document.RootElement;
         if (receipt.GetProperty("schemaVersion").GetInt32() != 1 ||
@@ -158,7 +168,9 @@ internal static class PlayerRun
             if (!IsLeaf(entry.Name) || SafeFiles.Hash(Path.Combine(managed, entry.Name)) != entry.Value.GetString())
                 throw new InvalidDataException("Stock managed file failed receipt verification: " + entry.Name);
         }
-        return new(program, true);
+        bool externalMods = receipt.TryGetProperty("modHostSchemaVersion", out var modHost)
+            && modHost.ValueKind == JsonValueKind.Number && modHost.TryGetInt32(out var version) && version == 2;
+        return new(program, true, externalMods);
     }
 
     private static bool IsLeaf(string name) =>
