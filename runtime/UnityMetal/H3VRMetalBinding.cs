@@ -113,7 +113,7 @@ namespace NativeH3VR
             return new NativeTracking.Device
             {
                 role = role,
-                name = "OpenXR controller",
+                name = hand.profile == MetalOpenXR.ControllerProfile.ValveIndex ? "Valve Index Controller" : "OpenXR controller",
                 flags = hand.flags,
                 buttons = hand.buttons,
                 touches = hand.touches | (hand.squeeze > .05f ? 128u : 0u),

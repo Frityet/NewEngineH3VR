@@ -34,6 +34,8 @@ public sealed class MetalSmoke : MonoBehaviour
         var right = renderer.EyeTexture(1);
         bool leftFound = MetalOpenXR.TryHand(0, out var leftHand);
         bool rightFound = MetalOpenXR.TryHand(1, out var rightHand);
+        bool profile = leftHand.profile == MetalOpenXR.ControllerProfile.ValveIndex &&
+                       rightHand.profile == MetalOpenXR.ControllerProfile.ValveIndex;
         bool haptic = MetalOpenXR.Haptic(0, .25f, 80, .01f) &&
                       MetalOpenXR.Haptic(1, .25f, 0, .01f);
         bool stage = MetalOpenXR.nhxr_stage_bounds(out float roomWidth, out float roomDepth) == 0 &&
@@ -41,14 +43,14 @@ public sealed class MetalSmoke : MonoBehaviour
         float leftMarker = left == null ? -1 : MarkerX(left);
         float rightMarker = right == null ? -1 : MarkerX(right);
         float headHeight = frame.head.Position.y;
-        bool passed = renderer.CompletedFrames >= (ulong)frameGoal && renderer.Focused && haptic && stage &&
+        bool passed = renderer.CompletedFrames >= (ulong)frameGoal && renderer.Focused && haptic && stage && profile &&
                       ipd > .06f && ipd < .07f && Mathf.Abs(headHeight - 1.6f) < .03f &&
                       leftFound && rightFound && (leftHand.flags & 19) == 19 && (rightHand.flags & 19) == 19 &&
                       leftHand.grip.Position.x < 0 && rightHand.grip.Position.x > 0 &&
                       leftMarker > 0 && rightMarker > 0 && leftMarker - rightMarker >= 2;
 
         Debug.Log(FormattableString.Invariant(
-            $"UNITY_METAL_SMOKE passed={passed} completed={renderer.CompletedFrames} focus={renderer.Focused} haptics={haptic} stage={stage} ipd={ipd:F4} headHeight={headHeight:F4} leftMarkerX={leftMarker:F2} rightMarkerX={rightMarker:F2} leftFlags={leftHand.flags} rightFlags={rightHand.flags}"));
+            $"UNITY_METAL_SMOKE passed={passed} completed={renderer.CompletedFrames} focus={renderer.Focused} haptics={haptic} stage={stage} indexProfile={profile} ipd={ipd:F4} headHeight={headHeight:F4} leftMarkerX={leftMarker:F2} rightMarkerX={rightMarker:F2} leftFlags={leftHand.flags} rightFlags={rightHand.flags}"));
         Application.Quit(passed ? 0 : 1);
     }
 

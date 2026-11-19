@@ -37,8 +37,12 @@ enum {
     NHXR_VELOCITY_VALID = 8, NHXR_INPUT_CURRENT = 16
 };
 
+enum {
+    NHXR_PROFILE_UNKNOWN = 0, NHXR_PROFILE_VALVE_INDEX = 1
+};
+
 typedef struct {
-    uint32_t flags, buttons, touches, reserved;
+    uint32_t flags, buttons, touches, profile;
     NhxrPose grip, aim;
     NhxrVector velocity, angularVelocity;
     float trigger, squeeze, squeezeForce, trackpadForce;

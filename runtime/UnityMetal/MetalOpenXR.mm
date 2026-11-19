@@ -37,7 +37,7 @@ constexpr std::array<const char *, 2> hands = {"/user/hand/left", "/user/hand/ri
     X(LocateViews) X(EnumerateSwapchainFormats) X(CreateSwapchain) X(DestroySwapchain) \
     X(EnumerateSwapchainImages) X(AcquireSwapchainImage) X(WaitSwapchainImage) X(ReleaseSwapchainImage) \
     X(WaitFrame) X(BeginFrame) X(EndFrame) X(StringToPath) X(CreateActionSet) X(DestroyActionSet) \
-    X(CreateAction) X(SuggestInteractionProfileBindings) X(AttachSessionActionSets) \
+    X(CreateAction) X(SuggestInteractionProfileBindings) X(AttachSessionActionSets) X(GetCurrentInteractionProfile) \
     X(CreateActionSpace) X(SyncActions) X(GetActionStatePose) X(GetActionStateFloat) \
     X(GetActionStateVector2f) X(GetActionStateBoolean) X(ApplyHapticFeedback)
 
@@ -157,6 +157,7 @@ public:
     XrActionSet actionSet = XR_NULL_HANDLE;
     std::array<XrAction, ActionCount> actions{};
     std::array<XrPath, 2> handPaths{};
+    XrPath indexProfile = XR_NULL_PATH;
     std::array<XrSpace, 2> gripSpaces{}, aimSpaces{};
     std::array<NhxrHand, 2> samples{};
     std::array<XrView, 2> views{};
@@ -243,8 +244,9 @@ public:
         }
         XrInteractionProfileSuggestedBinding profile{};
         profile.type = XR_TYPE_INTERACTION_PROFILE_SUGGESTED_BINDING;
-        if (!path("/interaction_profiles/valve/index_controller", profile.interactionProfile))
+        if (!path("/interaction_profiles/valve/index_controller", indexProfile))
             return false;
+        profile.interactionProfile = indexProfile;
         profile.countSuggestedBindings = suggested.size();
         profile.suggestedBindings = suggested.data();
         CHECK(SuggestInteractionProfileBindings, instance, &profile);
@@ -474,6 +476,11 @@ public:
             CHECK(LocateSpace, aimSpaces[i], stage, timing.predictedDisplayTime, &aim);
             NhxrHand &hand = samples[i];
             hand.flags = NHXR_CONNECTED | NHXR_INPUT_CURRENT;
+            XrInteractionProfileState profile{};
+            profile.type = XR_TYPE_INTERACTION_PROFILE_STATE;
+            if (XR_SUCCEEDED(xr.GetCurrentInteractionProfile(session, handPaths[i], &profile)) &&
+                profile.interactionProfile == indexProfile)
+                hand.profile = NHXR_PROFILE_VALVE_INDEX;
             if ((grip.locationFlags & validPose) == validPose) {
                 hand.grip = pose(grip.pose);
                 hand.aim = (aim.locationFlags & validPose) == validPose ? pose(aim.pose) : hand.grip;

@@ -41,10 +41,13 @@ namespace NativeH3VR
             public View left, right;
         }
 
+        public enum ControllerProfile : uint { Unknown, ValveIndex }
+
         [StructLayout(LayoutKind.Sequential)]
         public struct Hand
         {
-            public uint flags, buttons, touches, reserved;
+            public uint flags, buttons, touches;
+            public ControllerProfile profile;
             public Pose grip, aim;
             Vector3 velocity, angularVelocity;
             public float trigger, squeeze, squeezeForce, trackpadForce;
