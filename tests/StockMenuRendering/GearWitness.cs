@@ -201,7 +201,6 @@ namespace NativeH3VR.QA
             var originalHead = new Vector3(0f, 2.6999993f, -8f);
             using (var witness = new StockIndexGearWitness(camera.transform.position - originalHead)) {
                 witness.SaveEvidence(Path.Combine(output, "gear-witness.tsv"));
-                witness.RecordColorSetter(Path.Combine(output, "gear-color-setter.tsv"));
                 try {
                     cc.enabled = true;
                     foreach (string normal in new[] { "live", "ag", "null" }) {
@@ -222,6 +221,7 @@ namespace NativeH3VR.QA
                         bloom.enabled = false;
                         yield return Capture("gear-legacy-ag-no-bloom");
                     }
+                    witness.RecordColorSetter(Path.Combine(output, "gear-color-setter.tsv"));
                 } finally {
                     cc.enabled = gradeEnabled;
                     bloom.enabled = bloomEnabled;
