@@ -148,6 +148,11 @@ foreach (var filename in keep)
                     case "UnityEngineInternal.ScriptingUtils::CreateDelegate":
                         replacement = Shim("CreateDelegate");
                         break;
+                    case "UnityEngine.Object::Destroy" when m.DeclaringType.FullName == "UnityEngine.Rendering.PostProcessing.RuntimeUtilities"
+                        && m.Name == "Destroy" && mr.Parameters.Count == 1
+                        && mr.Parameters[0].ParameterType.FullName == "UnityEngine.Object":
+                        replacement = Shim("DestroyPostProcessingResource");
+                        break;
                 }
                 if (replacement != null)
                 {

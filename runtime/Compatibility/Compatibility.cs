@@ -32,6 +32,13 @@ namespace NativeH3VR
         {
             return Delegate.CreateDelegate(type, method);
         }
+        public static void DestroyPostProcessingResource(UnityEngine.Object resource)
+        {
+            if (Application.isPlaying)
+                UnityEngine.Object.Destroy(resource);
+            else
+                UnityEngine.Object.DestroyImmediate(resource);
+        }
         static List<Vector4> To4(List<Vector2> input)
         {
             if (input == null)
