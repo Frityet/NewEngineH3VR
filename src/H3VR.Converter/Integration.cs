@@ -12,6 +12,7 @@ public static class Integration
         "Assets/OpenXRProvider/NativeStereoRenderer.cs",
         "Assets/OpenXRProvider/H3VRMetalBinding.cs",
         "Assets/OpenXRProvider/SyntheticHands.cs",
+        "Assets/OpenXRProvider/StockGearNormals.cs",
     ];
     private static readonly string[] MetalLibraries =
     [

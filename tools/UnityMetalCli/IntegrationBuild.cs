@@ -71,7 +71,7 @@ internal static class IntegrationBuild
                 entries.Add(new(file, "Assets/Plugins/macOS/" + file, SafeFiles.Hash(Path.Combine(staging, file))));
 
             string sourceRoot = Path.Combine(SourceRoot(), "runtime", "UnityMetal");
-            foreach (string source in BridgeSources.Concat(["H3VRMetalBinding.cs", "SyntheticHands.cs"]))
+            foreach (string source in BridgeSources.Concat(["H3VRMetalBinding.cs", "SyntheticHands.cs", "StockGearNormals.cs"]))
             {
                 string destination = Path.Combine(staging, source);
                 File.Copy(Path.Combine(sourceRoot, source), destination);
