@@ -31,13 +31,14 @@ namespace H3VRConverter
             Debug.Log("H3VR_BUNDLE_PLAN_VALIDATION bundles=" + plan.bundles.Length + " addresses=" + plan.bundles.Sum(b => b.assets.Length));
         }
 
-        public static void Build(string planPath, string outputDirectory, string streamingDestination = null)
+        public static void Build(string planPath, string outputDirectory, string streamingDestination)
         {
             var plan = ReadAndValidate(planPath, true);
             var projectRoot = Path.GetFullPath(Path.Combine(Application.dataPath, ".."));
             var assetBundleOutput = Path.GetFullPath(outputDirectory);
-            var streamingAssets = Path.GetFullPath(streamingDestination ?? Path.Combine(projectRoot, "Assets", "StreamingAssets"));
+            var streamingAssets = Path.GetFullPath(streamingDestination);
             if (IsInside(projectRoot, assetBundleOutput)) throw new InvalidOperationException("Temporary bundle output must be outside the Unity project.");
+            if (IsInside(projectRoot, streamingAssets)) throw new InvalidOperationException("Bundle destination must be in the built player.");
             if (IsInside(assetBundleOutput, streamingAssets) || IsInside(streamingAssets, assetBundleOutput)
                 || IsInside(plan.sourceStreamingAssets, streamingAssets) || IsInside(streamingAssets, plan.sourceStreamingAssets))
                 throw new InvalidOperationException("The original, temporary and installed bundle directories must be separate.");
@@ -66,7 +67,7 @@ namespace H3VRConverter
             VerifyManifest(plan, manifest);
             var generated = GeneratedPaths(plan, assetBundleOutput);
             foreach (var item in generated) if (!File.Exists(item)) throw new FileNotFoundException("Unity did not produce a planned bundle output.", item);
-            // Validate every destination before copying the first file. A conflict must not leave a
+            // Validate every destination before moving the first file. A conflict must not leave a
             // partially replaced set of runtime bundles in the candidate project.
             foreach (var item in generated)
             {
@@ -76,9 +77,12 @@ namespace H3VRConverter
                 if (File.Exists(destination) && !HashFile(destination).Equals(HashFile(item), StringComparison.Ordinal))
                     throw new IOException("Refusing to replace an existing StreamingAssets file: " + Path.GetFileName(item));
             }
-            foreach (var item in generated) CopyIntoStreamingAssets(streamingAssets, item);
-            if (IsInside(projectRoot, streamingAssets))
-                AssetDatabase.Refresh(ImportAssetOptions.ForceSynchronousImport);
+            Directory.CreateDirectory(streamingAssets);
+            foreach (var item in generated)
+            {
+                var destination = Path.Combine(streamingAssets, Path.GetFileName(item));
+                if (!File.Exists(destination)) File.Move(item, destination);
+            }
             Debug.Log("H3VR_BUNDLE_REBUILD_COMPLETE bundles=" + plan.bundles.Length + " addresses=" + plan.bundles.Sum(b => b.assets.Length) + " target=" + EditorUserBuildSettings.activeBuildTarget);
         }
 
@@ -142,18 +146,6 @@ namespace H3VRConverter
             }
             var manifestName = new DirectoryInfo(output).Name;
             yield return OutputPath(output, manifestName); yield return OutputPath(output, manifestName + ".manifest");
-        }
-
-        private static void CopyIntoStreamingAssets(string root, string source)
-        {
-            var name = Path.GetFileName(source); var destination = Path.Combine(root, name);
-            if (!destination.StartsWith(Path.GetFullPath(root) + Path.DirectorySeparatorChar, StringComparison.Ordinal)) throw new InvalidDataException("Bundle output target escaped StreamingAssets.");
-            if (File.Exists(destination))
-            {
-                if (HashFile(destination).Equals(HashFile(source), StringComparison.Ordinal)) return;
-                throw new IOException("Refusing to replace an existing StreamingAssets file: " + name);
-            }
-            Directory.CreateDirectory(root); File.Copy(source, destination, false);
         }
 
         private static string ProjectPath(string projectRoot, string relative)

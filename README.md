@@ -14,7 +14,7 @@ This repository contains conversion tools, compatibility code and tests. It cont
 - Git and internet access on first extraction. The converter manages the pinned [AssetRipper 2.0.0](https://github.com/AssetRipper/AssetRipper/releases/tag/2.0.0) dependency and caches its worker.
 - A local, identity-matched shader source overlay, including its original `.meta` files and include files. [Shader recovery tooling and limitations](docs/shader-recovery.md).
 
-Apple Silicon selects the macOS target by default. The supported Steam input is app 450540 build 25002541. Build the local Metal, Steamworks and FMOD integration before generating the player project. The macOS build also uses the pinned Unity class database to restore Steam's realtime lighting probes before signing. Place the database in the selected converter cache. The converter also retains the Windows x64 target with Unity OpenXR. [Platform prerequisites and commands](docs/platform-integrations.md) · [Class database and digest](docs/shader-recovery.md#validation-boundary)
+Apple Silicon selects the macOS target by default. The supported Steam input is app 450540 build 25002541. Build the local Metal, Steamworks and FMOD integration before generating the macOS project. The macOS build uses the pinned Unity class database in the converter cache to restore Steam's realtime lighting probes before signing. The Windows x64 target uses Unity OpenXR. [Platform prerequisites and commands](docs/platform-integrations.md) · [Class database and digest](docs/shader-recovery.md#validation-boundary)
 
 ## Run
 
@@ -42,6 +42,29 @@ dotnet run --project src/H3VR.Converter -- \
 
 For macOS project and player stages, use the converter's own extraction in a fresh workspace. `--recovered` is a comparison input allowed only through `managed`; it cannot supply a macOS player build.
 
+An existing converter extraction can also serve several target workspaces.
+`--reuse-extraction` verifies the current Steam inputs, exporter and extracted
+file inventory before reading that recovery tree. Give each target its own
+writable workspace. The extraction lease allows concurrent readers and keeps
+the original converter from changing the source during a build.
+
+```sh
+dotnet run --project src/H3VR.Converter -c Release -- convert \
+  --target windows --through build --game "$STEAM" --unity "$UNITY" \
+  --reuse-extraction "$EXTRACTED_WORKSPACE" --shaders "$SHADER_OVERLAY" \
+  --workspace "$WINDOWS_WORKSPACE"
+
+dotnet run --project src/H3VR.Converter -c Release -- convert \
+  --target linux --build-probe --through build --game "$STEAM" --unity "$UNITY" \
+  --reuse-extraction "$EXTRACTED_WORKSPACE" --shaders "$SHADER_OVERLAY" \
+  --workspace "$LINUX_WORKSPACE"
+```
+
+Use the Windows and Linux Mono support modules for the same editor version.
+The Linux probe compiles the scenes and bundles into a Vulkan player for
+build verification. Linux gameplay requires its own compatible XR integration
+and native Steamworks, FMOD and video support. [Unity OpenXR runtime matrix](https://docs.unity3d.com/Packages/com.unity.xr.openxr@1.13/manual/index.html#runtimes)
+
 Useful commands and options:
 
 ```sh
@@ -68,7 +91,13 @@ The worker runs as an owned child process, writes `.conversion/assetripper.log`,
 
 On macOS the converter uses **APFS copy-on-write clones** for project staging when the source and destination support them. Edits never write through to the original. Other filesystems use normal copies. Keep the workspace on the same APFS volume as the recovery to share unchanged data. Finder/`du` can count a shared extent in several directories; available volume space is the useful measure.
 
-Failed private staging candidates are cleaned automatically. The original recovery, generated Unity project and built player remain yours to keep or delete. Unity's `Library` directories and .NET `bin`/`obj` directories are regenerable caches; close their editor/process before removing them. No hardlinks are used for editable project files.
+Failed private staging candidates are cleaned automatically. Rebuilt bundles
+move from temporary output into the finished player's `StreamingAssets`
+directory. The Unity project keeps its source assets and the player holds
+the rebuilt bundle files for its target. Retain the extraction workspace to
+reuse it across builds. Unity's `Library` directories and .NET `bin`/`obj`
+directories are regenerable and can be removed once their editor or process is
+closed.
 
 ## Development
 

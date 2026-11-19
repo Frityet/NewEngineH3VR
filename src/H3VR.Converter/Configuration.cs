@@ -10,10 +10,12 @@ public sealed record ConversionConfig
     public string UnityEditor { get; init; } = "";
     public string Workspace { get; init; } = "";
     public string? RecoveredProject { get; init; }
+    public string? ExtractionWorkspace { get; init; }
     public string? ShaderSources { get; init; }
     public string? ToolCacheDirectory { get; init; }
     public bool Offline { get; init; }
     public string? IntegrationManifest { get; init; }
+    public bool BuildProbe { get; init; }
     public string BuildTarget { get; init; } = OperatingSystem.IsMacOS() && System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture == System.Runtime.InteropServices.Architecture.Arm64 ? "StandaloneOSX" : "StandaloneWindows64";
 
     public static readonly JsonSerializerOptions Json = new() { WriteIndented = true, PropertyNameCaseInsensitive = true };
@@ -41,6 +43,7 @@ public sealed record ConversionConfig
             UnityEditor = Absolute(UnityEditor),
             Workspace = Absolute(Workspace),
             RecoveredProject = Optional(RecoveredProject),
+            ExtractionWorkspace = Optional(ExtractionWorkspace),
             ShaderSources = Optional(ShaderSources),
             IntegrationManifest = Optional(IntegrationManifest),
             ToolCacheDirectory = Optional(ToolCacheDirectory)
@@ -55,7 +58,7 @@ public sealed record ConversionConfig
     [JsonIgnore]
     public string ManagedOutput => Path.Combine(Workspace, "managed");
     [JsonIgnore]
-    public string Export => RecoveredProject ?? Path.Combine(Workspace, "recovery", "ExportedProject");
+    public string Export => RecoveredProject ?? Path.Combine(ExtractionWorkspace ?? Workspace, "recovery", "ExportedProject");
 
     [JsonIgnore]
     public string UnityData
@@ -98,13 +101,15 @@ public sealed record ConversionConfig
         if (BuildTarget == "StandaloneOSX") PlayerReceipt.ValidateSupportedInstallation(GameDirectory);
         if (through != "extract" && (!File.Exists(UnityEditor) || !File.Exists(Path.Combine(EngineAssemblies, "UnityEngine.CoreModule.dll"))))
             throw new InvalidDataException("Set --unity to the Unity 2021.3.45f2 editor executable or installation folder, or use --tui.");
-        foreach (var input in new[] { GameDirectory, string.IsNullOrEmpty(UnityEditor) ? null : UnityData, repository, RecoveredProject, ShaderSources }.OfType<string>())
+        foreach (var input in new[] { GameDirectory, string.IsNullOrEmpty(UnityEditor) ? null : UnityData, repository, RecoveredProject, ExtractionWorkspace, ShaderSources }.OfType<string>())
             SafeFiles.RequireSeparate(input, Workspace);
         if (BuildTarget is not ("StandaloneWindows64" or "StandaloneOSX" or "StandaloneLinux64"))
             throw new InvalidDataException("BuildTarget must be StandaloneWindows64, StandaloneOSX or StandaloneLinux64.");
-        if (through is not ("extract" or "managed") && BuildTarget != "StandaloneWindows64" && IntegrationManifest is null)
+        if (BuildProbe && (BuildTarget != "StandaloneLinux64" || IntegrationManifest is not null))
+            throw new InvalidDataException("--build-probe requires --target linux without a platform integration.");
+        if (through is not ("extract" or "managed") && BuildTarget != "StandaloneWindows64" && IntegrationManifest is null && !BuildProbe)
             throw new InvalidDataException("Non-Windows builds require a compatible platform integration manifest; Windows native plugins cannot run on other platforms.");
-        ValidateToolCache(repository, GameDirectory, string.IsNullOrEmpty(UnityEditor) ? null : UnityData, Workspace, RecoveredProject, ShaderSources);
+        ValidateToolCache(repository, GameDirectory, string.IsNullOrEmpty(UnityEditor) ? null : UnityData, Workspace, RecoveredProject, ExtractionWorkspace, ShaderSources);
         if (through == "build" && BuildTarget == "StandaloneOSX")
             PlayerEnlighten.RequireClassDatabase(CacheDirectory(repository));
         if (RecoveredProject is not null && !Directory.Exists(Path.Combine(RecoveredProject, "Assets")))
@@ -113,6 +118,8 @@ public sealed record ConversionConfig
 
     internal void RequireColdRecovery(string through)
     {
+        if (ExtractionWorkspace is not null && RecoveredProject is not null)
+            throw new InvalidDataException("Choose either --reuse-extraction or --recovered.");
         if (BuildTarget == "StandaloneOSX" && RecoveredProject is not null && through is ("project" or "validate" or "build"))
             throw new InvalidDataException("macOS project and player stages require the converter's own cold extraction; --recovered is comparison-only through managed. Choose a fresh workspace without --recovered.");
     }

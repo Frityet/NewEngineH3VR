@@ -120,7 +120,7 @@ public sealed class ProjectMigration(ConversionConfig config, string candidate)
         CopySteamVrActions(root, assets);
         var openXrPackage = ConfigureOpenXr(root);
         PinProjectVersion(root);
-        if (config.BuildTarget == "StandaloneOSX") LegacySceneMigration.Apply(root);
+        LegacySceneMigration.Apply(root);
         var bundleMembership = CaptureBundleMembership(root, assets, archive);
         return new ProjectMigrationReport(root, ConversionConfig.TargetVersion,
             dlls.ToDictionary(p => p.Key, p => Path.GetRelativePath(root, p.Value.Path)), bindingRows.Count,
@@ -385,7 +385,7 @@ public sealed class ProjectMigration(ConversionConfig config, string candidate)
         else manifest = new JsonObject();
         var dependencies = manifest["dependencies"] as JsonObject ?? new JsonObject(); manifest["dependencies"] = dependencies;
         dependencies["com.unity.inputsystem"] = "1.6.3";
-        bool nativeMetal = config.BuildTarget == "StandaloneOSX";
+        bool unityXr = config.BuildTarget != "StandaloneOSX" && !config.BuildProbe;
         (string Name, string Version)[] xrPackages =
         [
             ("com.unity.xr.openxr", "1.13.0"),
@@ -395,8 +395,8 @@ public sealed class ProjectMigration(ConversionConfig config, string candidate)
         ];
         foreach (var package in xrPackages)
         {
-            if (nativeMetal) dependencies.Remove(package.Name);
-            else dependencies[package.Name] = package.Version;
+            if (unityXr) dependencies[package.Name] = package.Version;
+            else dependencies.Remove(package.Name);
         }
         // OpenXR is selected through the project settings; do not enable a specific headset/provider.
         Directory.CreateDirectory(Path.GetDirectoryName(path)!); File.WriteAllText(path, manifest.ToJsonString(new System.Text.Json.JsonSerializerOptions { WriteIndented = true }) + "\n");
@@ -410,7 +410,7 @@ public sealed class ProjectMigration(ConversionConfig config, string candidate)
         if (!playerText.Contains("  activeInputHandler: 2", StringComparison.Ordinal)) throw new InvalidDataException("Could not configure the Unity input system selection.");
         File.WriteAllText(playerSettings, playerText);
         var settings = Path.Combine(root, "ProjectSettings/XRPackageSettings.json");
-        if (nativeMetal)
+        if (!unityXr)
         {
             File.Delete(settings);
             return null;

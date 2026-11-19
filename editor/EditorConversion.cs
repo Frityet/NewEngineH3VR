@@ -36,6 +36,7 @@ namespace H3VRConverter
             public string graphicsAPI;
             public string graphicsDevice;
             public string player;
+            public bool buildProbe;
         }
 
         public static string Argument(string name)
@@ -49,37 +50,52 @@ namespace H3VRConverter
 
         private static void Execute(bool build)
         {
+            bool buildProbe = Environment.GetCommandLineArgs().Contains("-h3vrBuildProbe");
             var report = new Report
             {
                 unityVersion = Application.unityVersion,
                 target = EditorUserBuildSettings.activeBuildTarget.ToString(),
                 graphicsAPI = SystemInfo.graphicsDeviceType.ToString(),
                 graphicsDevice = SystemInfo.graphicsDeviceName,
+                buildProbe = buildProbe
             };
             var errors = new List<string>();
             try
             {
                 if (Application.unityVersion != TargetVersion) throw new InvalidOperationException("Expected Unity " + TargetVersion + "; got " + Application.unityVersion);
                 AssetDatabase.Refresh(ImportAssetOptions.ForceSynchronousImport);
-                OpenXRConfiguration.Configure(EditorUserBuildSettings.activeBuildTarget);
                 var target = EditorUserBuildSettings.activeBuildTarget;
                 if (!BuildPipeline.IsBuildTargetSupported(BuildPipeline.GetBuildTargetGroup(target), target))
                     throw new InvalidOperationException("Install the Unity player build module for " + target + ".");
+                if (buildProbe)
+                {
+                    if (target != BuildTarget.StandaloneLinux64)
+                        throw new InvalidOperationException("The cross-build probe requires Linux x64.");
+                    EditorBuildSettings.RemoveConfigObject("com.unity.xr.management.loader_settings");
+                    EditorBuildSettings.RemoveConfigObject("com.unity.xr.openxr.settings4");
+                    PlayerSettings.productName = "NativeH3VR Linux Build Probe";
+                }
+                else OpenXRConfiguration.Configure(target);
+                PlayerSettings.SetScriptingBackend(BuildTargetGroup.Standalone, ScriptingImplementation.Mono2x);
+                PlayerSettings.SetManagedStrippingLevel(BuildTargetGroup.Standalone, ManagedStrippingLevel.Disabled);
+                PlayerSettings.enableFrameTimingStats = true;
                 if (target == BuildTarget.StandaloneWindows64)
                 {
                     PlayerSettings.SetUseDefaultGraphicsAPIs(target, false);
                     PlayerSettings.SetGraphicsAPIs(target, new[] { GraphicsDeviceType.Direct3D11 });
+                }
+                else if (target == BuildTarget.StandaloneLinux64)
+                {
+                    PlayerSettings.SetUseDefaultGraphicsAPIs(target, false);
+                    PlayerSettings.SetGraphicsAPIs(target, new[] { GraphicsDeviceType.Vulkan });
                 }
                 else if (target == BuildTarget.StandaloneOSX)
                 {
                     // Unity 2021.3 documents architecture 1 as ARM64.
                     PlayerSettings.SetArchitecture(BuildTargetGroup.Standalone, 1);
                     EditorUserBuildSettings.SetPlatformSettings("Standalone", "OSXUniversal", "Architecture", "ARM64");
-                    PlayerSettings.SetScriptingBackend(BuildTargetGroup.Standalone, ScriptingImplementation.Mono2x);
-                    PlayerSettings.SetManagedStrippingLevel(BuildTargetGroup.Standalone, ManagedStrippingLevel.Disabled);
                     PlayerSettings.SetUseDefaultGraphicsAPIs(target, false);
                     PlayerSettings.SetGraphicsAPIs(target, new[] { GraphicsDeviceType.Metal });
-                    PlayerSettings.enableFrameTimingStats = true;
                     string workspaceId;
                     using (var hash = SHA256.Create())
                         workspaceId = BitConverter.ToString(hash.ComputeHash(Encoding.UTF8.GetBytes(
@@ -123,12 +139,6 @@ namespace H3VRConverter
                 if (build && errors.Count == 0)
                 {
                     var bundleOutput = Argument("-h3vrBundleOutput");
-                    bool mac = target == BuildTarget.StandaloneOSX;
-                    if (!mac)
-                    {
-                        BundleConversion.Build(plan, bundleOutput);
-                        AssetDatabase.Refresh(ImportAssetOptions.ForceSynchronousImport);
-                    }
                     EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
                     var output = Argument("-h3vrOutput");
                     Directory.CreateDirectory(Path.GetDirectoryName(output));
@@ -136,14 +146,12 @@ namespace H3VRConverter
                     if (built.summary.result != BuildResult.Succeeded) errors.Add("Player build: " + built.summary.result);
                     else
                     {
-                        // The macOS player reads these opaque bundles from StreamingAssets at runtime.
-                        // Compile its scenes first so a scene error does not force a bundle rebuild.
-                        if (mac)
-                        {
-                            var data = Path.Combine(output, "Contents", "Resources", "Data");
-                            if (!Directory.Exists(data)) throw new DirectoryNotFoundException("The macOS player data directory is missing: " + data);
-                            BundleConversion.Build(plan, bundleOutput, Path.Combine(data, "StreamingAssets"));
-                        }
+                        // The game reads these bundles from the player at runtime. Keep them out of the import project.
+                        var data = target == BuildTarget.StandaloneOSX
+                            ? Path.Combine(output, "Contents", "Resources", "Data")
+                            : Path.Combine(Path.GetDirectoryName(output), Path.GetFileNameWithoutExtension(output) + "_Data");
+                        if (!Directory.Exists(data)) throw new DirectoryNotFoundException("The player data directory is missing: " + data);
+                        BundleConversion.Build(plan, bundleOutput, Path.Combine(data, "StreamingAssets"));
                         report.player = output;
                     }
                 }

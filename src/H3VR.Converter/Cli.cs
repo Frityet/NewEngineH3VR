@@ -49,6 +49,10 @@ public sealed class ConversionOptions : CommandSettings
     [Description("Existing recovered Unity project (skips AssetRipper export).")]
     public string? Recovered { get; init; }
 
+    [CommandOption("--reuse-extraction <WORKSPACE>")]
+    [Description("Reuse a verified Steam extraction from another converter workspace.")]
+    public string? ExtractionWorkspace { get; init; }
+
     [CommandOption("--target <TARGET>")]
     [Description("Build target: windows, macos, or linux.")]
     public string? Target { get; init; }
@@ -56,6 +60,10 @@ public sealed class ConversionOptions : CommandSettings
     [CommandOption("--integration <PATH>")]
     [Description("Hash-pinned native integration manifest for non-Windows targets.")]
     public string? Integration { get; init; }
+
+    [CommandOption("--build-probe")]
+    [Description("Cross-build Linux scenes and bundles without a Linux XR provider. The probe is not a playable build.")]
+    public bool? BuildProbe { get; init; }
 
     [CommandOption("--cache <PATH>")]
     [Description("Tool download and build cache directory. Defaults to cache/ in this checkout.")]

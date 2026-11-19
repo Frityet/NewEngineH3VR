@@ -123,8 +123,10 @@ public sealed partial class Pipeline(string repository, ConversionConfig config)
         }
         Directory.CreateDirectory(Receipts);
         using var lease = new FileStream(Path.Combine(Receipts, "lock"), FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
+        using var sourceLease = OpenExtractionLease();
         Console.WriteLine("Fingerprinting local inputs before conversion/resume…");
         var gameFingerprint = GameFingerprint();
+        var sharedExtraction = sourceLease is null ? null : VerifySharedExtraction(Fingerprint("extract", gameFingerprint), cancellation);
         foreach (var step in Steps)
         {
             cancellation.ThrowIfCancellationRequested();
@@ -134,9 +136,18 @@ public sealed partial class Pipeline(string repository, ConversionConfig config)
             {
                 var receipt = JsonSerializer.Deserialize<StepReceipt>(File.ReadAllText(receiptFile), ConversionConfig.Json)
                     ?? throw new InvalidDataException("Empty step receipt: " + receiptFile);
-                if (receipt.Step != step || receipt.Fingerprint != fingerprint || !ReceiptOutputsMatch(receipt))
+                bool outputsMatch = step == "extract" && sharedExtraction is not null
+                    ? receipt.Files.Count == sharedExtraction.Files.Count &&
+                      receipt.Files.All(file => sharedExtraction.Files.TryGetValue(file.Key, out var sha256) && file.Value == sha256)
+                    : ReceiptOutputsMatch(receipt);
+                if (receipt.Step != step || receipt.Fingerprint != fingerprint || !outputsMatch)
                     throw new InvalidDataException($"{step} inputs or recorded outputs changed. Use a fresh workspace to preserve the previous conversion.");
                 Console.WriteLine("Verified completed step: " + step);
+            }
+            else if (step == "extract" && sharedExtraction is not null)
+            {
+                SafeFiles.AtomicJson(receiptFile, sharedExtraction);
+                Console.WriteLine("Reused Steam extraction from " + config.ExtractionWorkspace);
             }
             else
             {
@@ -156,6 +167,41 @@ public sealed partial class Pipeline(string repository, ConversionConfig config)
             }
             if (step == through) break;
         }
+    }
+
+    private FileStream? OpenExtractionLease()
+    {
+        if (config.ExtractionWorkspace is not { } source) return null;
+        SafeFiles.RequireSeparate(source, config.Workspace);
+        string receipts = Path.Combine(source, ".conversion");
+        string lockPath = Path.Combine(receipts, "lock");
+        if (new DirectoryInfo(receipts).LinkTarget is not null || new FileInfo(lockPath).LinkTarget is not null)
+            throw new InvalidDataException("The shared extraction's conversion state must be in the source workspace.");
+        return File.Open(lockPath, FileMode.Open, FileAccess.Read, FileShare.Read);
+    }
+
+    private StepReceipt VerifySharedExtraction(string fingerprint, CancellationToken cancellation)
+    {
+        string source = config.ExtractionWorkspace!;
+        if (!File.Exists(Path.Combine(source, ".h3vr-converter-workspace")))
+            throw new InvalidDataException("The extraction source must be a converter workspace: " + source);
+        string path = Path.Combine(source, ".conversion", "extract.json");
+        var receipt = JsonSerializer.Deserialize<StepReceipt>(File.ReadAllText(path), ConversionConfig.Json);
+        if (receipt is null || receipt.Step != "extract" || receipt.Fingerprint != fingerprint)
+            throw new InvalidDataException("The shared extraction does not match the current Steam files and exporter: " + path);
+        string recovery = Path.Combine(source, "recovery");
+        if (new DirectoryInfo(recovery).LinkTarget is not null)
+            throw new InvalidDataException("The shared extraction must be in the source workspace.");
+        var files = ColdRecoveryOutputFiles(recovery);
+        if (receipt.Files.Count != files.Count)
+            throw new InvalidDataException("The shared extraction file inventory differs from its receipt: " + path);
+        foreach (string file in files)
+        {
+            cancellation.ThrowIfCancellationRequested();
+            if (!receipt.Files.TryGetValue(file, out var expected) || expected != SafeFiles.Hash(file))
+                throw new InvalidDataException("The shared extraction does not match its receipt: " + file);
+        }
+        return receipt;
     }
 
     private async Task<List<string>> Managed(CancellationToken cancellation)
@@ -223,7 +269,7 @@ public sealed partial class Pipeline(string repository, ConversionConfig config)
             var report = new ProjectMigration(config, candidate).Run();
             LocalAssets.Stage(config, candidate);
             AssetBaseline.Capture(candidate);
-            SourceStaging.Install(repository, candidate, config.BuildTarget);
+            SourceStaging.Install(repository, candidate, config.BuildTarget, config.BuildProbe);
             if (config.IntegrationManifest is not null) Integration.Apply(config.IntegrationManifest, candidate, config.BuildTarget);
             var temporaryPlan = Path.Combine(candidate, "bundle-plan.json");
             var bundleReport = BundlePlan.Create(Path.Combine(config.GameData, "StreamingAssets"), candidate, temporaryPlan);
@@ -256,7 +302,13 @@ public sealed partial class Pipeline(string repository, ConversionConfig config)
         var run = name + "-" + DateTime.UtcNow.ToString("yyyyMMdd-HHmmss") + "-" + Guid.NewGuid().ToString("N")[..8];
         var report = Path.Combine(Receipts, run + ".json");
         var logfile = Path.Combine(Receipts, run + ".log");
-        var output = Path.Combine(config.Workspace, "player", config.BuildTarget == "StandaloneOSX" ? "NativeH3VR.app" : config.BuildTarget == "StandaloneWindows64" ? "H3VR.exe" : "H3VR.x86_64");
+        var executableName = config.BuildTarget switch
+        {
+            "StandaloneOSX" => "NativeH3VR.app",
+            "StandaloneWindows64" => "H3VR.exe",
+            _ => config.BuildProbe ? "H3VR.BuildProbe.x86_64" : "H3VR.x86_64"
+        };
+        var output = Path.Combine(config.Workspace, "player", executableName);
         if (build && Directory.Exists(Path.GetDirectoryName(output)!)) throw new IOException("Player output exists. Inspect the previous build before using a fresh workspace.");
         var bundleWork = Path.Combine(config.Workspace, "bundles-" + Guid.NewGuid().ToString("N"));
         var bundleOutput = Path.Combine(bundleWork, "StreamingAssets");
@@ -264,6 +316,7 @@ public sealed partial class Pipeline(string repository, ConversionConfig config)
         // The latter cannot safely choose among several deprecated Unity 5 overloads.
         string[] editorArguments = ["-batchmode", "-disable-assembly-updater", "-projectPath", config.Project, "-buildTarget", config.BuildTarget, "-executeMethod", build ? "H3VRConverter.EditorConversion.Build" : "H3VRConverter.EditorConversion.Validate", "-logFile", logfile, "-h3vrReport", report, "-h3vrOutput", output, "-h3vrBundlePlan", Path.Combine(Receipts, "bundle-plan.json"), "-h3vrBundleOutput", bundleOutput];
         if (config.BuildTarget == "StandaloneOSX") editorArguments = [.. editorArguments, "-force-metal"];
+        if (config.BuildProbe) editorArguments = [.. editorArguments, "-h3vrBuildProbe"];
         await Processes.Run(config.UnityEditor, editorArguments, repository, cancellation: cancellation);
         if (!File.Exists(report)) throw new InvalidDataException("Unity did not produce the expected report. Inspect " + logfile);
         using var document = JsonDocument.Parse(File.ReadAllText(report));
@@ -301,7 +354,7 @@ public sealed partial class Pipeline(string repository, ConversionConfig config)
                 await Processes.Run("codesign", ["--verify", "--deep", "--strict", output], repository, cancellation: cancellation);
             }
             if (Directory.Exists(bundleWork)) Directory.Delete(bundleWork, true);
-            return BuildOutputFiles(Path.Combine(config.Workspace, "player"), Path.Combine(config.Project, "Assets/StreamingAssets"))
+            return SafeFiles.Files(Path.Combine(config.Workspace, "player"))
                 .Concat(evidence).ToList();
         }
         return [report, logfile, shaderUpgrades];
@@ -320,14 +373,6 @@ public sealed partial class Pipeline(string repository, ConversionConfig config)
         File.Copy(Path.Combine(installed.EvidenceDirectory, "enlighten-install.json"), installReceipt);
         Console.WriteLine($"Restored {data.Scenes.Sum(scene => scene.ProbeSets)} Steam Enlighten probe sets across {data.Scenes.Length} scenes.");
         return [stageReceipt, installReceipt];
-    }
-
-    /// <summary>Inventory the player and the rebuilt bundle artifacts that Unity emits into the project.</summary>
-    internal static List<string> BuildOutputFiles(string playerDirectory, string streamingAssetsDirectory)
-    {
-        var files = SafeFiles.Files(playerDirectory).ToList();
-        if (Directory.Exists(streamingAssetsDirectory)) files.AddRange(SafeFiles.Files(streamingAssetsDirectory));
-        return files;
     }
 
     /// <summary>Shared receipt check used by resume and the focused generated-output tests.</summary>

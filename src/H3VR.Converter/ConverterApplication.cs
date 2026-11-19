@@ -75,7 +75,9 @@ public sealed class ConverterApplication(string repository, IAnsiConsole console
             Workspace = options.Workspace ?? config.Workspace,
             ShaderSources = options.Shaders ?? config.ShaderSources,
             RecoveredProject = options.Recovered ?? config.RecoveredProject,
+            ExtractionWorkspace = options.ExtractionWorkspace ?? config.ExtractionWorkspace,
             IntegrationManifest = options.Integration ?? config.IntegrationManifest,
+            BuildProbe = options.BuildProbe ?? config.BuildProbe,
             ToolCacheDirectory = options.Cache ?? config.ToolCacheDirectory,
             Offline = options.Offline ?? config.Offline,
             BuildTarget = options.Target is null ? config.BuildTarget : options.Target.ToLowerInvariant() switch
@@ -112,7 +114,7 @@ public sealed class ConverterApplication(string repository, IAnsiConsole console
         if (editors.Count > 1 && config.UnityEditor.Length == 0) problems.Add("Multiple Unity editors were found; select --unity or use --tui.");
         try { config.Validate(repository, through); if (through != "extract") config.VerifyEditorVersion(); }
         catch (Exception error) when (error is IOException or InvalidDataException or ArgumentException or InvalidOperationException) { problems.Add(error.Message); }
-        if (config.RecoveredProject is null)
+        if (config.RecoveredProject is null && config.ExtractionWorkspace is null)
         {
             var available = AssetRipperIntegration.CheckAvailability(config, repository, out var detail);
             console.WriteLine("AssetRipper: " + detail);
@@ -161,7 +163,8 @@ public sealed class ConverterApplication(string repository, IAnsiConsole console
         Add("Unity", config.UnityEditor.Length == 0 ? "Not found; use --unity" : config.UnityEditor);
         Add("Workspace", config.Workspace);
         Add("Target", config.BuildTarget);
-        Add("Recovery", config.RecoveredProject ?? "AssetRipper 2.0.0 (automatic)");
+        if (config.BuildProbe) Add("Build profile", "Linux cross-build probe (no XR or native game plug-ins)");
+        Add("Recovery", config.ExtractionWorkspace ?? config.RecoveredProject ?? "AssetRipper 2.0.0 (automatic)");
         Add("Shaders", config.ShaderSources ?? "Not set");
         Add("Cache", config.CacheDirectory(repository));
         Add("Tool provisioning", config.Offline ? "Cached tools only" : "Download and build when needed");

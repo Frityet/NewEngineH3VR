@@ -20,6 +20,7 @@ public static class PipelineTests
         yield return ("staging removes only verified recovered Unity bundles and their manifests", StageStreamingAssets);
         yield return ("failed bundle plan remains inspectable after candidate cleanup", FailedBundlePlanSurvivesCleanup);
         yield return ("cold extraction receipt tracks provenance maps", ColdReceiptTracksMaps);
+        yield return ("shared extraction reuses verified bytes and rejects source mutations", SharedExtractionRejectsChanges);
         yield return ("successful editor receipt records named shader upgrades and keeps other hashes", ShaderUpgradeReceipt);
     }
 
@@ -107,6 +108,40 @@ public static class PipelineTests
         Check(Pipeline.ReceiptOutputsMatch(receipt), "unchanged map not accepted");
         File.WriteAllText(shader, "altered identity");
         Check(!Pipeline.ReceiptOutputsMatch(receipt), "altered identity map was accepted");
+    }
+
+    private static void SharedExtractionRejectsChanges()
+    {
+        using var fixture = new Fixture();
+        string source = Path.Combine(fixture.rootPath, "shared");
+        string recovery = Path.Combine(source, "recovery");
+        string assets = Path.Combine(recovery, "ExportedProject", "Assets");
+        string receiptPath = Path.Combine(source, ".conversion", "extract.json");
+        string file = Path.Combine(assets, "fixture.txt");
+        Write(file, "original");
+        Write(Path.Combine(recovery, "ExportedProject", "ProjectSettings", "ProjectVersion.txt"), "synthetic Unity project");
+        Write(Path.Combine(recovery, "AuxiliaryFiles", "shader-identity-v2.json"), "{}");
+        Write(Path.Combine(recovery, "AuxiliaryFiles", "path_id_map.json"), "{}");
+        Write(Path.Combine(source, ".h3vr-converter-workspace"), "fixture");
+        Write(Path.Combine(source, ".conversion", "lock"), "");
+        var configuration = fixture.Config() with { RecoveredProject = null, ExtractionWorkspace = source };
+        var pipeline = new Pipeline(fixture.Repository, configuration);
+        var files = Pipeline.ColdRecoveryOutputFiles(recovery).ToDictionary(path => path, SafeFiles.Hash);
+        var receipt = new StepReceipt("extract", pipeline.FingerprintForTests("extract"), DateTimeOffset.UtcNow, files);
+        SafeFiles.AtomicJson(receiptPath, receipt);
+        void Run() => pipeline.Run("extract", CancellationToken.None).GetAwaiter().GetResult();
+
+        Run();
+        Check(!Directory.Exists(Path.Combine(fixture.Workspace, "recovery")) && configuration.Export.StartsWith(recovery),
+            "a shared build copied or ignored its recovery inputs");
+        Check(SafeFiles.Hash(receiptPath) == SafeFiles.Hash(Path.Combine(fixture.Workspace, ".conversion", "extract.json")),
+            "the destination receipt changed its source binding");
+        Run();
+        Write(file, "tampered");
+        Check(Capture(Run) is InvalidDataException, "a shared workspace accepted altered asset bytes");
+        Write(file, "original");
+        Write(Path.Combine(assets, "extra.txt"), "unrecorded");
+        Check(Capture(Run) is InvalidDataException, "a shared workspace accepted an unrecorded asset");
     }
 
     private static void ExtractResume()
@@ -241,11 +276,11 @@ public static class PipelineTests
     {
         using var fixture = new Fixture();
         var player = Path.Combine(fixture.rootPath, "player-output");
-        var streamingAssets = Path.Combine(fixture.rootPath, "candidate/Assets/StreamingAssets");
+        var streamingAssets = Path.Combine(player, "H3VR.app/Contents/Resources/Data/StreamingAssets");
         Write(Path.Combine(player, "H3VR.app/Contents/MacOS/H3VR"), "player-binary");
         Write(Path.Combine(streamingAssets, "manifest.bundle"), "rebuilt-bundle");
         Write(Path.Combine(streamingAssets, "manifest.bundle.manifest"), "bundle-dependencies");
-        var outputFiles = Pipeline.BuildOutputFiles(player, streamingAssets);
+        var outputFiles = SafeFiles.Files(player);
         var receipt = new StepReceipt("build", "test-fingerprint", DateTimeOffset.UtcNow,
             outputFiles.ToDictionary(Path.GetFullPath, SafeFiles.Hash));
         Check(Pipeline.ReceiptOutputsMatch(receipt), "fresh build outputs did not match their receipt");
