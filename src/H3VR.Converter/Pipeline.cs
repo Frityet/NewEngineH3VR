@@ -355,6 +355,13 @@ public sealed partial class Pipeline(string repository, ConversionConfig config)
                 foreach (var library in libraries)
                     await Processes.Run("lipo", ["-verify_arch", "arm64", library], repository, cancellation: cancellation);
                 evidence.AddRange(RestorePlayerEnlighten(output, run, bundleWork));
+                string reflectionReceipt = Path.Combine(Receipts, run + "-reflection-probes.json");
+                var reflections = PlayerReflectionProbes.Restore(config.GameData, Path.Combine(output, "Contents", "Resources", "Data"),
+                    PlayerEnlighten.RequireClassDatabase(config.CacheDirectory(repository)),
+                    Path.Combine(bundleWork, "reflection-probes"), reflectionReceipt);
+                PlayerReceipt.BindReflectionProbes(playerReceipt, reflectionReceipt);
+                Console.WriteLine($"Restored {reflections.Scenes.Sum(scene => scene.Probes.Length)} Steam baked reflection probes across {reflections.Scenes.Length} scenes.");
+                evidence.Add(reflectionReceipt);
                 evidence.Add(architectureLog);
             }
             if (config.CompactPlayerData)

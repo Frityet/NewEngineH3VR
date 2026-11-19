@@ -14,7 +14,7 @@ This repository contains conversion tools, compatibility code and tests. It cont
 - Git and internet access on first extraction. The converter manages the pinned [AssetRipper 2.0.0](https://github.com/AssetRipper/AssetRipper/releases/tag/2.0.0) dependency and caches its worker.
 - A local, identity-matched shader source overlay, including its original `.meta` files and include files. [Shader recovery tooling and limitations](docs/shader-recovery.md).
 
-Apple Silicon selects the macOS target by default. The supported Steam input is app 450540 build 25002541. Build the local Metal, Steamworks and FMOD integration before generating the macOS project. The macOS build uses the pinned Unity class database in the converter cache to restore Steam's realtime lighting probes before signing. The Windows x64 target uses Unity OpenXR. [Platform prerequisites and commands](docs/platform-integrations.md) · [Class database and digest](docs/shader-recovery.md#validation-boundary)
+Apple Silicon selects the macOS target by default. The supported Steam input is app 450540 build 25002541. Build the local Metal, Steamworks and FMOD integration before generating the macOS project. The macOS build uses the pinned Unity class database in the converter cache to restore Steam's realtime lighting probes and its baked reflection cubemaps before signing. The reflection receipt records each cubemap's original linear BC6H faces and mip chain without converting the texture. The Windows x64 target uses Unity OpenXR. [Platform prerequisites and commands](docs/platform-integrations.md) · [Class database and digest](docs/shader-recovery.md#validation-boundary)
 
 ## Run
 
