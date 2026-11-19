@@ -1,0 +1,31 @@
+# Auditing the stock renderer
+
+The stock menu test loads only its diagnostic DLL into a signed local player. It starts MainMenu3 with a fresh save directory and synthetic Index tracking, waits for the stock player's eye camera, and reads the two render textures that NativeStereoRenderer submitted to OpenXR. It also captures the runtime compositor. The original Steam install and the normal player's preferences have separate paths.
+
+Run from a NativeH3VR checkout with an imported player, a built UnityMetalCli, and a packaged MacVR runtime.
+
+```sh
+python3 tests/StockMenuRendering/run.py \
+  --app "/path/to/NativeH3VR.app" \
+  --launcher "/path/to/UnityMetalCli.dll" \
+  --runtime "/path/to/MacVR-runtime" \
+  --out "/path/to/fresh/output" \
+  --survey-scene WarehouseRange_Rebuilt --survey-scene ArizonaTargets
+
+uv run tests/StockMenuRendering/measure.py "/path/to/fresh/output"
+```
+
+The report records the actual HDR camera, eye transforms, frusta, render formats, active and inactive materials, lights, cubemaps and post-processing resources. Each eye is captured twice with identical settings to establish the noise floor. Further captures switch off the grade, switch off bloom, toggle AO, disable the whole layer and restore the original settings. The neutral test card samples five known material input values and the black surround beside an HDR patch. The test also records the blended grading settings, the five sampled curve values and the full 33³ floating-point LUT. Use `--gear` to capture the stock Index controller wire meshes at fixed poses. Each `--survey-scene` enters another official scene through the stock scene loader and records its two eyes.
+
+A matched run of the official Windows D3D11 player used High quality, bloom and grading on, AO off and no eye MSAA. Both tests used a stationary, forward-facing head with 64 mm IPD and symmetric 0.85-radian half angles. The macOS readback was one pixel taller and the stock rigs placed the synthetic head 7 mm apart vertically. Compare flat patches and registered regions when using these output images.
+
+| Neutral card, grading on and bloom off | Windows D3D11 | Original native build | Corrected shader |
+| --- | ---: | ---: | ---: |
+| Black surround | 0.6 | 31.7 | 0.6 |
+| Input 0.18 | 68.0 | 81.1 | 68.0 |
+| Input 0.5 | 164.4 | 149.2 | 164.3 |
+| Input 1 | 235.9 | 205.6 | 235.9 |
+
+Values are 8-bit display codes. The corrected chart matched Windows within 0.11 code across all six sampled patches and both eyes. In the original native build, disabling all grading already recovered the Windows ungraded swatches. The stock LUT was correct. The DXBC exporter emitted a natural logarithm in the shader that indexes the LUT, which changes the input coordinate across the whole range. The corrected exporter emits base-two HLSL operations for the corresponding Direct3D instructions. [Direct3D log](https://learn.microsoft.com/en-us/windows/win32/direct3dhlsl/log--sm4---asm-) · [Direct3D exp](https://learn.microsoft.com/en-us/windows/win32/direct3dhlsl/exp--sm4---asm-)
+
+With the original scene cubemap restored, the mean ungraded luminance of three menu wall regions reached 38.4–45.2, compared with 40.6–49.1 on Windows and 0.9–1.0 in the earlier native build. The source cubemap is 1024 square, linear BC6H, with eleven mip levels. The converter verifies every restored per-face payload against the original game. The two menu eye textures and the corresponding synthetic MacVR compositor pixels agreed exactly after splitting the eyes. A physical headset display measurement would require a separate optical capture.

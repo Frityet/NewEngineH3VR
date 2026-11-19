@@ -10,6 +10,8 @@ var cases = new List<(string Name, Action Run)>
         foreach (var name in new[] { "recovered/Game.cs", "src/Game.dll", "editor/Game.shader", "src/bin/Generated.cs", "probe/Assets/Editor/Test.cs" })
             Check(!Publication.Allowed(name), name);
         Check(Publication.Allowed("src/H3VR.Converter/Program.cs"), "authored source rejected");
+        Check(Publication.Allowed("tests/StockMenuRendering/measure.py") && Publication.Allowed("tests/StockMenuRendering/run.py")
+            && !Publication.Allowed("tests/StockMenuRendering/imported.py"), "stock rendering test source allowlist");
     }),
     ("path containment rejects nested output", () => {
         var root = Path.Combine(Path.GetTempPath(), "h3vr-boundary");
