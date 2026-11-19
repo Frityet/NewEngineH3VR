@@ -36,8 +36,9 @@ Unity test scene and native mod-host fixture use independently authored assets.
 - All 22 kernels translated from the extracted Direct3D compute programs
   compiled on Apple M5 Max Metal with their original thread-group sizes.
   Metal dispatch/readback verified a 128-entry histogram clear and linear
-  interpolation over 64 texture voxels. The actual game effects still
-  require integration testing. [Compute recovery](shader-recovery.md#compute-shader-recovery)
+  interpolation over 64 texture voxels. The signed stock main menu also
+  exercised the color grading LUT, bloom and optional ambient occlusion
+  in both submitted eyes. [Compute recovery](shader-recovery.md#compute-shader-recovery) · [Windows and Metal rendering measurements](stock-menu-rendering.md)
 
 ## Reproduce the Unity fixture
 

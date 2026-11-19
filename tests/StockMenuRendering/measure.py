@@ -24,6 +24,41 @@ def change(reference, sample):
             "fractionChangingOver5": round(float((delta.max(axis=2) > 5).mean()), 5)}
 
 
+def stock_reference_errors(root, report):
+    """Check the stock High preset for Steam build 25002541 in MainMenu3."""
+    errors = []
+    menu = json.loads((root / "menu.json").read_text())
+    if menu["scene"] != "MainMenu3" or not menu["hdr"] or not menu["layerEnabled"]:
+        errors.append("Stock HDR camera or post-processing layer missing in MainMenu3")
+    if len(menu["resources"]) != 34 or any("(missing)" in row or "supported=False" in row for row in menu["resources"]):
+        errors.append("The stock post-processing stack has an unresolved shader or compute resource")
+    if not any(probe["mode"] == "Baked" and probe["texture"] == "ReflectionProbe-0"
+               and probe["width"] == 1024 and probe["mipCount"] == 11 and probe["format"] == "RGB_BC6H_UFloat"
+               for probe in menu["reflectionProbes"]):
+        errors.append("The original 1024-pixel BC6H title probe is missing")
+    terrain = {"BaseMapShader": "Hidden/Alloy/Nature/Terrain/Distant", "Tree0": "Hidden/TerrainEngine/BillboardTree"}
+    for key in ("Details0", "Details1", "Details2"):
+        terrain[key] = "Hidden/Alloy/Nature/Terrain/" + key
+    for key, shader in terrain.items():
+        if f"{key}={shader} supported=True" not in menu.get("terrainDetails", []):
+            errors.append("The stock terrain cannot resolve " + key)
+    # Measured in the original D3D11 player with the same preset, pose and swatches.
+    # Averaging a 7x7 centre admits dither and different subpixel rasterization.
+    reference = np.array([.61, 9.57, 67.95, 164.39, 235.91, 255.])
+    with Image.open(root / "stock-compositor.png") as stereo:
+        for i, side in enumerate(("left", "right")):
+            chart = report[side]["chart"]["chart-no-bloom"]
+            luma = np.array([chart["surroundBlack"], *chart["neutral"]]) @ [.2126, .7152, .0722]
+            if np.max(np.abs(luma - reference)) > 2:
+                errors.append(f"{side} graded swatches disagree with stock D3D11: {np.round(luma, 2)}")
+            with Image.open(root / ("stock-" + side + ".png")) as eye:
+                width, height = eye.size
+                region = stereo.crop((i * width, 0, (i + 1) * width, height))
+                if stereo.size != (2 * width, height) or not np.array_equal(eye.convert("RGB"), region.convert("RGB")):
+                    errors.append(f"{side} submitted compositor image differs from the Unity eye")
+    return errors
+
+
 def inspect(root):
     meta = json.loads((root / "menu.json").read_text())
     out = {}
@@ -66,11 +101,17 @@ def inspect(root):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("capture", type=Path)
+    parser.add_argument("--verify-stock", action="store_true",
+                        help="Also compare grading, submitted eyes and asset bindings to Steam build 25002541")
     args = parser.parse_args()
     result = inspect(args.capture)
     target = args.capture / "eye-measurements.json"
+    if args.verify_stock:
+        result["stockReferenceErrors"] = stock_reference_errors(args.capture, result)
     target.write_text(json.dumps(result, indent=2) + "\n")
     print(target)
+    if result.get("stockReferenceErrors"):
+        raise SystemExit("\n".join(result["stockReferenceErrors"]))
 
 
 if __name__ == "__main__":
