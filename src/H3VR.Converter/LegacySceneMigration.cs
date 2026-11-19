@@ -1,3 +1,4 @@
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
 
@@ -25,7 +26,9 @@ public static class LegacySceneMigration
         }
         var owners = new HashSet<string>(StringComparer.Ordinal);
         var edits = new List<Edit>();
-        foreach (string path in Directory.EnumerateFiles(scenes, "*.unity", SearchOption.AllDirectories).Order(StringComparer.Ordinal))
+        var scenePaths = Directory.EnumerateFiles(scenes, "*.unity", SearchOption.AllDirectories).Order(StringComparer.Ordinal).ToArray();
+        var identities = PlanSceneGuids(Path.GetFullPath(project), assets, scenePaths, metas, edits);
+        foreach (string path in scenePaths)
         {
             byte[] before = File.ReadAllBytes(path); string text = Decode(before, path);
             if (!text.StartsWith("%YAML", StringComparison.Ordinal)) throw new InvalidDataException("Unsupported non-text scene: " + path);
@@ -46,12 +49,16 @@ public static class LegacySceneMigration
                 var existing = Regex.Matches(payload, @"(?m)^  m_Scene: [^\r\n]*\r?\n");
                 if (existing.Count > 1) throw new InvalidDataException("Ambiguous lighting scene reference: " + lightingPath);
                 string newline = payload.Contains("\r\n", StringComparison.Ordinal) ? "\r\n" : "\n";
-                string field = "  m_Scene: {fileID: 102900000, guid: " + sceneGuid.Groups[1].Value + ", type: 3}" + newline;
+                string previousGuid = sceneGuid.Groups[1].Value;
+                string selectedGuid = identities.TryGetValue(path, out var replacement) ? replacement : previousGuid;
+                string field = "  m_Scene: {fileID: 102900000, guid: " + selectedGuid + ", type: 3}" + newline;
                 string updated;
                 if (existing.Count == 1)
                 {
-                    if (existing[0].Value != field) throw new InvalidDataException("Lighting scene reference has a different owner: " + lightingPath);
-                    updated = payload;
+                    string previousField = "  m_Scene: {fileID: 102900000, guid: " + previousGuid + ", type: 3}" + newline;
+                    if (existing[0].Value != field && !(selectedGuid != previousGuid && existing[0].Value == previousField))
+                        throw new InvalidDataException("Lighting scene reference has a different owner: " + lightingPath);
+                    updated = payload.Remove(existing[0].Index, existing[0].Length).Insert(existing[0].Index, field);
                 }
                 else
                 {
@@ -81,6 +88,94 @@ public static class LegacySceneMigration
             foreach (var e in committed.AsEnumerable().Reverse()) File.WriteAllBytes(e.Path, e.Before);
             throw;
         }
+    }
+
+    private static Dictionary<string, string> PlanSceneGuids(string project, string assets, string[] scenes,
+        Dictionary<string, string> assetMetas, List<Edit> edits)
+    {
+        var sceneSet = scenes.ToHashSet(StringComparer.Ordinal);
+        var groups = new Dictionary<string, List<string>>(StringComparer.Ordinal);
+        var allGuids = new HashSet<string>(StringComparer.Ordinal);
+        foreach (string meta in Directory.EnumerateFiles(assets, "*.meta", SearchOption.AllDirectories))
+        {
+            var match = Guid.Match(File.ReadAllText(meta));
+            if (!match.Success) throw new InvalidDataException("Missing asset GUID: " + meta);
+            string guid = match.Groups[1].Value; allGuids.Add(guid);
+            if (!groups.TryGetValue(guid, out var paths)) groups.Add(guid, paths = new());
+            paths.Add(meta);
+        }
+        var duplicated = groups.Where(p => p.Value.Count > 1 && p.Value.Any(m => m.EndsWith(".unity.meta", StringComparison.Ordinal))).ToArray();
+        var replacements = new Dictionary<string, string>(StringComparer.Ordinal);
+        if (duplicated.Length == 0) return replacements;
+        string settingsPath = Path.Combine(project, "ProjectSettings", "EditorBuildSettings.asset");
+        if (!File.Exists(settingsPath)) throw new InvalidDataException("Duplicate scene GUIDs require EditorBuildSettings.asset.");
+        byte[] settingsBytes = File.ReadAllBytes(settingsPath); string settings = Decode(settingsBytes, settingsPath);
+        var duplicates = duplicated.ToDictionary(p => p.Key, p => p.Value, StringComparer.Ordinal);
+        var allowedLighting = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var group in duplicated)
+        {
+            if (group.Value.Any(m => !m.EndsWith(".unity.meta", StringComparison.Ordinal) || !sceneSet.Contains(m[..^5])))
+                throw new InvalidDataException("Duplicate scene GUID collides with a non-scene asset: " + group.Key);
+            foreach (string meta in group.Value.Order(StringComparer.Ordinal))
+            {
+                string path = meta[..^5]; string relative = Path.GetRelativePath(project, path).Replace('\\', '/');
+                string replacement = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes("NativeH3VR.SceneAsset:" + relative)))[..32];
+                if (!allGuids.Add(replacement)) throw new InvalidDataException("Generated scene GUID collision: " + relative);
+                replacements.Add(path, replacement);
+                byte[] original = File.ReadAllBytes(meta); string content = Decode(original, meta);
+                var guid = Guid.Match(content);
+                if (!guid.Success || Guid.Matches(content).Count != 1 || guid.Groups[1].Value != group.Key) throw new InvalidDataException("Ambiguous scene metadata GUID: " + meta);
+                string revised = content.Remove(guid.Groups[1].Index, 32).Insert(guid.Groups[1].Index, replacement);
+                Add(edits, meta, original, revised);
+                string pattern = @"(?m)^(?<prefix>    path: " + Regex.Escape(relative) + @"\r?\n    guid: )(?<guid>[0-9a-f]{32})(?<end>\r?$)";
+                var entry = Regex.Matches(settings, pattern);
+                if (entry.Count != 1 || entry[0].Groups["guid"].Value != group.Key) throw new InvalidDataException("Missing or ambiguous build scene identity: " + relative);
+                var g = entry[0].Groups["guid"]; settings = settings.Remove(g.Index, 32).Insert(g.Index, replacement);
+                string sceneText = Decode(File.ReadAllBytes(path), path); var light = Lighting.Matches(sceneText);
+                if (light.Count > 1) throw new InvalidDataException("Ambiguous scene lighting: " + path);
+                if (light.Count == 1)
+                {
+                    if (!assetMetas.TryGetValue(light[0].Groups[1].Value, out var lightingPath) || !allowedLighting.TryAdd(lightingPath, group.Key))
+                        throw new InvalidDataException("Ambiguous scene lighting owner: " + path);
+                }
+            }
+        }
+        // Only original scene metadata and the owning lighting m_Scene pointers
+        // may contain these duplicated asset references. Internal scene GUIDs
+        // use a different field and remain untouched.
+        foreach (string file in Directory.EnumerateFiles(assets, "*", SearchOption.AllDirectories)
+            .Concat(Directory.EnumerateFiles(Path.Combine(project, "ProjectSettings"), "*", SearchOption.AllDirectories)))
+        {
+            if (file == settingsPath) continue;
+            using var stream = File.OpenRead(file);
+            if (!file.EndsWith(".meta", StringComparison.Ordinal))
+            {
+                Span<byte> prefix = new byte[5];
+                if (stream.Read(prefix) != 5 || !prefix.SequenceEqual("%YAML"u8)) continue;
+                stream.Position = 0;
+            }
+            using var reader = new StreamReader(stream, new UTF8Encoding(false, true), true);
+            string? line;
+            while ((line = reader.ReadLine()) != null)
+            {
+                if (!line.Contains("guid:", StringComparison.Ordinal)) continue;
+                foreach (string newGuid in replacements.Values)
+                    if (line.Contains("guid: " + newGuid, StringComparison.Ordinal)) throw new InvalidDataException("Generated scene GUID already referenced in " + file);
+                foreach (var group in duplicates)
+                {
+                    if (!line.Contains("guid: " + group.Key, StringComparison.Ordinal)) continue;
+                    if (file.EndsWith(".unity.meta", StringComparison.Ordinal) && group.Value.Contains(file) && line == "guid: " + group.Key) continue;
+                    string permitted = "  m_Scene: {fileID: 102900000, guid: " + group.Key + ", type: 3}";
+                    if (!allowedLighting.TryGetValue(file, out string? owner) || owner != group.Key || line != permitted)
+                        throw new InvalidDataException("Unknown reference to duplicated scene GUID in " + file);
+                }
+            }
+        }
+        foreach (var group in duplicates)
+            if (Regex.IsMatch(settings, @"(?m)^\s*guid: " + Regex.Escape(group.Key) + @"\r?$"))
+                throw new InvalidDataException("Unknown build settings reference to duplicated scene GUID: " + group.Key);
+        Add(edits, settingsPath, settingsBytes, settings);
+        return replacements;
     }
 
     private static string RemoveGuiLayers(string source, string path)

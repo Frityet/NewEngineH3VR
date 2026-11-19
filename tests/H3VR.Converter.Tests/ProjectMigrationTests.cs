@@ -11,6 +11,7 @@ public static class ProjectMigrationTests
 {
     public static IEnumerable<(string Name, Action Run)> Cases()
     {
+        yield return ("duplicate scene GUID repair preserves baked occlusion and is deterministic", DuplicateSceneGuids);
         yield return ("legacy scene migration preserves baked data and validates ownership", LegacyScenes);
         yield return ("MD4 vectors and Unity file ID", Md4Vectors);
         yield return ("project migration rebinds scripts and keeps recovery immutable", MigrateFixture);
@@ -23,6 +24,43 @@ public static class ProjectMigrationTests
         yield return ("compute overlays preserve local asset identity and rebind Unity importer references", ReplaceComputeShader);
         yield return ("integration applies a hash-pinned OpenXR provider", ApplyIntegration);
         yield return ("integration rejects traversal and hash mismatch", RejectUnsafeIntegration);
+    }
+
+    private static void DuplicateSceneGuids()
+    {
+        using var f = new Fixture();
+        const string original = "11111111111111111111111111111111";
+        const string aLight = "22222222222222222222222222222222";
+        const string bLight = "33333333333333333333333333333333";
+        const string a = "Assets/Scenes/A.unity", b = "Assets/Scenes/B.unity";
+        static string Scene(string light) => "%YAML 1.1\n--- !u!29 &1\nOcclusionCullingSettings:\n  m_SceneGUID: " + original + "\n" +
+            "--- !u!157 &2\nLightmapSettings:\n  m_LightingDataAsset: {fileID: 112000000, guid: " + light + ", type: 2}\n";
+        const string light = "%YAML 1.1\n--- !u!1120 &112000000\nLightingDataAsset:\n  m_Name: LightingData\n  m_Lightmaps: []\n  m_EnlightenData: aabb\n";
+        const string build = "%YAML 1.1\n--- !u!1045 &1\nEditorBuildSettings:\n  m_Scenes:\n  - enabled: 1\n    path: " + a + "\n    guid: " + original + "\n  - enabled: 1\n    path: " + b + "\n    guid: " + original + "\n";
+        f.WriteCandidate(a, Scene(aLight), original); f.WriteCandidate(b, Scene(bLight), original);
+        f.WriteCandidate("Assets/Scenes/A/LightingData.asset", light, aLight); f.WriteCandidate("Assets/Scenes/B/LightingData.asset", light, bLight);
+        f.WriteCandidate("ProjectSettings/EditorBuildSettings.asset", build);
+        static string NewGuid(string path) => Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes("NativeH3VR.SceneAsset:" + path)))[..32];
+        string first = NewGuid(a), second = NewGuid(b);
+        f.WriteCandidate("Assets/Unknown.asset", "%YAML 1.1\n--- !u!1 &1\nUnknown:\n  target: {fileID: 102900000, guid: " + original + ", type: 3}\n");
+        try { LegacySceneMigration.Apply(f.Candidate); throw new Exception("Unknown duplicate reference accepted"); } catch (InvalidDataException) { }
+        Check(File.ReadAllText(Path.Combine(f.Candidate, a)) == Scene(aLight) && File.ReadAllText(Path.Combine(f.Candidate, "ProjectSettings/EditorBuildSettings.asset")) == build, "failed preflight must not write files");
+        File.Delete(Path.Combine(f.Candidate, "Assets/Unknown.asset"));
+        f.WriteCandidate("Assets/Collision.asset", "%YAML 1.1\n", first);
+        try { LegacySceneMigration.Apply(f.Candidate); throw new Exception("Generated GUID collision accepted"); } catch (InvalidDataException) { }
+        File.Delete(Path.Combine(f.Candidate, "Assets/Collision.asset")); File.Delete(Path.Combine(f.Candidate, "Assets/Collision.asset.meta"));
+        f.WriteCandidate("ProjectSettings/EditorBuildSettings.asset", build.Replace("    path: " + b, "    path: Assets/Scenes/Missing.unity"));
+        try { LegacySceneMigration.Apply(f.Candidate); throw new Exception("Missing build path accepted"); } catch (InvalidDataException) { }
+        Check(File.ReadAllText(Path.Combine(f.Candidate, a + ".meta")).Contains("guid: " + original), "missing build path leaves original metadata");
+        f.WriteCandidate("ProjectSettings/EditorBuildSettings.asset", build);
+        LegacySceneMigration.Apply(f.Candidate);
+        Check(File.ReadAllText(Path.Combine(f.Candidate, a + ".meta")).Contains("guid: " + first) && File.ReadAllText(Path.Combine(f.Candidate, b + ".meta")).Contains("guid: " + second), "both scene identities repaired deterministically");
+        Check(File.ReadAllText(Path.Combine(f.Candidate, a)) == Scene(aLight) && File.ReadAllText(Path.Combine(f.Candidate, b)) == Scene(bLight), "internal occlusion GUIDs remain unchanged");
+        string settings = File.ReadAllText(Path.Combine(f.Candidate, "ProjectSettings/EditorBuildSettings.asset"));
+        Check(settings.Contains("path: " + a + "\n    guid: " + first) && settings.Contains("path: " + b + "\n    guid: " + second), "build scene path identities repaired");
+        Check(File.ReadAllText(Path.Combine(f.Candidate, "Assets/Scenes/A/LightingData.asset")).Contains("guid: " + first) && File.ReadAllText(Path.Combine(f.Candidate, "Assets/Scenes/B/LightingData.asset")).Contains("guid: " + second), "lighting pointers use corrected identities");
+        LegacySceneMigration.Apply(f.Candidate);
+        Check(File.ReadAllText(Path.Combine(f.Candidate, "ProjectSettings/EditorBuildSettings.asset")) == settings, "GUID repair is idempotent");
     }
 
     private static void LegacyScenes()
