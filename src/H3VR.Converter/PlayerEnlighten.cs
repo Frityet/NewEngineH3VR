@@ -263,7 +263,7 @@ public static class PlayerEnlighten
         finally { if (File.Exists(temp)) File.Delete(temp); }
     }
 
-    private static string[] ReadScenePaths(AssetsManager manager, string root, string expectedVersion)
+    internal static string[] ReadScenePaths(AssetsManager manager, string root, string expectedVersion)
     {
         string path = Path.Combine(root, "globalgamemanagers");
         var file = manager.LoadAssetsFile(path, false);

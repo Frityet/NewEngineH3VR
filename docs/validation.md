@@ -35,7 +35,7 @@ All of this was tested on Steam app 450540, build 25002541.
 **Compute shaders** ([details](shader-recovery.md#compute-shader-recovery))
 - All 22 translated kernels compiled on Metal with their original thread-group sizes.
 - Two were run and checked on the GPU: a 128-entry histogram clear, and interpolation over 64 voxels.
-- The in-game effects that use them haven't been tested yet.
+- The signed stock main menu also exercised the color grading LUT, bloom and optional ambient occlusion in both submitted eyes ([Windows and Metal rendering measurements](stock-menu-rendering.md)).
 
 ## Running the VR test yourself
 

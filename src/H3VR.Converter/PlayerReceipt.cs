@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 using System.Xml.Linq;
 
@@ -75,5 +76,13 @@ internal static class PlayerReceipt
             extractionFingerprint = extract.Fingerprint
         });
         return path;
+    }
+
+    internal static void BindReflectionProbes(string playerReceipt, string probesReceipt)
+    {
+        var stamp = JsonNode.Parse(File.ReadAllText(playerReceipt))?.AsObject()
+            ?? throw new InvalidDataException("Empty player build stamp.");
+        stamp["reflectionProbesSha256"] = SafeFiles.Hash(probesReceipt);
+        SafeFiles.AtomicJson(playerReceipt, stamp);
     }
 }

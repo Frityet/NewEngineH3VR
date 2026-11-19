@@ -53,7 +53,9 @@ The recovery receipt (schema 2) hashes the input manifest, exporter, every expor
 
 ## The exporter
 
-We use a fork of AssetRipper, pinned to [`ef5ae7280209224e9ba5f49ce61634288de65dcb`](https://github.com/Frityet/AssetRipper/tree/ef5ae7280209224e9ba5f49ce61634288de65dcb), on top of upstream `d142a4b46586acdf931aaefc34d3e9eed4b7158e`. It's built as a standalone executable, and its GPL-3.0-only license and source link are kept next to it. Follow that license if you share the executable.
+The exporter writes HLSL `log2` and `exp2` for Direct3D's base-two logarithm and exponential instructions (used by the stock HDR color-grading shader and other lighting/image effects).
+
+We use a fork of AssetRipper, pinned to [`8f3a527f19f1ac3423ced1abb40dfb29f733c27c`](https://github.com/Frityet/AssetRipper/tree/8f3a527f19f1ac3423ced1abb40dfb29f733c27c), on top of upstream `d142a4b46586acdf931aaefc34d3e9eed4b7158e`. It's built as a standalone executable, and its GPL-3.0-only license and source link are kept next to it. Follow that license if you share the executable.
 
 To build it into a folder by hand:
 

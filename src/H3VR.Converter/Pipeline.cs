@@ -231,7 +231,11 @@ public sealed partial class Pipeline(string repository, ConversionConfig config)
             if (config.BuildTarget == "StandaloneOSX") adapterArgs.Add("-p:NativeH3VRMetal=true");
             await Processes.Run("dotnet", adapterArgs, repository, cancellation: cancellation);
             var patched = Path.Combine(candidate, "patched");
-            await Processes.Run("dotnet", ["run", "--project", Path.Combine(repository, "tools/OpenXRPatch"), "-c", "Release", "--", retargeted, Path.Combine(adapter, "NativeH3VR.OpenXR.dll"), patched, "--unity-engine", config.EngineAssemblies], repository, cancellation: cancellation);
+            var patchArgs = new List<string> { "run", "--project", Path.Combine(repository, "tools/OpenXRPatch"), "-c", "Release", "--",
+                retargeted, Path.Combine(adapter, "NativeH3VR.OpenXR.dll"), patched, "--unity-engine", config.EngineAssemblies };
+            if (config.BuildTarget == "StandaloneOSX" && LegacyHdrMaterials.IsLinearProject(config.Export))
+                patchArgs.Add("--legacy-stock-rim");
+            await Processes.Run("dotnet", patchArgs, repository, cancellation: cancellation);
             await VerifyManaged(patched, cancellation);
             Directory.Move(patched, config.ManagedOutput);
         }
@@ -296,6 +300,7 @@ public sealed partial class Pipeline(string repository, ConversionConfig config)
                 .Where(p => !p.EndsWith(".meta", StringComparison.OrdinalIgnoreCase))
                 .Concat(SafeFiles.Files(Path.Combine(config.Project, "ProjectSettings")))
                 .Concat(SafeFiles.Files(Path.Combine(config.Project, "Packages")))
+                .Concat(report.LegacyHdrMaterials is null ? [] : [SafeFiles.Inside(config.Project, report.LegacyHdrMaterials)])
                 .Concat([reportPath, planPath]).ToList();
         }
         finally { if (Directory.Exists(candidate)) Directory.Delete(candidate, true); }
@@ -355,6 +360,13 @@ public sealed partial class Pipeline(string repository, ConversionConfig config)
                 foreach (var library in libraries)
                     await Processes.Run("lipo", ["-verify_arch", "arm64", library], repository, cancellation: cancellation);
                 evidence.AddRange(RestorePlayerEnlighten(output, run, bundleWork));
+                string reflectionReceipt = Path.Combine(Receipts, run + "-reflection-probes.json");
+                var reflections = PlayerReflectionProbes.Restore(config.GameData, Path.Combine(output, "Contents", "Resources", "Data"),
+                    PlayerEnlighten.RequireClassDatabase(config.CacheDirectory(repository)),
+                    Path.Combine(bundleWork, "reflection-probes"), reflectionReceipt);
+                PlayerReceipt.BindReflectionProbes(playerReceipt, reflectionReceipt);
+                Console.WriteLine($"Restored {reflections.Scenes.Sum(scene => scene.Probes.Length)} Steam baked reflection probes across {reflections.Scenes.Length} scenes.");
+                evidence.Add(reflectionReceipt);
                 evidence.Add(architectureLog);
             }
             if (config.CompactPlayerData)

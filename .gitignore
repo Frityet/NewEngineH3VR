@@ -44,6 +44,7 @@
 !/editor/**/*.cs
 !/tests/**/*.cs
 !/tests/**/*.csproj
+!/tests/StockMenuRendering/*.py
 !/docs/**/*.md
 !/runtime/UnityMetal/MetalOpenXR.h
 !/runtime/UnityMetal/MetalOpenXR.mm

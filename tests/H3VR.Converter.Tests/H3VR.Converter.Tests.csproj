@@ -2,5 +2,10 @@
   <PropertyGroup><OutputType>Exe</OutputType></PropertyGroup>
   <ItemGroup><ProjectReference Include="../../src/H3VR.Converter/H3VR.Converter.csproj" /></ItemGroup>
   <ItemGroup><ProjectReference Include="../../tools/ShaderOverlay/ShaderOverlay.csproj" /></ItemGroup>
+  <ItemGroup>
+    <Compile Include="../../tools/OpenXRPatch/LegacyQuickbeltColors.cs" Link="LegacyQuickbeltColors.cs" />
+    <Compile Include="../../tools/OpenXRPatch/LegacyTnhColors.cs" Link="LegacyTnhColors.cs" />
+    <Compile Include="../../tools/OpenXRPatch/LegacyStockMaterialColors.cs" Link="LegacyStockMaterialColors.cs" />
+  </ItemGroup>
   <ItemGroup><PackageReference Include="Spectre.Console.Testing" Version="0.57.2" /></ItemGroup>
 </Project>

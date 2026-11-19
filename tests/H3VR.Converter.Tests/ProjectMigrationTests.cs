@@ -21,6 +21,8 @@ public static class ProjectMigrationTests
         yield return ("missing referenced controller bindings fail closed", MissingSteamVrBinding);
         yield return ("shader overlay rejects dummy exports", RejectDummyShader);
         yield return ("graphics overlay verifies each recovered shader and its generated includes", VerifyGraphicsShaders);
+        yield return ("stock material migration converts legacy HDR colors without touching native material data", MigrateHdrMaterials);
+        foreach (var stockHdr in LegacyDynamicHdrMaterialsTests.Cases()) yield return stockHdr;
         yield return ("compute overlays preserve local asset identity and rebind Unity importer references", ReplaceComputeShader);
         yield return ("integration applies a hash-pinned OpenXR provider", ApplyIntegration);
         yield return ("integration rejects traversal and hash mismatch", RejectUnsafeIntegration);
@@ -252,6 +254,64 @@ public static class ProjectMigrationTests
         File.WriteAllText(include, "float4 fixture;");
         File.AppendAllText(shader, "\n// changed");
         Check(Capture(() => Verify()) is InvalidDataException, "rejects graphics shader content not recorded in the receipt");
+    }
+
+    private static void MigrateHdrMaterials()
+    {
+        using var fixture = new Fixture();
+        fixture.CreateManaged("NativeH3VR.Game", "Assembly-CSharp", "H3VR", "Fixture");
+        fixture.WriteSteamActions("{\"default_bindings\":[{\"binding_url\":\"fixture.json\"}]}", ("fixture.json", "{}"));
+        Directory.CreateDirectory(Path.Combine(fixture.Recovered, "ProjectSettings"));
+        File.WriteAllText(Path.Combine(fixture.Recovered, "ProjectSettings/ProjectSettings.asset"), "  m_ActiveColorSpace: 1\n");
+
+        string material = """
+            Material:
+              m_Shader: {fileID: 4800000, guid: 22222222222222222222222222222222, type: 3}
+              m_SavedProperties:
+                m_TexEnvs:
+                - _RimTex: {m_Texture: {fileID: 29}}
+                m_Floats: []
+                m_Colors:
+                  _Color: {r: 0.5, g: 0.2, b: 0.1, a: 0.9}
+                  _Phase: {r: 2, g: 3, b: 4, a: 0.1}
+                  _RimColor: {r: 0.5, g: 2, b: 1, a: 0.2}
+              unrelated: 7
+            """;
+        const string source = "Assets/Imported.mat";
+        const string authored = "Assets/UserAuthored.mat";
+        fixture.WriteRecovered(source, material, new string('3', 32));
+        fixture.WriteCandidate(source, material);
+        fixture.WriteCandidate(authored, material);
+        string original = Path.Combine(fixture.Recovered, source);
+
+        var extract = new StepReceipt("extract", "synthetic-extraction", DateTimeOffset.UtcNow,
+            new() { [original] = SafeFiles.Hash(original) });
+        fixture.WriteShaderOverlay("""
+            Shader "Fixture" {
+                Properties {
+                    _Color ("Color", Color) = (1,1,1,1)
+                    [HDR] _Phase ("Other", Vector) = (1,1,1,1)
+                    [HDR] _RimColor ("HDR color", Color) = (1,1,1,1)
+                }
+            }
+            """, extract);
+        var config = fixture.Config(fixture.Shaders);
+        var report = new ProjectMigration(config, fixture.Candidate).Run();
+        var candidate = Path.Combine(fixture.Candidate, source);
+        string converted = File.ReadAllText(candidate);
+        var lines = converted.Split('\n');
+        string rim = lines.Single(line => line.Contains("_RimColor: ", StringComparison.Ordinal));
+        var fields = System.Text.RegularExpressions.Regex.Match(rim,
+            @"_RimColor: \{r: ([^,]+), g: ([^,]+), b: 1, a: 0\.2\}");
+        float Channel(int index) => float.Parse(fields.Groups[index].Value, System.Globalization.CultureInfo.InvariantCulture);
+        Check(fields.Success && MathF.Abs(Channel(1) - .21404114f) < 1e-6f && MathF.Abs(Channel(2) - 4.5947933f) < 1e-6f,
+            "legacy RGB is linearized with the HDR exponent and alpha stays as authored: " + rim);
+        Check(converted.Replace(rim, "      _RimColor: {r: 0.5, g: 2, b: 1, a: 0.2}", StringComparison.Ordinal) == material,
+            "unrelated values, vector properties, non-HDR colors and texture references are preserved");
+        Check(File.ReadAllText(original) == material && File.ReadAllText(Path.Combine(fixture.Candidate, authored)) == material,
+            "both the immutable recovery and user-authored 2021 material are untouched");
+        Check(report.LegacyHdrMaterials is not null && File.Exists(Path.Combine(fixture.Candidate, report.LegacyHdrMaterials)),
+            "the project reports exactly which stock values were changed");
     }
 
     private static void ReplaceComputeShader()
