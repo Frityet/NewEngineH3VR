@@ -253,7 +253,8 @@ public sealed partial class Pipeline(string repository, ConversionConfig config)
         var logfile = Path.Combine(Receipts, run + ".log");
         var output = Path.Combine(config.Workspace, "player", config.BuildTarget == "StandaloneOSX" ? "NativeH3VR.app" : config.BuildTarget == "StandaloneWindows64" ? "H3VR.exe" : "H3VR.x86_64");
         if (build && Directory.Exists(Path.GetDirectoryName(output)!)) throw new IOException("Player output exists. Inspect the previous build before using a fresh workspace.");
-        var bundleOutput = Path.Combine(config.Workspace, "bundles-" + Guid.NewGuid().ToString("N"));
+        var bundleWork = Path.Combine(config.Workspace, "bundles-" + Guid.NewGuid().ToString("N"));
+        var bundleOutput = Path.Combine(bundleWork, "StreamingAssets");
         // Cecil migration and verification replace Unity's heuristic assembly updater.
         // The latter cannot safely choose among several deprecated Unity 5 overloads.
         string[] editorArguments = ["-batchmode", "-disable-assembly-updater", "-projectPath", config.Project, "-buildTarget", config.BuildTarget, "-executeMethod", build ? "H3VRConverter.EditorConversion.Build" : "H3VRConverter.EditorConversion.Validate", "-logFile", logfile, "-h3vrReport", report, "-h3vrOutput", output, "-h3vrBundlePlan", Path.Combine(Receipts, "bundle-plan.json"), "-h3vrBundleOutput", bundleOutput];
@@ -290,7 +291,7 @@ public sealed partial class Pipeline(string repository, ConversionConfig config)
                 await Processes.Run("codesign", ["--force", "--deep", "--sign", "-", output], repository, cancellation: cancellation);
                 await Processes.Run("codesign", ["--verify", "--deep", "--strict", output], repository, cancellation: cancellation);
             }
-            if (Directory.Exists(bundleOutput)) Directory.Delete(bundleOutput, true);
+            if (Directory.Exists(bundleWork)) Directory.Delete(bundleWork, true);
             return BuildOutputFiles(Path.Combine(config.Workspace, "player"), Path.Combine(config.Project, "Assets/StreamingAssets"))
                 .Concat([report, logfile, shaderUpgrades]).ToList();
         }

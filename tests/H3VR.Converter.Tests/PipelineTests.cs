@@ -17,9 +17,46 @@ public static class PipelineTests
         yield return ("workspace lock excludes concurrent conversion and can be reacquired", WorkspaceLock);
         yield return ("baseline records only null MonoScript slots by source object and asset", BaselineNullScripts);
         yield return ("build receipt tracks generated StreamingAssets bundle bytes", BuildReceiptTracksBundles);
+        yield return ("staging removes only verified recovered Unity bundles and their manifests", StageStreamingAssets);
         yield return ("failed bundle plan remains inspectable after candidate cleanup", FailedBundlePlanSurvivesCleanup);
         yield return ("cold extraction receipt tracks provenance maps", ColdReceiptTracksMaps);
         yield return ("successful editor receipt records named shader upgrades and keeps other hashes", ShaderUpgradeReceipt);
+    }
+
+    private static void StageStreamingAssets()
+    {
+        using var fixture = new Fixture();
+        var config = fixture.Config() with { BuildTarget = "StandaloneOSX" };
+        var streaming = Path.Combine(config.GameData, "StreamingAssets");
+        var project = Path.Combine(fixture.Workspace, "project");
+        var staged = Path.Combine(project, "Assets", "StreamingAssets");
+        Directory.CreateDirectory(staged);
+        foreach (var bundle in new[] { "fixture_bundle", "StreamingAssets" })
+        {
+            File.WriteAllText(Path.Combine(streaming, bundle), "UnityFS\0synthetic");
+            File.WriteAllText(Path.Combine(streaming, bundle + ".manifest"), "synthetic manifest");
+        }
+        File.WriteAllText(Path.Combine(streaming, "music.bank"), "synthetic audio");
+        File.WriteAllText(Path.Combine(streaming, "video.manifest"), "preserve legacy media sidecar");
+        foreach (var file in Directory.GetFiles(streaming))
+        {
+            var copy = Path.Combine(staged, Path.GetFileName(file));
+            File.Copy(file, copy);
+            File.WriteAllText(copy + ".meta", "synthetic meta");
+        }
+        var original = fixture.InputHashes();
+        LocalAssets.Stage(config, project);
+        LocalAssets.Stage(config, project);
+        var expected = new[] { "content.bundle", "music.bank", "video.manifest" }
+            .SelectMany(name => new[] { name, name + ".meta" }).Order();
+        Check(Directory.GetFiles(staged).Select(Path.GetFileName).Order().SequenceEqual(expected),
+            "staging changed unrelated files or retained an unconverted bundle");
+        Check(original.OrderBy(pair => pair.Key).SequenceEqual(fixture.InputHashes().OrderBy(pair => pair.Key)),
+            "staging changed an input");
+        var foreign = Path.Combine(staged, "fixture_bundle");
+        File.WriteAllText(foreign, "unrelated bytes");
+        Check(Capture(() => LocalAssets.Stage(config, project)) is IOException, "staging accepted a conflicting bundle");
+        Check(File.ReadAllText(foreign) == "unrelated bytes", "staging removed a conflicting file");
     }
 
     private static void ShaderUpgradeReceipt()

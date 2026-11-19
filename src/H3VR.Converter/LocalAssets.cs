@@ -9,13 +9,27 @@ public static class LocalAssets
     public static void Stage(ConversionConfig config, string project)
     {
         var assets = Path.Combine(project, "Assets");
-        var streaming = Path.Combine(config.GameData, "StreamingAssets");
-        if (!Directory.Exists(streaming)) throw new DirectoryNotFoundException("Original StreamingAssets are required.");
-        foreach (var source in SafeFiles.Files(streaming))
+        var sourceStreaming = Path.Combine(config.GameData, "StreamingAssets");
+        var targetStreaming = Path.Combine(assets, "StreamingAssets");
+        if (!Directory.Exists(sourceStreaming)) throw new DirectoryNotFoundException("Original StreamingAssets are required.");
+        SafeFiles.RequireSeparate(sourceStreaming, targetStreaming);
+        const string manifestExtension = ".manifest";
+        foreach (var source in SafeFiles.Files(sourceStreaming))
         {
-            // Unity 5 bundles are rebuilt by BundleConversion with their original addresses.
-            if (IsBundle(source) || source.EndsWith(".manifest", StringComparison.OrdinalIgnoreCase)) continue;
-            CopyIdenticalOrNew(source, SafeFiles.Inside(assets, "StreamingAssets/" + Path.GetRelativePath(streaming, source).Replace('\\', '/')));
+            var destination = SafeFiles.Inside(targetStreaming, Path.GetRelativePath(sourceStreaming, source).Replace('\\', '/'));
+            bool manifest = source.EndsWith(manifestExtension, StringComparison.OrdinalIgnoreCase);
+            var bundledFile = manifest ? source[..^manifestExtension.Length] : source;
+            // AssetRipper can copy the unconverted bundle into its exported project.
+            // BundleConversion will rebuild this bundle for the selected target.
+            if (File.Exists(bundledFile) && IsBundle(bundledFile))
+            {
+                if (!File.Exists(destination)) continue;
+                RequireIdentical(source, destination);
+                File.Delete(destination);
+                File.Delete(destination + ".meta");
+            }
+            else if (!manifest)
+                CopyIdenticalOrNew(source, destination);
         }
         if (config.BuildTarget != "StandaloneWindows64") return;
         var plugins = Path.Combine(config.GameData, "Plugins");
@@ -91,9 +105,15 @@ public static class LocalAssets
     {
         if (File.Exists(destination))
         {
-            if (SafeFiles.Hash(source) != SafeFiles.Hash(destination)) throw new IOException("Recovered dependency differs from the installation: " + destination);
+            RequireIdentical(source, destination);
             return;
         }
         SafeFiles.Copy(source, destination);
+    }
+
+    private static void RequireIdentical(string source, string destination)
+    {
+        if (SafeFiles.Hash(source) != SafeFiles.Hash(destination))
+            throw new IOException("Recovered dependency differs from the installation: " + destination);
     }
 }
