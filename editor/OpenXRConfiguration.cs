@@ -1,13 +1,15 @@
 using System;
 using System.IO;
 using UnityEditor;
+using UnityEngine;
+#if NATIVEH3VR_UNITY_OPENXR
 using UnityEditor.XR.Management;
 using UnityEditor.XR.Management.Metadata;
 using UnityEditor.XR.OpenXR.Features;
-using UnityEngine;
 using UnityEngine.XR.Management;
 using UnityEngine.XR.OpenXR;
 using UnityEngine.XR.OpenXR.Features;
+#endif
 
 namespace H3VRConverter
 {
@@ -21,7 +23,6 @@ namespace H3VRConverter
 
         public static void Configure(BuildTarget target)
         {
-            var group = BuildPipeline.GetBuildTargetGroup(target);
             const string stockLoader = "UnityEngine.XR.OpenXR.OpenXRLoader";
             var loader = stockLoader;
             const string providerPath = "ProjectSettings/H3VRProvider.json";
@@ -32,9 +33,12 @@ namespace H3VRConverter
                 if (loader != "NativeH3VR.UnityMetal")
                     throw new InvalidOperationException("StandaloneOSX requires the NativeH3VR.UnityMetal bridge.");
                 // The Metal plug-in owns the only OpenXR instance and session.
-                EditorBuildSettings.RemoveConfigObject(XRGeneralSettings.k_SettingsKey);
+                EditorBuildSettings.RemoveConfigObject("com.unity.xr.management.loader_settings");
+                EditorBuildSettings.RemoveConfigObject("com.unity.xr.openxr.settings4");
                 return;
             }
+#if NATIVEH3VR_UNITY_OPENXR
+            var group = BuildPipeline.GetBuildTargetGroup(target);
             var openXRPackage = UnityEditor.PackageManager.PackageInfo.FindForAssembly(typeof(OpenXRSettings).Assembly);
             if (openXRPackage == null || openXRPackage.version != "1.13.0")
                 throw new InvalidOperationException("Expected com.unity.xr.openxr 1.13.0. Restore the converter's pinned package manifest.");
@@ -92,6 +96,9 @@ namespace H3VRConverter
             EditorUtility.SetDirty(settings);
             EditorUtility.SetDirty(manager);
             AssetDatabase.SaveAssets();
+#else
+            throw new NotSupportedException("The Unity OpenXR packages are required for " + target + ".");
+#endif
         }
     }
 }

@@ -9,7 +9,7 @@ namespace H3VR.Converter;
 
 public sealed record ProjectMigrationReport(string Project, string UnityVersion, Dictionary<string, string> Assemblies,
     int ScriptBindings, int RewrittenReferences, int ExecutionOrderEntries, string RecoverableSourceDirectory,
-    string ShaderOverlay, string ProjectVersion, string OpenXrPackage, string AssetBundleMembership);
+    string ShaderOverlay, string ProjectVersion, string? OpenXrPackage, string AssetBundleMembership);
 
 /// <summary>Rewrites only a copied candidate project. RecoveredProject is treated as immutable input.</summary>
 public sealed class ProjectMigration(ConversionConfig config, string candidate)
@@ -118,13 +118,13 @@ public sealed class ProjectMigration(ConversionConfig config, string candidate)
         RejectDummyShaders(assets);
         CopySteamWindowsPlugins(root, assets);
         CopySteamVrActions(root, assets);
-        ConfigureOpenXr(root);
+        var openXrPackage = ConfigureOpenXr(root);
         PinProjectVersion(root);
         var bundleMembership = CaptureBundleMembership(root, assets, archive);
         return new ProjectMigrationReport(root, ConversionConfig.TargetVersion,
             dlls.ToDictionary(p => p.Key, p => Path.GetRelativePath(root, p.Value.Path)), bindingRows.Count,
             referenceCounts.Values.Sum(), orders.Values.Sum(x => x.Count), Path.GetRelativePath(root, archive), shaderOverlay,
-            Path.Combine("ProjectSettings", "ProjectVersion.txt"), "com.unity.xr.openxr@1.13.0", bundleMembership);
+            Path.Combine("ProjectSettings", "ProjectVersion.txt"), openXrPackage, bundleMembership);
     }
 
     private void CopySteamWindowsPlugins(string root, string assets)
@@ -377,17 +377,26 @@ public sealed class ProjectMigration(ConversionConfig config, string candidate)
         return relative;
     }
 
-    private static void ConfigureOpenXr(string root)
+    private string? ConfigureOpenXr(string root)
     {
         var path = Path.Combine(root, "Packages/manifest.json"); JsonObject manifest;
         if (File.Exists(path)) manifest = JsonNode.Parse(File.ReadAllText(path)) as JsonObject ?? throw new InvalidDataException("Packages/manifest.json is not a JSON object.");
         else manifest = new JsonObject();
         var dependencies = manifest["dependencies"] as JsonObject ?? new JsonObject(); manifest["dependencies"] = dependencies;
         dependencies["com.unity.inputsystem"] = "1.6.3";
-        dependencies["com.unity.xr.openxr"] = "1.13.0";
-        dependencies["com.unity.xr.management"] = "4.4.0";
-        dependencies["com.unity.xr.core-utils"] = "2.1.1";
-        dependencies["com.unity.xr.legacyinputhelpers"] = "2.1.7";
+        bool nativeMetal = config.BuildTarget == "StandaloneOSX";
+        (string Name, string Version)[] xrPackages =
+        [
+            ("com.unity.xr.openxr", "1.13.0"),
+            ("com.unity.xr.management", "4.4.0"),
+            ("com.unity.xr.core-utils", "2.1.1"),
+            ("com.unity.xr.legacyinputhelpers", "2.1.7")
+        ];
+        foreach (var package in xrPackages)
+        {
+            if (nativeMetal) dependencies.Remove(package.Name);
+            else dependencies[package.Name] = package.Version;
+        }
         // OpenXR is selected through the project settings; do not enable a specific headset/provider.
         Directory.CreateDirectory(Path.GetDirectoryName(path)!); File.WriteAllText(path, manifest.ToJsonString(new System.Text.Json.JsonSerializerOptions { WriteIndented = true }) + "\n");
         var playerSettings = Path.Combine(root, "ProjectSettings/ProjectSettings.asset");
@@ -400,8 +409,14 @@ public sealed class ProjectMigration(ConversionConfig config, string candidate)
         if (!playerText.Contains("  activeInputHandler: 2", StringComparison.Ordinal)) throw new InvalidDataException("Could not configure the Unity input system selection.");
         File.WriteAllText(playerSettings, playerText);
         var settings = Path.Combine(root, "ProjectSettings/XRPackageSettings.json");
+        if (nativeMetal)
+        {
+            File.Delete(settings);
+            return null;
+        }
         Directory.CreateDirectory(Path.GetDirectoryName(settings)!);
         File.WriteAllText(settings, "{\n  \"settings\": {\n    \"com.unity.xr.management\": {\n      \"activeLoaders\": [],\n      \"initializeOnStart\": true\n    },\n    \"com.unity.xr.openxr\": {\n      \"enabled\": true\n    }\n  }\n}\n");
+        return "com.unity.xr.openxr@1.13.0";
     }
     private static void PinProjectVersion(string root)
     {

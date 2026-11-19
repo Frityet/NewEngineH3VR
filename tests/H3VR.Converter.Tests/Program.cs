@@ -95,6 +95,10 @@ cases.Add(("macOS source staging uses the mod host instead of stock XR feature s
         SourceStaging.Install(Repository.Find(), root, "StandaloneOSX");
         Check(File.Exists(Path.Combine(root, "Assets/H3VRConverter/NativeModHost.cs")), "mod host missing");
         Check(!Directory.Exists(Path.Combine(root, "Assets/H3VRConverter/OpenXR")), "stock XR features staged on macOS");
+        using var assembly = System.Text.Json.JsonDocument.Parse(File.ReadAllText(
+            Path.Combine(root, SourceStaging.EditorAssets, "H3VRConverter.Editor.asmdef")));
+        Check(assembly.RootElement.GetProperty("references").GetArrayLength() == 0 &&
+            assembly.RootElement.GetProperty("versionDefines").GetArrayLength() == 0, "stock XR editor assemblies staged on macOS");
     }
     finally { if (Directory.Exists(root)) Directory.Delete(root, true); }
 }

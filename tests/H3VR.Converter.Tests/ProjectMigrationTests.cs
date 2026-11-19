@@ -13,6 +13,7 @@ public static class ProjectMigrationTests
     {
         yield return ("MD4 vectors and Unity file ID", Md4Vectors);
         yield return ("project migration rebinds scripts and keeps recovery immutable", MigrateFixture);
+        yield return ("macOS project uses the native bridge without Unity XR packages", MetalProject);
         yield return ("legacy UI assembly references bind EventSystems components", RebindEventSystem);
         yield return ("OpenXR input staging copies the manifest and every referenced binding", SteamVrActions);
         yield return ("missing referenced controller bindings fail closed", MissingSteamVrBinding);
@@ -21,6 +22,30 @@ public static class ProjectMigrationTests
         yield return ("compute overlays preserve local asset identity and rebind Unity importer references", ReplaceComputeShader);
         yield return ("integration applies a hash-pinned OpenXR provider", ApplyIntegration);
         yield return ("integration rejects traversal and hash mismatch", RejectUnsafeIntegration);
+    }
+
+    private static void MetalProject()
+    {
+        using var fixture = new Fixture();
+        fixture.CreateManaged("NativeH3VR.Game", "Assembly-CSharp", "H3VR", "Fixture");
+        fixture.WriteSteamActions("{\"default_bindings\":[{\"binding_url\":\"fixture.json\"}]}", ("fixture.json", "{}"));
+        const string manifest = "Packages/manifest.json";
+        const string xrSettings = "ProjectSettings/XRPackageSettings.json";
+        fixture.WriteCandidate(manifest, """
+            {"dependencies":{"com.unity.xr.openxr":"1.13.0","com.unity.xr.management":"4.4.0",
+              "com.unity.xr.core-utils":"2.1.1","com.unity.xr.legacyinputhelpers":"2.1.7","com.unity.modules.xr":"1.0.0"}}
+            """);
+        fixture.WriteCandidate(xrSettings, "{}");
+        var config = fixture.Config() with { BuildTarget = "StandaloneOSX" };
+        var report = new ProjectMigration(config, fixture.Candidate).Run();
+        using var document = JsonDocument.Parse(File.ReadAllText(Path.Combine(fixture.Candidate, manifest)));
+        var packages = document.RootElement.GetProperty("dependencies");
+        Check(packages.EnumerateObject().All(item => !item.Name.StartsWith("com.unity.xr.", StringComparison.Ordinal)),
+            "macOS retained Unity XR provider packages");
+        Check(packages.GetProperty("com.unity.inputsystem").GetString() == "1.6.3" &&
+            packages.GetProperty("com.unity.modules.xr").GetString() == "1.0.0", "macOS removed a required engine dependency");
+        Check(report.OpenXrPackage is null && !File.Exists(Path.Combine(fixture.Candidate, xrSettings)),
+            "macOS retained Unity XR provider settings");
     }
 
     private static void Md4Vectors()
@@ -42,7 +67,8 @@ public static class ProjectMigrationTests
         fixture.WriteCandidate("Packages/manifest.json", "{\"dependencies\":{\"com.unity.ugui\":\"1.0.0\",\"com.unity.modules.ai\":\"1.0.0\"}}\n");
         fixture.WriteSteamActions("{\"default_bindings\":[{\"binding_url\":\"bindings_knuckles.json\"}]}", ("bindings_knuckles.json", "{\"controller_type\":\"knuckles\"}"));
         var sourceManifest = Path.Combine(fixture.Recovered, relative + ".meta"); var sourceHash = SafeFiles.Hash(sourceManifest);
-        var report = new ProjectMigration(fixture.Config(), fixture.Candidate).Run();
+        var config = fixture.Config() with { BuildTarget = "StandaloneWindows64" };
+        var report = new ProjectMigration(config, fixture.Candidate).Run();
         var rewritten = File.ReadAllText(Path.Combine(fixture.Candidate, "Assets/Scenes/Test.prefab"));
         var managedMeta = File.ReadAllText(Path.Combine(fixture.Candidate, "Assets/Plugins/NativeH3VR.Game.dll.meta"));
         Check(rewritten.Contains("guid: " + GuidFrom(managedMeta), StringComparison.Ordinal), "serialized MonoScript points at migrated managed assembly GUID");

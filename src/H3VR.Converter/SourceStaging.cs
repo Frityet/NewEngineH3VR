@@ -10,15 +10,19 @@ public static class SourceStaging
         var editor = Path.Combine(project, EditorAssets);
         Directory.CreateDirectory(editor);
         foreach (var file in Directory.GetFiles(Path.Combine(repository, "editor"), "*.cs")) SafeFiles.Copy(file, Path.Combine(editor, Path.GetFileName(file)));
+        bool nativeMetal = buildTarget == "StandaloneOSX";
         SafeFiles.AtomicJson(Path.Combine(editor, "H3VRConverter.Editor.asmdef"), new
         {
             name = "H3VRConverter.Editor",
-            references = new[] { "Unity.XR.Management", "Unity.XR.Management.Editor", "Unity.XR.OpenXR", "Unity.XR.OpenXR.Editor" },
+            references = nativeMetal ? Array.Empty<string>() :
+                new[] { "Unity.XR.Management", "Unity.XR.Management.Editor", "Unity.XR.OpenXR", "Unity.XR.OpenXR.Editor" },
+            versionDefines = nativeMetal ? Array.Empty<object>() :
+                new[] { new { name = "com.unity.xr.openxr", expression = "1.13.0", define = "NATIVEH3VR_UNITY_OPENXR" } },
             includePlatforms = new[] { "Editor" },
             overrideReferences = true,
             autoReferenced = false
         });
-        if (buildTarget == "StandaloneOSX")
+        if (nativeMetal)
         {
             var modHost = Path.Combine(project, "Assets/H3VRConverter/NativeModHost.cs");
             SafeFiles.Copy(Path.Combine(repository, "runtime/ModHost/NativeModHost.cs"), modHost);

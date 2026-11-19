@@ -124,6 +124,7 @@ namespace H3VRConverter
                 {
                     BundleConversion.Build(plan, Argument("-h3vrBundleOutput"));
                     AssetDatabase.Refresh(ImportAssetOptions.ForceSynchronousImport);
+                    EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
                     var output = Argument("-h3vrOutput");
                     Directory.CreateDirectory(Path.GetDirectoryName(output));
                     var built = BuildPipeline.BuildPlayer(new BuildPlayerOptions { scenes = scenes, target = target, locationPathName = output, options = BuildOptions.StrictMode });
