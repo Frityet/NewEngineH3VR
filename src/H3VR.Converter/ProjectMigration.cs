@@ -9,7 +9,7 @@ namespace H3VR.Converter;
 
 public sealed record ProjectMigrationReport(string Project, string UnityVersion, Dictionary<string, string> Assemblies,
     int ScriptBindings, int RewrittenReferences, int ExecutionOrderEntries, string RecoverableSourceDirectory,
-    string ShaderOverlay, string ProjectVersion, string? OpenXrPackage, string AssetBundleMembership);
+    string ShaderOverlay, string ProjectVersion, string? OpenXrPackage, string AssetBundleMembership, string? LegacyHdrMaterials);
 
 /// <summary>Rewrites only a copied candidate project. RecoveredProject is treated as immutable input.</summary>
 public sealed class ProjectMigration(ConversionConfig config, string candidate)
@@ -86,7 +86,8 @@ public sealed class ProjectMigration(ConversionConfig config, string candidate)
             }
         }
         AddBuiltInUguiBindings(bindings, bindingRows, dlls, assemblyTypes, originalTypes);
-        var shaderOverlay = ApplyShaderOverlay(root, assets, out var computeGuids);
+        var shaderOverlay = ApplyShaderOverlay(root, assets, out var computeGuids, out var hdrColors);
+        var hdrMaterials = LegacyHdrMaterials.Apply(config, root, assets, hdrColors);
         var recoveredGuids = recovered.Select(r => r.Guid).Where(g => !string.IsNullOrEmpty(g)).ToHashSet(StringComparer.Ordinal);
         var referenceCounts = new Dictionary<string, int>(); var unresolved = new HashSet<string>();
         foreach (var path in SafeFiles.Files(assets).Where(IsUnitySerializedText))
@@ -125,7 +126,7 @@ public sealed class ProjectMigration(ConversionConfig config, string candidate)
         return new ProjectMigrationReport(root, ConversionConfig.TargetVersion,
             dlls.ToDictionary(p => p.Key, p => Path.GetRelativePath(root, p.Value.Path)), bindingRows.Count,
             referenceCounts.Values.Sum(), orders.Values.Sum(x => x.Count), Path.GetRelativePath(root, archive), shaderOverlay,
-            Path.Combine("ProjectSettings", "ProjectVersion.txt"), openXrPackage, bundleMembership);
+            Path.Combine("ProjectSettings", "ProjectVersion.txt"), openXrPackage, bundleMembership, hdrMaterials);
     }
 
     private void CopySteamWindowsPlugins(string root, string assets)
@@ -300,9 +301,11 @@ public sealed class ProjectMigration(ConversionConfig config, string candidate)
             "$1\"Legacy Shaders/Particles/Alpha Blended\"", RegexOptions.CultureInvariant);
     }
 
-    private string ApplyShaderOverlay(string root, string assets, out HashSet<string> computeGuids)
+    private string ApplyShaderOverlay(string root, string assets, out HashSet<string> computeGuids,
+        out Dictionary<string, HashSet<string>> hdrColors)
     {
         computeGuids = [];
+        hdrColors = new(StringComparer.OrdinalIgnoreCase);
         if (config.ShaderSources is null) return "not configured";
         var overlayRoot = Path.GetFullPath(config.ShaderSources); if (!Directory.Exists(overlayRoot)) throw new DirectoryNotFoundException("ShaderSources directory does not exist.");
         SafeFiles.RequireSeparate(overlayRoot, root); RejectLinks(overlayRoot);
@@ -323,6 +326,11 @@ public sealed class ProjectMigration(ConversionConfig config, string candidate)
             var relative = Path.GetRelativePath(sourceAssets, source); var destination = SafeFiles.Inside(assets, relative.Replace(Path.DirectorySeparatorChar, '/'));
             var sourceMeta = source + ".meta"; if (!File.Exists(sourceMeta)) throw new InvalidDataException("Shader overlay is missing its original .meta GUID: " + relative);
             var guid = ReadGuid(File.ReadAllText(sourceMeta)) ?? throw new InvalidDataException("Shader metadata has no GUID: " + relative);
+            if (verifyGraphics && config.BuildTarget == "StandaloneOSX")
+            {
+                var hdrProperties = LegacyHdrMaterials.ReadHdrColorProperties(content);
+                if (hdrProperties.Length != 0) hdrColors.Add(guid, hdrProperties.ToHashSet(StringComparer.Ordinal));
+            }
             var targetMeta = destination + ".meta";
             if (File.Exists(targetMeta))
             {

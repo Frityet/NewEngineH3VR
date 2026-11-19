@@ -296,6 +296,7 @@ public sealed partial class Pipeline(string repository, ConversionConfig config)
                 .Where(p => !p.EndsWith(".meta", StringComparison.OrdinalIgnoreCase))
                 .Concat(SafeFiles.Files(Path.Combine(config.Project, "ProjectSettings")))
                 .Concat(SafeFiles.Files(Path.Combine(config.Project, "Packages")))
+                .Concat(report.LegacyHdrMaterials is null ? [] : [SafeFiles.Inside(config.Project, report.LegacyHdrMaterials)])
                 .Concat([reportPath, planPath]).ToList();
         }
         finally { if (Directory.Exists(candidate)) Directory.Delete(candidate, true); }
