@@ -25,6 +25,8 @@ internal static class LegacyHdrMaterials
     internal sealed record ColorChange(string Property, float[] AuthoredRgb, float[] LinearRgb);
     private sealed record MaterialChange(string Asset, string ShaderGuid, string OriginalSha256,
         string MigratedSha256, ColorChange[] Colors);
+    private sealed record DynamicTagChange(string Asset, string ShaderGuid, string OriginalSha256,
+        string MigratedSha256, string Property);
 
     // Shader overlay identity has already been verified against the original
     // serialized Steam shader. ShaderLab exposes m_Type==Color and m_Flags HDR.
@@ -63,34 +65,50 @@ internal static class LegacyHdrMaterials
         if (extraction.Step != "extract") throw new InvalidDataException("Invalid stock HDR material extraction receipt.");
         string originals = Path.Combine(config.Export, "Assets") + Path.DirectorySeparatorChar;
         var receipts = new List<MaterialChange>();
+        var dynamicTags = new List<DynamicTagChange>();
         foreach (var (source, hash) in extraction.Files.OrderBy(pair => pair.Key, StringComparer.Ordinal))
         {
             if (!source.StartsWith(originals, StringComparison.Ordinal) ||
                 !source.EndsWith(".mat", StringComparison.OrdinalIgnoreCase)) continue;
+            string relative = Path.GetRelativePath(originals, source).Replace(Path.DirectorySeparatorChar, '/');
+            var binding = LegacyDynamicHdrMaterials.Lookup(relative);
             byte[] originalBytes = File.ReadAllBytes(source);
             string authored = Encoding.UTF8.GetString(originalBytes);
             var shader = ShaderReference.Match(authored);
-            if (!shader.Success || !properties.TryGetValue(shader.Groups["guid"].Value, out var hdrColors)) continue;
-            var migrated = ConvertSavedColors(authored, hdrColors, out var colors);
-            if (colors.Length == 0) continue;
-            string relative = Path.GetRelativePath(originals, source).Replace(Path.DirectorySeparatorChar, '/');
+            if (!shader.Success || !properties.TryGetValue(shader.Groups["guid"].Value, out var hdrColors))
+            {
+                if (binding is not null)
+                    throw new InvalidDataException("Missing verified shader metadata for stock dynamic HDR material: " + relative);
+                continue;
+            }
+            string shaderGuid = shader.Groups["guid"].Value;
+            string colorMigration = ConvertSavedColors(authored, hdrColors, out var colors);
+            if (colors.Length == 0 && binding is null) continue;
             string candidate = SafeFiles.Inside(assets, relative);
             if (Convert.ToHexStringLower(SHA256.HashData(originalBytes)) != hash)
                 throw new InvalidDataException("Original HDR material differs from the extraction receipt: " + relative);
+            string migrated = colorMigration;
+            if (binding is not null)
+            {
+                LegacyDynamicHdrMaterials.Verify(binding, relative, hash, shaderGuid, hdrColors);
+                migrated = LegacyDynamicHdrMaterials.AddTag(colorMigration, binding);
+            }
             var migratedBytes = Encoding.UTF8.GetBytes(migrated);
             string migratedHash = Convert.ToHexStringLower(SHA256.HashData(migratedBytes));
             string candidateHash = SafeFiles.Hash(candidate);
-            if (candidateHash != hash && candidateHash != migratedHash)
+            if (candidateHash != hash && candidateHash != migratedHash &&
+                (binding is null || candidateHash != Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(colorMigration)))))
                 throw new InvalidDataException("Candidate HDR material differs from its imported original: " + relative);
-            if (candidateHash == hash) File.WriteAllBytes(candidate, migratedBytes);
-            receipts.Add(new("Assets/" + relative, shader.Groups["guid"].Value, hash, migratedHash, colors));
+            if (candidateHash != migratedHash) File.WriteAllBytes(candidate, migratedBytes);
+            if (colors.Length != 0) receipts.Add(new("Assets/" + relative, shaderGuid, hash, migratedHash, colors));
+            if (binding is not null) dynamicTags.Add(new("Assets/" + relative, shaderGuid, hash, migratedHash, binding.Property));
         }
 
         string report = Path.Combine("NativeH3VR-RecoveredSources", "legacy-hdr-materials.json");
         string destination = SafeFiles.Inside(root, report);
         Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
         File.WriteAllText(destination, JsonSerializer.Serialize(new {
-            schemaVersion = 1, extractionFingerprint = extraction.Fingerprint, materials = receipts
+            schemaVersion = 1, extractionFingerprint = extraction.Fingerprint, materials = receipts, dynamicTags
         }, ConversionConfig.Json));
         return report;
     }

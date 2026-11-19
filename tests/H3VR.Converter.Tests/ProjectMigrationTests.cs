@@ -22,6 +22,7 @@ public static class ProjectMigrationTests
         yield return ("shader overlay rejects dummy exports", RejectDummyShader);
         yield return ("graphics overlay verifies each recovered shader and its generated includes", VerifyGraphicsShaders);
         yield return ("stock material migration converts legacy HDR colors without touching native material data", MigrateHdrMaterials);
+        foreach (var stockHdr in LegacyDynamicHdrMaterialsTests.Cases()) yield return stockHdr;
         yield return ("compute overlays preserve local asset identity and rebind Unity importer references", ReplaceComputeShader);
         yield return ("integration applies a hash-pinned OpenXR provider", ApplyIntegration);
         yield return ("integration rejects traversal and hash mismatch", RejectUnsafeIntegration);
