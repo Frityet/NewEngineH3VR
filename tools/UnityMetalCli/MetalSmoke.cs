@@ -26,10 +26,13 @@ internal static class MetalSmoke
         string settings = Directory.CreateDirectory(Path.Combine(project, "ProjectSettings")).FullName;
         string packages = Directory.CreateDirectory(Path.Combine(project, "Packages")).FullName;
         File.WriteAllText(Path.Combine(settings, "ProjectVersion.txt"), $"m_EditorVersion: {ConversionConfig.TargetVersion}\n");
+        File.WriteAllText(Path.Combine(assets, "csc.rsp"), "-define:NATIVEH3VR_METAL\n");
         File.WriteAllText(Path.Combine(packages, "manifest.json"),
             "{\"dependencies\":{\"com.unity.modules.xr\":\"1.0.0\",\"com.unity.modules.vr\":\"1.0.0\"}}\n");
-        foreach (string file in IntegrationBuild.BridgeSources)
+        foreach (string file in IntegrationBuild.BridgeSources.Concat(["H3VRMetalBinding.cs", "SyntheticHands.cs"]))
             File.Copy(Path.Combine(source, file), Path.Combine(assets, file));
+        File.Copy(Path.Combine(root, "runtime", "OpenXR", "OpenXRDeviceState.cs"), Path.Combine(assets, "OpenXRDeviceState.cs"));
+        File.Copy(Path.Combine(fixture, "IndexRawPose.cs"), Path.Combine(assets, "IndexRawPose.cs"));
         File.Copy(Path.Combine(fixture, "MetalSmoke.cs"), Path.Combine(assets, "MetalSmoke.cs"));
         File.Copy(Path.Combine(fixture, "BuildMetalSmoke.cs"), Path.Combine(editor, "BuildMetalSmoke.cs"));
         await IntegrationBuild.BuildPluginAsync(unityEditor, headers, Path.Combine(plugins, IntegrationBuild.Library), cancellation);

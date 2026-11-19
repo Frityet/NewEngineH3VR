@@ -6,8 +6,25 @@ namespace NativeH3VR
     // The importer owns SteamVR-shaped input. The native client only knows OpenXR.
     internal sealed class H3VRMetalBinding : IMetalOpenXRPlayer
     {
+        // Valve's Index 1.0 render model grip.component_local, converted to
+        // Unity coordinates. SteamVR exposes the device origin as pose/raw.
+        static readonly Vector3 IndexGripPosition = new Vector3(0f, -.015f, -.130f);
+        static readonly Quaternion IndexLeftGripToRawRotation = IndexGripToRawRotation(false);
+        static readonly Quaternion IndexRightGripToRawRotation = IndexGripToRawRotation(true);
+
         readonly NativeStereoRenderer renderer;
         H3VRMetalBinding(NativeStereoRenderer renderer) { this.renderer = renderer; }
+
+        static Quaternion IndexGripToRawRotation(bool right)
+        {
+            float mirror = right ? -1f : 1f;
+            // rotate_xyz uses X then Y then Z. Reflecting Z negates X/Y
+            // rotation angles while preserving the rotation about Z.
+            Quaternion rawToGrip = Quaternion.AngleAxis(.303f * mirror, Vector3.forward) *
+                                   Quaternion.AngleAxis(2.071f * mirror, Vector3.up) *
+                                   Quaternion.AngleAxis(-15.392f, Vector3.right);
+            return Quaternion.Inverse(rawToGrip);
+        }
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]
         static void Initialize()
@@ -99,7 +116,29 @@ namespace NativeH3VR
 
         static NativeTracking.Device ReadHand(uint index, uint role)
         {
-            if (!MetalOpenXR.TryHand(index, out var hand)) return new NativeTracking.Device { role = role };
+            return MetalOpenXR.TryHand(index, out var hand) ? DecodeHand(role, hand)
+                                                          : new NativeTracking.Device { role = role };
+        }
+
+        internal static NativeTracking.Device DecodeHand(uint role, MetalOpenXR.Hand hand)
+        {
+            bool isIndex = hand.profile == MetalOpenXR.ControllerProfile.ValveIndex;
+            var gripPose = Pose(hand.grip);
+            var trackingPose = gripPose;
+            var linearVelocity = hand.Velocity;
+            var angularVelocity = hand.AngularVelocity;
+            if (isIndex && (hand.flags & NativeTracking.PoseValid) != 0)
+            {
+                // Stock H3VR binds its controller action to SteamVR pose/raw.
+                // OpenXR supplies world_from_grip; recover world_from_raw.
+                var gripToRaw = role == 3 ? IndexRightGripToRawRotation : IndexLeftGripToRawRotation;
+                trackingPose.rotation = gripPose.rotation * gripToRaw;
+                Vector3 gripToRawWorld = -(trackingPose.rotation * IndexGripPosition);
+                trackingPose.position += gripToRawWorld;
+                if ((hand.flags & NativeTracking.VelocityValid) != 0)
+                    linearVelocity += Vector3.Cross(angularVelocity, gripToRawWorld);
+            }
+
             var axes = new float[16];
             axes[1] = hand.trigger;
             axes[2] = hand.trackpadX;
@@ -113,15 +152,15 @@ namespace NativeH3VR
             return new NativeTracking.Device
             {
                 role = role,
-                name = hand.profile == MetalOpenXR.ControllerProfile.ValveIndex ? "Valve Index Controller" : "OpenXR controller",
+                name = isIndex ? "Valve Index Controller" : "OpenXR controller",
                 flags = hand.flags,
                 buttons = hand.buttons,
                 touches = hand.touches | (hand.squeeze > .05f ? 128u : 0u),
-                trackingPose = Pose(hand.grip),
-                gripPose = Pose(hand.grip),
+                trackingPose = trackingPose,
+                gripPose = gripPose,
                 aimPose = Pose(hand.aim),
-                linearVelocity = hand.Velocity,
-                angularVelocity = hand.AngularVelocity,
+                linearVelocity = linearVelocity,
+                angularVelocity = angularVelocity,
                 axes = axes
             };
         }

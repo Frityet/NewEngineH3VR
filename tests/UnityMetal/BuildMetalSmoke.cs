@@ -10,6 +10,7 @@ public static class BuildMetalSmoke
 {
     public static void Build()
     {
+        IndexRawPose.Verify();
         string[] args = Environment.GetCommandLineArgs();
         string output = args[Array.IndexOf(args, "-smokeOutput") + 1];
         const BuildTarget target = BuildTarget.StandaloneOSX;
