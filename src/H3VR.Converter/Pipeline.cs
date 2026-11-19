@@ -279,6 +279,7 @@ public sealed partial class Pipeline(string repository, ConversionConfig config)
             if (config.BuildTarget == "StandaloneOSX")
             {
                 if (!OperatingSystem.IsMacOS()) throw new PlatformNotSupportedException("The macOS player must be signed and verified on macOS.");
+                Integration.PlaceMacPlayerLibraries(output);
                 var playerReceipt = PlayerReceipt.Write(output, config.GameDirectory, Path.Combine(Receipts, "extract.json"));
                 using var playerMetadata = JsonDocument.Parse(File.ReadAllText(playerReceipt));
                 var executable = playerMetadata.RootElement.GetProperty("playerExecutable").GetString()!;

@@ -24,6 +24,7 @@ public static class ProjectMigrationTests
         yield return ("compute overlays preserve local asset identity and rebind Unity importer references", ReplaceComputeShader);
         yield return ("integration applies a hash-pinned OpenXR provider", ApplyIntegration);
         yield return ("integration rejects traversal and hash mismatch", RejectUnsafeIntegration);
+        yield return ("macOS player puts Steam and FMOD libraries directly in PlugIns", PlaceMacPlayerLibraries);
     }
 
     private static void DuplicateSceneGuids()
@@ -317,6 +318,29 @@ public static class ProjectMigrationTests
         var missingProvider = new { schemaVersion = 1, unityVersion = ConversionConfig.TargetVersion, buildTarget = "StandaloneLinux64", xrBackend = "OpenXR", files = new[] { new { source = "provider.dll", destination = "Assets/OpenXRProvider/linux.dll", sha256 = hash } } };
         var missingPath = Path.Combine(fixture.Root, "missing-provider.json"); File.WriteAllText(missingPath, JsonSerializer.Serialize(missingProvider));
         Check(Capture(() => Integration.Apply(missingPath, fixture.Candidate, "StandaloneLinux64")) is InvalidDataException, "non-Windows integration requires a managed OpenXR loader type");
+    }
+
+    private static void PlaceMacPlayerLibraries()
+    {
+        using var fixture = new Fixture();
+        var plugins = Path.Combine(fixture.Candidate, "Contents", "PlugIns");
+        var architecture = Path.Combine(plugins, "ARM64");
+        Directory.CreateDirectory(architecture);
+        var libraries = Integration.RequiredMetalFiles().Where(path => path.EndsWith(".dylib", StringComparison.Ordinal))
+            .Select(Path.GetFileName).ToArray();
+        foreach (var library in libraries) File.WriteAllText(Path.Combine(architecture, library!), library);
+        var neighboringFile = Path.Combine(architecture, "unrelated.txt");
+        File.WriteAllText(neighboringFile, "preserve");
+        string duplicate = Path.Combine(plugins, libraries[^1]!);
+        File.WriteAllText(duplicate, "conflict");
+        Check(Capture(() => Integration.PlaceMacPlayerLibraries(fixture.Candidate)) is InvalidDataException &&
+              libraries.All(name => File.Exists(Path.Combine(architecture, name!))), "layout conflict changed the candidate");
+        File.Delete(duplicate);
+        Integration.PlaceMacPlayerLibraries(fixture.Candidate);
+        Integration.PlaceMacPlayerLibraries(fixture.Candidate);
+        Check(libraries.All(name => File.ReadAllText(Path.Combine(plugins, name!)) == name &&
+              !File.Exists(Path.Combine(architecture, name!))) && File.ReadAllText(neighboringFile) == "preserve",
+              "platform libraries did not move to the Unity resolver directory");
     }
 
     private static void RejectUnsafeIntegration()

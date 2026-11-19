@@ -308,7 +308,12 @@ foreach (string name in assemblyNames)
     using var assembly = AssemblyDefinition.ReadAssembly(source,
         new ReaderParameters { ReadWrite = false, AssemblyResolver = resolver });
     var module = assembly.MainModule;
-    if (metal) PatchMetalCameras(module, name);
+    if (metal)
+    {
+        foreach (var method in MacOptionalFeatures.Apply(module))
+            changes.Add(new { assembly = name, method, kind = "unavailable-on-macos" });
+        PatchMetalCameras(module, name);
+    }
 
     // SteamVR's force-init path asks Unity to load the OpenVR XR device. That
     // would replace the project's configured OpenXR loader, so force mode is

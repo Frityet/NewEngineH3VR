@@ -24,6 +24,38 @@ public static class Integration
     ];
     internal static IEnumerable<string> RequiredMetalFiles() =>
         MetalSources.Concat(MetalLibraries).Concat(MetalLibraries.Select(file => file + ".meta"));
+
+    internal static void PlaceMacPlayerLibraries(string app)
+    {
+        var plugins = Path.Combine(app, "Contents", "PlugIns");
+        var architectureDirectory = Path.Combine(plugins, "ARM64");
+        var moves = new List<(string Source, string Destination)>();
+        foreach (var name in MetalLibraries.Select(Path.GetFileName))
+        {
+            var direct = Path.Combine(plugins, name!);
+            var nested = Path.Combine(architectureDirectory, name!);
+            RejectLinks(app, direct);
+            RejectLinks(app, nested);
+            if (Directory.Exists(direct) || Directory.Exists(nested))
+                throw new InvalidDataException("A macOS player library path is a directory: " + name);
+            if (File.Exists(direct))
+            {
+                if (File.Exists(nested))
+                    throw new InvalidDataException("Duplicate macOS player library: " + name);
+                continue;
+            }
+            if (!File.Exists(nested))
+                throw new FileNotFoundException("Missing macOS player library: " + name, nested);
+            moves.Add((nested, direct));
+        }
+
+        // Mono's Unity player plug-in resolver searches PlugIns directly for
+        // the old Steamworks and FMOD imports. Their dependencies share it.
+        foreach (var move in moves) File.Move(move.Source, move.Destination);
+        if (Directory.Exists(architectureDirectory) && !Directory.EnumerateFileSystemEntries(architectureDirectory).Any())
+            Directory.Delete(architectureDirectory);
+    }
+
     private sealed record FileEntry(string Source, string Destination, string Sha256);
     private sealed record Manifest(int SchemaVersion, string UnityVersion, string BuildTarget, string XrBackend, string? Provider, List<FileEntry> Files);
 
