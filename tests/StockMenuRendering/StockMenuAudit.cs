@@ -36,7 +36,7 @@ namespace NativeH3VR.QA
             [NonSerialized] public Eye[] eyes;
             [NonSerialized] public ShaderUse[] shaderUse;
             [NonSerialized] public Probe[] reflectionProbes;
-            public string[] volumes, resources, lights, issues;
+            public string[] volumes, resources, lights, issues, terrainDetails;
         }
 
         string output;
@@ -272,6 +272,7 @@ namespace NativeH3VR.QA
                 volumes = Resources.FindObjectsOfTypeAll<PostProcessVolume>().Where(v => v.gameObject.scene.IsValid())
                     .Select(DescribeVolume).ToArray(),
                 resources = StockResources(layer),
+                terrainDetails = TerrainDetails(),
                 eyes = new Eye[2]
             };
             for (int i = 0; i < 2; i++) {
@@ -320,6 +321,16 @@ namespace NativeH3VR.QA
                 }
             }
             return result.ToArray();
+        }
+
+        static string[] TerrainDetails()
+        {
+            var terrain = Shader.Find("Alloy/Nature/Terrain/4Splat");
+            if (terrain == null) return Array.Empty<string>();
+            return new[] { "BaseMapShader", "Details0", "Details1", "Details2", "Tree0" }.Select(key => {
+                var shader = terrain.GetDependency(key);
+                return key + "=" + (shader == null ? "(missing)" : shader.name + " supported=" + shader.isSupported);
+            }).ToArray();
         }
 
         static GameObject Chart(Camera camera)
