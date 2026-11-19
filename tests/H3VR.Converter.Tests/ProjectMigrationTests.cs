@@ -11,6 +11,7 @@ public static class ProjectMigrationTests
 {
     public static IEnumerable<(string Name, Action Run)> Cases()
     {
+        yield return ("legacy scene migration preserves baked data and validates ownership", LegacyScenes);
         yield return ("MD4 vectors and Unity file ID", Md4Vectors);
         yield return ("project migration rebinds scripts and keeps recovery immutable", MigrateFixture);
         yield return ("macOS project uses the native bridge without Unity XR packages", MetalProject);
@@ -22,6 +23,47 @@ public static class ProjectMigrationTests
         yield return ("compute overlays preserve local asset identity and rebind Unity importer references", ReplaceComputeShader);
         yield return ("integration applies a hash-pinned OpenXR provider", ApplyIntegration);
         yield return ("integration rejects traversal and hash mismatch", RejectUnsafeIntegration);
+    }
+
+    private static void LegacyScenes()
+    {
+        using var f = new Fixture();
+        const string sceneGuid = "11111111111111111111111111111111";
+        const string lightingGuid = "22222222222222222222222222222222";
+        const string scenePath = "Assets/Scenes/Test.unity";
+        const string lightPath = "Assets/Scenes/Test/LightingData.asset";
+        const string scene = "%YAML 1.1\n--- !u!157 &1\nLightmapSettings:\n  m_LightingDataAsset: {fileID: 112000000, guid: " + lightingGuid + ", type: 2}\n" +
+            "--- !u!1 &7\nGameObject:\n  m_Component:\n  - component: {fileID: 8}\n  - component: {fileID: 9}\n  m_Name: camera\n" +
+            "--- !u!92 &8\nGUILayer:\n  m_GameObject: {fileID: 7}\n  m_Enabled: 1\n--- !u!20 &9\nCamera:\n  m_GameObject: {fileID: 7}\n";
+        const string light = "%YAML 1.1\n--- !u!1120 &112000000\nLightingDataAsset:\n  m_Name: LightingData\n  m_Lightmaps:\n  - m_Lightmap: {fileID: 28, guid: abcdef, type: 3}\n  m_BakedAmbientProbeInLinear: 0.1234\n  m_EnlightenData: aabbccdd\n";
+        f.WriteCandidate(scenePath, scene, sceneGuid); f.WriteCandidate(lightPath, light, lightingGuid);
+        LegacySceneMigration.Apply(f.Candidate);
+        string actualScene = File.ReadAllText(Path.Combine(f.Candidate, scenePath));
+        string actualLight = File.ReadAllText(Path.Combine(f.Candidate, lightPath));
+        Check(actualScene == scene.Replace("  - component: {fileID: 8}\n", "").Replace("--- !u!92 &8\nGUILayer:\n  m_GameObject: {fileID: 7}\n  m_Enabled: 1\n", ""), "only GUI layer and owner entry removed");
+        string field = "  m_Scene: {fileID: 102900000, guid: " + sceneGuid + ", type: 3}\n";
+        Check(actualLight.Replace(field, "") == light, "baked payload must remain byte-exact");
+        LegacySceneMigration.Apply(f.Candidate);
+        Check(File.ReadAllText(Path.Combine(f.Candidate, lightPath)) == actualLight, "migration is idempotent");
+
+        // A malformed second owner is discovered before *any* planned changes.
+        f.WriteCandidate(scenePath, scene, sceneGuid); f.WriteCandidate(lightPath, light, lightingGuid);
+        f.WriteCandidate("Assets/Scenes/Other.unity", scene, "33333333333333333333333333333333");
+        try { LegacySceneMigration.Apply(f.Candidate); throw new Exception("Shared lighting was accepted"); }
+        catch (InvalidDataException) { }
+        Check(File.ReadAllText(Path.Combine(f.Candidate, scenePath)) == scene && File.ReadAllText(Path.Combine(f.Candidate, lightPath)) == light, "failed preflight changes no source files");
+        File.Delete(Path.Combine(f.Candidate, "Assets/Scenes/Other.unity"));
+        f.WriteCandidate(scenePath, scene.Replace("m_GameObject: {fileID: 7}", "m_GameObject: {fileID: 66}"), sceneGuid);
+        try { LegacySceneMigration.Apply(f.Candidate); throw new Exception("Missing component owner was accepted"); }
+        catch (InvalidDataException) { }
+        Check(File.ReadAllText(Path.Combine(f.Candidate, lightPath)) == light, "invalid owner leaves lighting untouched");
+        f.WriteCandidate(scenePath, scene.Replace("  - component: {fileID: 8}\n", ""), sceneGuid);
+        try { LegacySceneMigration.Apply(f.Candidate); throw new Exception("Missing component entry was accepted"); }
+        catch (InvalidDataException) { }
+        f.WriteCandidate(scenePath, scene, sceneGuid);
+        f.WriteCandidate(lightPath, light.Replace("  m_Lightmaps:", "  m_Scene: {fileID: 102900000, guid: 44444444444444444444444444444444, type: 3}\n  m_Lightmaps:"), lightingGuid);
+        try { LegacySceneMigration.Apply(f.Candidate); throw new Exception("Wrong scene owner was accepted"); }
+        catch (InvalidDataException) { }
     }
 
     private static void MetalProject()

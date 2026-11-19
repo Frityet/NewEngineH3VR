@@ -120,6 +120,7 @@ public sealed class ProjectMigration(ConversionConfig config, string candidate)
         CopySteamVrActions(root, assets);
         var openXrPackage = ConfigureOpenXr(root);
         PinProjectVersion(root);
+        if (config.BuildTarget == "StandaloneOSX") LegacySceneMigration.Apply(root);
         var bundleMembership = CaptureBundleMembership(root, assets, archive);
         return new ProjectMigrationReport(root, ConversionConfig.TargetVersion,
             dlls.ToDictionary(p => p.Key, p => Path.GetRelativePath(root, p.Value.Path)), bindingRows.Count,
