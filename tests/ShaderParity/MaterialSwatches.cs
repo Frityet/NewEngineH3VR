@@ -276,6 +276,10 @@ namespace NativeH3VR.QA
             // Record them in the same inventory. A default mesh would give a false black measurement.
             if (item.queue > 2500 || item.queue < 1001 || !item.supported || item.passes == 0) return false;
             string s = item.shader;
+            const string thermalInput = "Hidden/NativeH3VR/ThermalInput/";
+            if (s == thermalInput + "Universal Render Pipeline/Lit" ||
+                s == thermalInput + "Universal Render Pipeline/Simple Lit")
+                s = s.Substring(thermalInput.Length);
             if (s.StartsWith("Alloy", StringComparison.Ordinal))
                 return !s.Contains("/Particles/") && !s.Contains("/Decal/") && !s.Contains("/Terrain/");
             return s == "Standard" || s == "Standard (Specular setup)" || s == "NativeH3VR/Stock PBR" ||
