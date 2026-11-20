@@ -23,6 +23,7 @@ internal static class Program
 
             configuration.AddCommand<LinkCommand>("link").WithDescription("Match raw exports to the local Steam extraction.");
             configuration.AddCommand<ComputeCommand>("compute").WithDescription("Translate serialized Direct3D compute shaders.");
+            configuration.AddCommand<PrepareCommand>("prepare").WithDescription("Build a linked graphics and compute overlay.");
         });
         return await app.RunAsync(args, cancellation.Token);
     }

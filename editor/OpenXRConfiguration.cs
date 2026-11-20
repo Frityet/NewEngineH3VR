@@ -39,22 +39,23 @@ namespace H3VRConverter
             }
 #if NATIVEH3VR_UNITY_OPENXR
             var group = BuildPipeline.GetBuildTargetGroup(target);
+            const string expectedOpenXR = "1.19.0";
             var openXRPackage = UnityEditor.PackageManager.PackageInfo.FindForAssembly(typeof(OpenXRSettings).Assembly);
-            if (openXRPackage == null || openXRPackage.version != "1.13.0")
-                throw new InvalidOperationException("Expected com.unity.xr.openxr 1.13.0. Restore the converter's pinned package manifest.");
+            if (openXRPackage == null || openXRPackage.version != expectedOpenXR)
+                throw new InvalidOperationException("Expected com.unity.xr.openxr " + expectedOpenXR + ". Restore the converter's pinned package manifest.");
             if (string.IsNullOrWhiteSpace(loader))
                 throw new InvalidOperationException("The platform integration did not specify a Unity XR loader type.");
             if (loader == stockLoader && target != BuildTarget.StandaloneWindows64)
                 throw new NotSupportedException("The pinned stock OpenXR provider supports Windows64 for this converter. This target requires a compatible Unity XR display/input provider backed by OpenXR.");
 
             XRGeneralSettingsPerBuildTarget config;
-            if (!EditorBuildSettings.TryGetConfigObject(XRGeneralSettings.k_SettingsKey, out config) || config == null)
+            if (!EditorBuildSettings.TryGetConfigObject(XRGeneralSettings.settingsKey, out config) || config == null)
             {
                 config = ScriptableObject.CreateInstance<XRGeneralSettingsPerBuildTarget>();
                 Directory.CreateDirectory("Assets/XR/Settings");
                 AssetDatabase.Refresh();
                 AssetDatabase.CreateAsset(config, "Assets/XR/Settings/XRGeneralSettings.asset");
-                EditorBuildSettings.AddConfigObject(XRGeneralSettings.k_SettingsKey, config, true);
+                EditorBuildSettings.AddConfigObject(XRGeneralSettings.settingsKey, config, true);
             }
             if (!config.HasSettingsForBuildTarget(group)) config.CreateDefaultSettingsForBuildTarget(group);
             if (!config.HasManagerSettingsForBuildTarget(group)) config.CreateDefaultManagerSettingsForBuildTarget(group);

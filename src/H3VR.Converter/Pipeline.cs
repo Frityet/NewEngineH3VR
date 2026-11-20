@@ -25,10 +25,9 @@ public sealed partial class Pipeline(string repository, ConversionConfig config)
         {
             foreach (var file in SafeFiles.Files(path).Order(StringComparer.Ordinal)) FileInput(file);
         }
-        Add("h3vr-converter-game-inputs-v3");
+        Add("h3vr-converter-game-inputs-v4");
         Add(Path.GetFullPath(config.GameDirectory));
         Add(config.RecoveredProject is null ? "internal-recovery" : Path.GetFullPath(config.RecoveredProject));
-        Add(ConversionConfig.TargetVersion);
         // Hash actual input bytes. File timestamps alone miss replacements with preserved dates.
         Tree(config.GameData);
         foreach (var file in Directory.GetFiles(config.GameDirectory).Where(p => p.EndsWith(".json", StringComparison.OrdinalIgnoreCase) || Path.GetFileName(p).Equals("steam_api64.dll", StringComparison.OrdinalIgnoreCase)).Order(StringComparer.Ordinal)) FileInput(file);
@@ -60,6 +59,7 @@ public sealed partial class Pipeline(string repository, ConversionConfig config)
             FileInput(Path.Combine(repository, file));
 
         AddUnityInputs();
+        Add(config.UnityVersion);
         Add(config.BuildTarget);
         if (step == "build" && config.BuildTarget == "StandaloneOSX")
         {
@@ -100,7 +100,8 @@ public sealed partial class Pipeline(string repository, ConversionConfig config)
             Add(Path.GetFullPath(config.UnityEditor));
             FileInput(config.UnityEditor);
             Tree(config.EngineAssemblies);
-            Tree(Path.Combine(config.UnityData, "MonoBleedingEdge/lib/mono/4.7.1-api"));
+            Tree(config.MonoReferenceAssemblies);
+            if (config.BuildTarget == "StandaloneOSX") Tree(config.MacPlayerAssemblies);
         }
     }
 
@@ -135,6 +136,11 @@ public sealed partial class Pipeline(string repository, ConversionConfig config)
         foreach (var step in Steps)
         {
             cancellation.ThrowIfCancellationRequested();
+            if (step == "project" && config.DxbcCompiler is not null)
+            {
+                var overlay = await LocalShaderPreparation.PrepareAsync(repository, config, cancellation);
+                config = config with { ShaderSources = overlay };
+            }
             var fingerprint = Fingerprint(step, gameFingerprint);
             var receiptFile = Path.Combine(Receipts, step + ".json");
             if (File.Exists(receiptFile))
@@ -243,7 +249,7 @@ public sealed partial class Pipeline(string repository, ConversionConfig config)
         return SafeFiles.Files(config.ManagedOutput).ToList();
     }
 
-    private Task VerifyManaged(string output, CancellationToken cancellation) => Processes.Run("dotnet", ["run", "--project", Path.Combine(repository, "tools/ManagedVerify"), "-c", "Release", "--", output, config.EngineAssemblies, Path.Combine(config.UnityData, "MonoBleedingEdge/lib/mono/4.7.1-api")], repository, cancellation: cancellation);
+    private Task VerifyManaged(string output, CancellationToken cancellation) => Processes.Run("dotnet", ["run", "--project", Path.Combine(repository, "tools/ManagedVerify"), "-c", "Release", "--", output, config.EngineAssemblies, config.MonoReferenceAssemblies], repository, cancellation: cancellation);
 
     private async Task ApplyMacPlatform(string managed, string candidate, CancellationToken cancellation)
     {
@@ -255,7 +261,7 @@ public sealed partial class Pipeline(string repository, ConversionConfig config)
         await Processes.Run("dotnet", ["run", "--project", Path.Combine(patches, "Fmod"), "-c", "Release", "--", steam, fmod], repository, cancellation: cancellation);
         File.Move(fmod, first, true);
         var game = Path.Combine(managed, "NativeH3VR.Game.dll");
-        var unity = Path.Combine(config.UnityData, "PlaybackEngines/MacStandaloneSupport/Variations/mono/Managed");
+        var unity = config.MacPlayerAssemblies;
         if (!Directory.Exists(unity)) throw new InvalidDataException("Install Unity's macOS standalone Mono player module: " + unity);
         var prepared = Path.Combine(scratch, "prepared/NativeH3VR.Game.dll");
         var backendDir = Path.Combine(scratch, "backend"); var backend = Path.Combine(backendDir, "NativeH3VR.Platform.dll");
@@ -279,7 +285,7 @@ public sealed partial class Pipeline(string repository, ConversionConfig config)
             LocalAssets.Stage(config, candidate);
             AssetBaseline.Capture(candidate);
             SourceStaging.Install(repository, candidate, config.BuildTarget, config.BuildProbe);
-            if (config.IntegrationManifest is not null) Integration.Apply(config.IntegrationManifest, candidate, config.BuildTarget);
+            if (config.IntegrationManifest is not null) Integration.Apply(config.IntegrationManifest, candidate, config.BuildTarget, config.UnityVersion);
             var temporaryPlan = Path.Combine(candidate, "bundle-plan.json");
             var bundleReport = BundlePlan.Create(Path.Combine(config.GameData, "StreamingAssets"), candidate, temporaryPlan);
             if (bundleReport.Issues != 0)
@@ -324,7 +330,7 @@ public sealed partial class Pipeline(string repository, ConversionConfig config)
         var bundleOutput = Path.Combine(bundleWork, "StreamingAssets");
         // Cecil migration and verification replace Unity's heuristic assembly updater.
         // The latter cannot safely choose among several deprecated Unity 5 overloads.
-        string[] editorArguments = ["-batchmode", "-disable-assembly-updater", "-projectPath", config.Project, "-buildTarget", config.BuildTarget, "-executeMethod", build ? "H3VRConverter.EditorConversion.Build" : "H3VRConverter.EditorConversion.Validate", "-logFile", logfile, "-h3vrReport", report, "-h3vrOutput", output, "-h3vrBundlePlan", Path.Combine(Receipts, "bundle-plan.json"), "-h3vrBundleOutput", bundleOutput];
+        string[] editorArguments = ["-batchmode", "-disable-assembly-updater", "-projectPath", config.Project, "-buildTarget", config.BuildTarget, "-executeMethod", build ? "H3VRConverter.EditorConversion.Build" : "H3VRConverter.EditorConversion.Validate", "-logFile", logfile, "-nativeH3vrUnityVersion", config.UnityVersion, "-h3vrReport", report, "-h3vrOutput", output, "-h3vrBundlePlan", Path.Combine(Receipts, "bundle-plan.json"), "-h3vrBundleOutput", bundleOutput];
         if (config.BuildTarget == "StandaloneOSX") editorArguments = [.. editorArguments, "-force-metal"];
         if (config.BuildProbe) editorArguments = [.. editorArguments, "-h3vrBuildProbe"];
         await Processes.Run(config.UnityEditor, editorArguments, repository, cancellation: cancellation);
@@ -344,7 +350,7 @@ public sealed partial class Pipeline(string repository, ConversionConfig config)
             {
                 if (!OperatingSystem.IsMacOS()) throw new PlatformNotSupportedException("The macOS player must be signed and verified on macOS.");
                 Integration.PlaceMacPlayerLibraries(output);
-                var playerReceipt = PlayerReceipt.Write(output, config.GameDirectory, Path.Combine(Receipts, "extract.json"));
+                var playerReceipt = PlayerReceipt.Write(output, config.GameDirectory, Path.Combine(Receipts, "extract.json"), config.UnityVersion);
                 using var playerMetadata = JsonDocument.Parse(File.ReadAllText(playerReceipt));
                 var executable = playerMetadata.RootElement.GetProperty("playerExecutable").GetString()!;
                 await Processes.Run("lipo", ["-verify_arch", "arm64", Path.Combine(output, "Contents/MacOS", executable)], repository, cancellation: cancellation);
@@ -363,7 +369,7 @@ public sealed partial class Pipeline(string repository, ConversionConfig config)
                 string reflectionReceipt = Path.Combine(Receipts, run + "-reflection-probes.json");
                 var reflections = PlayerReflectionProbes.Restore(config.GameData, Path.Combine(output, "Contents", "Resources", "Data"),
                     PlayerEnlighten.RequireClassDatabase(config.CacheDirectory(repository)),
-                    Path.Combine(bundleWork, "reflection-probes"), reflectionReceipt);
+                    Path.Combine(bundleWork, "reflection-probes"), reflectionReceipt, config.UnityVersion);
                 PlayerReceipt.BindReflectionProbes(playerReceipt, reflectionReceipt);
                 Console.WriteLine($"Restored {reflections.Scenes.Sum(scene => scene.Probes.Length)} Steam baked reflection probes across {reflections.Scenes.Length} scenes.");
                 evidence.Add(reflectionReceipt);
@@ -396,7 +402,7 @@ public sealed partial class Pipeline(string repository, ConversionConfig config)
         var playerData = Path.Combine(app, "Contents", "Resources", "Data");
         var database = PlayerEnlighten.RequireClassDatabase(config.CacheDirectory(repository));
         var stage = Path.Combine(scratch, "enlighten-stage");
-        var data = PlayerEnlighten.Stage(config.GameData, playerData, database, PlayerEnlighten.ClassDatabaseSha256, stage);
+        var data = PlayerEnlighten.Stage(config.GameData, playerData, database, PlayerEnlighten.ClassDatabaseSha256, stage, config.UnityVersion);
         var stageReceipt = Path.Combine(Receipts, run + "-enlighten-stage.json");
         File.Copy(Path.Combine(stage, "enlighten-stage.json"), stageReceipt);
         var installed = PlayerEnlighten.Install(stage, playerData, SafeFiles.Hash(stageReceipt), Path.Combine(scratch, "enlighten-backups"));

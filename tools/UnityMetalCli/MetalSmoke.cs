@@ -11,12 +11,16 @@ internal static class MetalSmoke
         string unityEditor, string headers, string runtime, string work, int frames, CancellationToken cancellation)
     {
         const int EyeSize = 800;
-        unityEditor = SafeFiles.Canonical(unityEditor);
+        unityEditor = InstallationDiscovery.NormalizeEditorPath(SafeFiles.Canonical(unityEditor));
         headers = SafeFiles.Canonical(headers);
+        string root = IntegrationBuild.SourceRoot();
+        SafeFiles.RequirePrivateOutput(root, work);
         work = SafeFiles.Canonical(work);
         if (Directory.Exists(work) || File.Exists(work) || new FileInfo(work).LinkTarget is not null)
             throw new IOException("Choose a new Metal smoke work directory: " + work);
-        string root = IntegrationBuild.SourceRoot();
+        string unityVersion = await IntegrationBuild.ReadEditorVersionAsync(unityEditor, cancellation);
+        ConversionConfig.RequireSupportedUnityVersion(unityVersion);
+
         string source = Path.Combine(root, "runtime", "UnityMetal");
         string fixture = Path.Combine(root, "tests", "UnityMetal");
         string project = Path.Combine(work, "project");
@@ -25,10 +29,9 @@ internal static class MetalSmoke
         string plugins = Directory.CreateDirectory(Path.Combine(assets, "Plugins", "macOS")).FullName;
         string settings = Directory.CreateDirectory(Path.Combine(project, "ProjectSettings")).FullName;
         string packages = Directory.CreateDirectory(Path.Combine(project, "Packages")).FullName;
-        File.WriteAllText(Path.Combine(settings, "ProjectVersion.txt"), $"m_EditorVersion: {ConversionConfig.TargetVersion}\n");
+        File.WriteAllText(Path.Combine(settings, "ProjectVersion.txt"), $"m_EditorVersion: {unityVersion}\n");
         File.WriteAllText(Path.Combine(assets, "csc.rsp"), "-define:NATIVEH3VR_METAL\n");
-        File.WriteAllText(Path.Combine(packages, "manifest.json"),
-            "{\"dependencies\":{\"com.unity.modules.xr\":\"1.0.0\",\"com.unity.modules.vr\":\"1.0.0\"}}\n");
+        File.WriteAllText(Path.Combine(packages, "manifest.json"), "{\"dependencies\":{\"com.unity.modules.xr\":\"1.0.0\"}}\n");
         foreach (string file in IntegrationBuild.BridgeSources.Concat(["H3VRMetalBinding.cs", "SyntheticHands.cs", "StockGearNormals.cs"]))
             File.Copy(Path.Combine(source, file), Path.Combine(assets, file));
         File.Copy(Path.Combine(root, "runtime", "OpenXR", "OpenXRDeviceState.cs"), Path.Combine(assets, "OpenXRDeviceState.cs"));
@@ -66,6 +69,8 @@ internal static class MetalSmoke
 
         const string SavePrefix = "UNITY_METAL_SAVE_ROOT ";
         string[] lines = File.ReadAllLines(log);
+        if (!lines.Any(line => line.StartsWith($"Initialize engine version: {unityVersion} (", StringComparison.Ordinal)))
+            throw new InvalidDataException($"Missing Unity {unityVersion} version marker. See {log}.");
         string? receipt = lines.FirstOrDefault(line => line.StartsWith("UNITY_METAL_SMOKE passed=True", StringComparison.Ordinal));
         string? savePath = lines.FirstOrDefault(line => line.StartsWith(SavePrefix, StringComparison.Ordinal));
         if (receipt is null || savePath is null || !SafeFiles.Contains(Path.Combine(state, "preferences"), savePath[SavePrefix.Length..]))

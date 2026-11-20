@@ -7,6 +7,7 @@ using System.Text;
 using System.Text.Json;
 
 var Strings = new[] { "TextAsset", "Base", "string", "m_Name", "Array", "int", "size", "char", "data", "m_Script" };
+const string fixtureVersion = "6000.7.0b10";
 var root = Path.Combine(Path.GetTempPath(), "assetripper-worker-fixture-" + Guid.NewGuid().ToString("N"));
 var input = Path.Combine(root, "input");
 Directory.CreateDirectory(input);
@@ -15,7 +16,7 @@ var secondExport = Path.Combine(root, "export-offline");
 var config = new ConversionConfig { GameDirectory = input, ToolCacheDirectory = Path.Combine(root, "cache") };
 try
 {
-    CreateSyntheticTextAsset(Path.Combine(input, "synthetic.assets"), "2021.3.45f1", "SyntheticHello", "ASSET-RIPPER-FIXTURE-TEST");
+    CreateSyntheticTextAsset(Path.Combine(input, "synthetic.assets"), fixtureVersion, "SyntheticHello", "ASSET-RIPPER-FIXTURE-TEST");
 
     var repository = Repository.Find();
     await AssetRipperIntegration.ExportAsync(repository, config, firstExport, Path.Combine(root, "online.log"), CancellationToken.None);
@@ -116,7 +117,7 @@ void ValidateExport(string export)
     using (var identities = JsonDocument.Parse(File.ReadAllText(shaderMap)))
         if (identities.RootElement.GetProperty("shaders").GetArrayLength() != 0)
             throw new InvalidDataException("Text-only fixture should not produce shader identities.");
-    if (!File.ReadAllText(projectVersion).Contains("2021.3.45f1", StringComparison.Ordinal))
+    if (!File.ReadAllText(projectVersion).Contains(fixtureVersion, StringComparison.Ordinal))
         throw new InvalidDataException("Exported ProjectVersion.txt did not preserve the fixture engine version.");
     if (File.ReadAllText(textAssetPath) != "ASSET-RIPPER-FIXTURE-TEST")
         throw new InvalidDataException("Exported TextAsset bytes did not match the synthetic fixture.");

@@ -138,7 +138,7 @@ namespace NativeH3VR.Platform
                 return false;
 
             // Steam's stock clip contains 574,400 zero PCM samples per channel.
-            // Unity 2021's APIOnly path crashes in the native AVFoundation audio
+            // The APIOnly path can crash in the native AVFoundation audio
             // processing tap on this clip. The digest keeps other clips, including
             // an audible replacement with the same filename, on the PCM path.
             const string stockSha256 = "130B7D8973E67FD8E9CE04F5206F0BAD6E9C6915C325022DE855C95864B50526";

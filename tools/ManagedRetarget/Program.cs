@@ -46,8 +46,7 @@ var keep = new[] { "Assembly-CSharp",
                    "Valve.Newtonsoft.Json",
                    "AmplifyBloom",
                    "AmplifyColor",
-                   "UnityEngine.UI",
-                   "UnityEngine.Networking" };
+                   "UnityEngine.UI" };
 var changes = new List<object>();
 var allOutput = new List<string>();
 MethodDefinition New(string type, string name,
@@ -81,9 +80,13 @@ foreach (var filename in keep)
     using var a =
         AssemblyDefinition.ReadAssembly(Path.Combine(input, filename + ".dll"), parameters);
     var module = a.MainModule;
+    // Unity 6.7 has no UNet transport. Omit the stock, unused HLAPI plug-in
+    // only while all retained assemblies are independent of it.
+    if (module.AssemblyReferences.Any(reference => reference.Name == "UnityEngine.Networking"))
+        throw new InvalidDataException($"{filename} depends on the removed Unity UNet plug-in.");
     var log = new List<object>();
     if (filename == "UnityEngine.UI")
-        log.Add(new { caller = LegacyTextMesh.Retarget(module), target = "Unity 2021 TextGenerator vertex count" });
+        log.Add(new { caller = LegacyTextMesh.Retarget(module), target = "Unity TextGenerator vertex count" });
     // Rewrite narrow method boundaries before mutating old declaring type metadata.
     foreach (var m in module.Types.SelectMany(Types)
                  .SelectMany(t => t.Methods)
@@ -97,6 +100,15 @@ foreach (var filename in keep)
                 string key = mr.DeclaringType.FullName + "::" + mr.Name;
                 switch (key)
                 {
+                    case "UnityEngine.Collision::get_other":
+                        replacement = Shim("GetCollisionOther");
+                        break;
+                    case "UnityEngine.MeshCollider::set_inflateMesh":
+                        replacement = Shim("SetLegacyMeshInflation");
+                        break;
+                    case "UnityEngine.MeshCollider::set_skinWidth":
+                        replacement = Shim("SetLegacyMeshSkinWidth");
+                        break;
                     case "UnityEngine.RenderSettings::set_customReflection":
                         replacement = New("UnityEngine.RenderSettings", "set_customReflection", 1);
                         break;
@@ -244,6 +256,12 @@ foreach (var filename in keep)
                        .Replace("UnityEngine.VR.", "UnityEngine.XR.")
                        .Replace("UnityEngine.Experimental.Rendering.RenderPipelineAsset",
                                 "UnityEngine.Rendering.RenderPipelineAsset");
+        name = name switch
+        {
+            "UnityEngine.PhysicMaterial" => "UnityEngine.PhysicsMaterial",
+            "UnityEngine.PhysicMaterialCombine" => "UnityEngine.PhysicsMaterialCombine",
+            _ => name
+        };
         if (name == "UnityEngineInternal.ScriptingUtils")
         {
             var target = module.ImportReference(compatibility);

@@ -8,7 +8,7 @@ public sealed partial class Pipeline
         foreach (var relative in new[]
         {
             "src/H3VR.Converter/Extraction.cs", "src/H3VR.Converter/AssetRipperIntegration.cs",
-            "src/H3VR.Converter/ConversionConfig.cs", "src/H3VR.Converter/SafeFiles.cs",
+            "src/H3VR.Converter/SafeFiles.cs",
             "src/H3VR.Converter/Publication.cs", "src/H3VR.Converter/H3VR.Converter.csproj",
             ".gitmodules"
         })

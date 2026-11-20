@@ -35,7 +35,7 @@ public static class TerminalWizard
                 {
                     GameDirectory = await RequiredPath(ui, "Installed H3VR folder", config.GameDirectory,
                         IsGameDirectory, "Choose the folder containing h3vr_Data/Managed/Assembly-CSharp.dll.", cancellationToken),
-                    UnityEditor = await RequiredUnityPath(ui, config.UnityEditor, cancellationToken),
+                    UnityEditor = await RequiredUnityPath(ui, config.UnityEditor, config.UnityVersion, cancellationToken),
                     Workspace = await RequiredPath(ui, "Writable conversion workspace", config.Workspace,
                         IsValidPath, "Enter a valid workspace directory path.", cancellationToken),
                     ShaderSources = await OptionalPath(ui, "Optional recovered shader overlay", config.ShaderSources,
@@ -97,10 +97,10 @@ public static class TerminalWizard
         return FullPath(value);
     }
 
-    private static async Task<string> RequiredUnityPath(IAnsiConsole console, string? current,
+    private static async Task<string> RequiredUnityPath(IAnsiConsole console, string? current, string version,
         CancellationToken cancellationToken)
     {
-        var prompt = new TextPrompt<string>("Unity 2021.3.45f2 editor executable or installation folder:")
+        var prompt = new TextPrompt<string>($"Unity {version} editor executable or installation folder:")
             .Validate(value => TryNormalizeUnity(value, out _)
                 ? ValidationResult.Success()
                 : ValidationResult.Error("Choose a Unity editor folder or Unity/Unity.exe executable."));

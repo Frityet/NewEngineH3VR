@@ -76,7 +76,7 @@ public static class PlayerEnlightenTests
         {
             string source = Path.Combine(root, "source"), target = Path.Combine(root, "target"), output = Path.Combine(root, "output"), db = Path.Combine(root, "database");
             Directory.CreateDirectory(source); Directory.CreateDirectory(target); File.WriteAllText(db, "synthetic");
-            try { PlayerEnlighten.Stage(source, target, db, new string('0', 64), output); throw new Exception("Unpinned database accepted"); }
+            try { PlayerEnlighten.Stage(source, target, db, new string('0', 64), output, ConversionConfig.TargetVersion); throw new Exception("Unpinned database accepted"); }
             catch (InvalidDataException) { }
             if (Directory.Exists(output)) throw new Exception("Staging created after pin failure");
         }

@@ -1,4 +1,4 @@
-// Rebuilds original H3VR content bundles with Unity 2021 asset data while preserving addresses.
+// Rebuilds content bundles for the selected Unity editor while preserving addresses.
 using System;
 using System.Collections.Generic;
 using System.IO;

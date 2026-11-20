@@ -113,7 +113,7 @@ public sealed class ProjectMigration(ConversionConfig config, string candidate)
         Directory.CreateDirectory(archive);
         foreach (var relative in new[] { "Assets/Scripts/Assembly-CSharp", "Assets/Plugins/Assembly-CSharp-firstpass", "Assets/Scripts/Assembly-UnityScript" })
             MoveCandidatePath(root, relative, archive);
-        foreach (var name in new[] { "System.Runtime.CompilerServices.Unsafe.dll", "System.Runtime.InteropServices.dll" })
+        foreach (var name in new[] { "System.Runtime.CompilerServices.Unsafe.dll", "System.Runtime.InteropServices.dll", "UnityEngine.Networking.dll" })
             MoveCandidatePath(root, "Assets/Plugins/" + name, archive);
         RemoveUguiDuplicate(root);
         RejectDummyShaders(assets);
@@ -123,7 +123,7 @@ public sealed class ProjectMigration(ConversionConfig config, string candidate)
         PinProjectVersion(root);
         LegacySceneMigration.Apply(root);
         var bundleMembership = CaptureBundleMembership(root, assets, archive);
-        return new ProjectMigrationReport(root, ConversionConfig.TargetVersion,
+        return new ProjectMigrationReport(root, config.UnityVersion,
             dlls.ToDictionary(p => p.Key, p => Path.GetRelativePath(root, p.Value.Path)), bindingRows.Count,
             referenceCounts.Values.Sum(), orders.Values.Sum(x => x.Count), Path.GetRelativePath(root, archive), shaderOverlay,
             Path.Combine("ProjectSettings", "ProjectVersion.txt"), openXrPackage, bundleMembership, hdrMaterials);
@@ -406,14 +406,15 @@ public sealed class ProjectMigration(ConversionConfig config, string candidate)
         if (File.Exists(path)) manifest = JsonNode.Parse(File.ReadAllText(path)) as JsonObject ?? throw new InvalidDataException("Packages/manifest.json is not a JSON object.");
         else manifest = new JsonObject();
         var dependencies = manifest["dependencies"] as JsonObject ?? new JsonObject(); manifest["dependencies"] = dependencies;
-        dependencies["com.unity.inputsystem"] = "1.6.3";
+        dependencies.Remove("com.unity.modules.vr");
+        dependencies["com.unity.inputsystem"] = "6.7.0";
         bool unityXr = config.BuildTarget != "StandaloneOSX" && !config.BuildProbe;
         (string Name, string Version)[] xrPackages =
         [
-            ("com.unity.xr.openxr", "1.13.0"),
-            ("com.unity.xr.management", "4.4.0"),
-            ("com.unity.xr.core-utils", "2.1.1"),
-            ("com.unity.xr.legacyinputhelpers", "2.1.7")
+            ("com.unity.xr.openxr", OpenXrPackageVersion),
+            ("com.unity.xr.management", "6.0.0"),
+            ("com.unity.xr.core-utils", "6.0.0"),
+            ("com.unity.xr.legacyinputhelpers", "6.0.0")
         ];
         foreach (var package in xrPackages)
         {
@@ -439,12 +440,14 @@ public sealed class ProjectMigration(ConversionConfig config, string candidate)
         }
         Directory.CreateDirectory(Path.GetDirectoryName(settings)!);
         File.WriteAllText(settings, "{\n  \"settings\": {\n    \"com.unity.xr.management\": {\n      \"activeLoaders\": [],\n      \"initializeOnStart\": true\n    },\n    \"com.unity.xr.openxr\": {\n      \"enabled\": true\n    }\n  }\n}\n");
-        return "com.unity.xr.openxr@1.13.0";
+        return "com.unity.xr.openxr@" + OpenXrPackageVersion;
     }
-    private static void PinProjectVersion(string root)
+
+    internal const string OpenXrPackageVersion = "1.19.0";
+    private void PinProjectVersion(string root)
     {
         var file = Path.Combine(root, "ProjectSettings/ProjectVersion.txt"); Directory.CreateDirectory(Path.GetDirectoryName(file)!);
-        File.WriteAllText(file, "m_EditorVersion: " + ConversionConfig.TargetVersion + "\nm_EditorVersionWithRevision: " + ConversionConfig.TargetVersion + " (local migration target)\n");
+        File.WriteAllText(file, "m_EditorVersion: " + config.UnityVersion + "\n");
     }
     private static void RemoveUguiDuplicate(string root)
     {

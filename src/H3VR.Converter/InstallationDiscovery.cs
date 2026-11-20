@@ -7,10 +7,10 @@ namespace H3VR.Converter;
 /// <summary>Bounded discovery of standard Steam and Unity Hub installations.</summary>
 public static class InstallationDiscovery
 {
-    public const string TargetUnityVersion = "2021.3.45f2";
+    public const string TargetUnityVersion = ConversionConfig.TargetVersion;
 
-    public static string DefaultWorkspace(string? homeDirectory = null) =>
-        Path.Combine(ResolveHome(homeDirectory), "H3VR-Unity2021");
+    public static string DefaultWorkspace(string? workingDirectory = null) =>
+        Path.Combine(Path.GetFullPath(workingDirectory ?? Environment.CurrentDirectory), ".local", "workspace");
 
     public static IReadOnlyList<string> DiscoverGameDirectories(string? homeDirectory = null, IEnumerable<string>? steamRoots = null)
     {
@@ -35,8 +35,9 @@ public static class InstallationDiscovery
 
     /// <summary>Returns only matching target editors found in Unity Hub roots or UNITY_EDITOR.</summary>
     public static IReadOnlyList<string> DiscoverUnityEditors(string? homeDirectory = null,
-        IEnumerable<string>? hubEditorRoots = null, string? unityEditorEnvironment = null)
+        IEnumerable<string>? hubEditorRoots = null, string? unityEditorEnvironment = null, string version = TargetUnityVersion)
     {
+        ConversionConfig.RequireSupportedUnityVersion(version);
         var roots = (hubEditorRoots ?? StandardUnityHubRoots(ResolveHome(homeDirectory)))
             .Select(Path.GetFullPath).Distinct(PathComparer()).ToList();
         var candidates = new List<string>();
@@ -45,7 +46,7 @@ public static class InstallationDiscovery
             if (!Directory.Exists(root)) continue;
             foreach (var versionDirectory in Directory.EnumerateDirectories(root))
             {
-                if (!Path.GetFileName(versionDirectory).Equals(TargetUnityVersion, StringComparison.OrdinalIgnoreCase)) continue;
+                if (!Path.GetFileName(versionDirectory).Equals(version, StringComparison.OrdinalIgnoreCase)) continue;
                 try { candidates.Add(NormalizeEditorPath(versionDirectory)); }
                 catch (InvalidDataException) { }
             }
@@ -55,7 +56,7 @@ public static class InstallationDiscovery
         if (!string.IsNullOrWhiteSpace(unityEditorEnvironment))
         {
             var explicitEditor = NormalizeEditorPath(unityEditorEnvironment);
-            if (IsTargetEditor(explicitEditor)) candidates.Add(explicitEditor);
+            if (IsTargetEditor(explicitEditor, version)) candidates.Add(explicitEditor);
         }
         return candidates.Distinct(PathComparer()).Order(PathComparer()).ToArray();
     }
@@ -132,10 +133,10 @@ public static class InstallationDiscovery
         return tokens;
     }
 
-    private static bool IsTargetEditor(string executable)
+    private static bool IsTargetEditor(string executable, string version)
     {
         for (var directory = new DirectoryInfo(Path.GetDirectoryName(executable)!); directory is not null; directory = directory.Parent)
-            if (directory.Name.Equals(TargetUnityVersion, StringComparison.OrdinalIgnoreCase)) return true;
+            if (directory.Name.Equals(version, StringComparison.OrdinalIgnoreCase)) return true;
 
         var plist = OperatingSystem.IsMacOS()
             ? Path.Combine(Path.GetDirectoryName(Path.GetDirectoryName(executable)!)!, "Info.plist")
@@ -146,11 +147,11 @@ public static class InstallationDiscovery
             {
                 var xml = XDocument.Load(plist);
                 var key = xml.Descendants("key").FirstOrDefault(x => x.Value == "CFBundleVersion");
-                if (key?.ElementsAfterSelf().FirstOrDefault()?.Value == TargetUnityVersion) return true;
+                if (key?.ElementsAfterSelf().FirstOrDefault()?.Value == version) return true;
             }
             catch (System.Xml.XmlException) { }
         }
-        try { return FileVersionInfo.GetVersionInfo(executable).ProductVersion?.Contains(TargetUnityVersion, StringComparison.OrdinalIgnoreCase) == true; }
+        try { return FileVersionInfo.GetVersionInfo(executable).ProductVersion?.Contains(version, StringComparison.OrdinalIgnoreCase) == true; }
         catch (Exception) { return false; }
     }
 

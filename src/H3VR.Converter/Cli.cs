@@ -34,16 +34,28 @@ public sealed class ConversionOptions : CommandSettings
     public string? Game { get; init; }
 
     [CommandOption("--unity <PATH>")]
-    [Description("Unity 2021.3.45f2 editor executable or installation.")]
+    [Description("Unity editor executable or installation.")]
     public string? Unity { get; init; }
 
+    [CommandOption("--unity-version <VERSION>")]
+    [Description("Exact Unity 6.7 editor version (default: 6000.7.0b10).")]
+    public string? UnityVersion { get; init; }
+
     [CommandOption("--workspace <PATH>")]
-    [Description("Writable conversion workspace outside the game and converter checkout.")]
+    [Description("Writable conversion workspace (default: .local/workspace).")]
     public string? Workspace { get; init; }
 
     [CommandOption("--shaders <PATH>")]
     [Description("Optional local Assets-shaped shader source overlay.")]
     public string? Shaders { get; init; }
+
+    [CommandOption("--dxbc-compiler <PATH>")]
+    [Description("Built dxil-spirv executable for automatic shader preparation.")]
+    public string? DxbcCompiler { get; init; }
+
+    [CommandOption("--spirv-cross <PATH>")]
+    [Description("SPIRV-Cross executable for automatic shader preparation.")]
+    public string? SpirvCross { get; init; }
 
     [CommandOption("--recovered <PATH>")]
     [Description("Existing recovered Unity project (skips AssetRipper export).")]

@@ -56,7 +56,7 @@ var cases = new List<(string Name, Action Run)>
             Throws(() => SafeFiles.Copy(source, dest));
         } finally { Directory.Delete(root, true); }
     }),
-    ("target Unity version is the experiment version", () => Check(ConversionConfig.TargetVersion == "2021.3.45f2", "wrong target"))
+    ("converter defaults to the pinned Unity 6.7 beta", () => Check(new ConversionConfig().UnityVersion == "6000.7.0b10", "wrong target"))
 };
 cases.Add(("player receipt records manifest build and managed hashes without account data", () =>
 {
@@ -81,9 +81,12 @@ cases.Add(("player receipt records manifest build and managed hashes without acc
         var dll = Path.Combine(app, "Resources", "Data", "Managed", "NativeH3VR.Game.dll"); File.WriteAllText(dll, "synthetic");
         var extract = Path.Combine(root, "extract.json");
         SafeFiles.AtomicJson(extract, new StepReceipt("extract", new string('a', 64), DateTimeOffset.UtcNow, new()));
-        var receipt = File.ReadAllText(PlayerReceipt.Write(Path.GetDirectoryName(app)!, game, extract));
+        const string unityVersion = "6000.7.0b9";
+        var receipt = File.ReadAllText(PlayerReceipt.Write(Path.GetDirectoryName(app)!, game, extract, unityVersion));
         Check(receipt.Contains("25002541") && receipt.Contains(SafeFiles.Hash(dll)) && receipt.Contains(new string('a', 64)) && !receipt.Contains("private"), "receipt lacks identity/hash or leaks account data");
         using var document = System.Text.Json.JsonDocument.Parse(receipt);
+        Check(document.RootElement.GetProperty("unityVersion").GetString() == unityVersion,
+            "the stock build receipt must identify the selected Unity version");
         Check(document.RootElement.GetProperty("modHostSchemaVersion").GetInt32() == 2,
             "the stock build receipt must identify the external mod manifest version");
         File.WriteAllText(Path.Combine(apps, "appmanifest_450540.acf"), "\"appid\" \"999\"\n\"installdir\" \"H3VR\"\n\"buildid\" \"1\"");

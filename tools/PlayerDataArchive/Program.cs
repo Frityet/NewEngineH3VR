@@ -100,7 +100,7 @@ internal static partial class PlayerDataArchive
             }
         };
 
-        // Unity 2021.3 uses 128 KiB LZ4 blocks for the standalone data archive.
+        // Use 128 KiB LZ4 blocks for the standalone data archive.
         // A file may span blocks, and a block may cover parts of several files.
         using var stream = new FileStream(destination, FileMode.CreateNew, FileAccess.Write, FileShare.None);
         using var writer = new AssetsFileWriter(stream) { BigEndian = true };

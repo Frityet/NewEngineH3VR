@@ -11,8 +11,12 @@ namespace H3VR.Converter;
 public static class PlayerReflectionProbes
 {
     private const string SourceVersion = "5.6.7f1";
+    private const string UnitySixReflectionProbeHash = "4f4668362599a4833df9c726dc2bc589";
+    private const string UnitySixCubemapHash = "d7f50abb19cad423f9c4ead3b3d9ba88";
     private const int Bc6H = 24;
     private const int Faces = 6;
+    private const int SourceCubemapDimension = 2;
+    private const int TargetCubemapDimension = 4;
     private static readonly string[] ProbeIdentityFields = ["m_Mode", "m_Resolution", "m_Importance", "m_BoxSize",
         "m_BoxOffset", "m_IntensityMultiplier", "m_BlendDistance", "m_HDR", "m_BoxProjection"];
 
@@ -22,12 +26,13 @@ public static class PlayerReflectionProbes
     public sealed record Receipt(int SchemaVersion, SceneReceipt[] Scenes, Dictionary<string, string> Files);
 
     private sealed record Probe(long Id, string Identity, AssetTypeValueField Field);
-    private sealed record Texture(string Name, int Width, int Mips, int FaceBytes, int Dimension,
+    private sealed record Texture(string Name, int Width, int Mips, int FaceBytes,
         int Filter, int Aniso, float MipBias, int Wrap, byte[] Payload);
 
     // The entire delta is staged and read back before replacing any player files.
-    public static Receipt Restore(string sourceData, string targetData, string classDatabase, string scratch, string receiptPath)
+    public static Receipt Restore(string sourceData, string targetData, string classDatabase, string scratch, string receiptPath, string targetVersion)
     {
+        ConversionConfig.RequireSupportedUnityVersion(targetVersion);
         string source = Path.GetFullPath(sourceData), target = Path.GetFullPath(targetData);
         string staging = Path.GetFullPath(scratch), receipt = Path.GetFullPath(receiptPath);
         SafeFiles.RequireSeparate(source, target); SafeFiles.RequireSeparate(source, staging);
@@ -43,9 +48,9 @@ public static class PlayerReflectionProbes
         original.LoadClassPackage(classDatabase);
         player.LoadClassPackage(classDatabase);
         var fromScenes = PlayerEnlighten.ReadScenePaths(original, source, SourceVersion);
-        var toScenes = PlayerEnlighten.ReadScenePaths(player, target, ConversionConfig.TargetVersion)
+        var toScenes = PlayerEnlighten.ReadScenePaths(player, target, targetVersion)
             .Select((name, index) => (name, index)).ToDictionary(x => x.name, x => x.index, StringComparer.OrdinalIgnoreCase);
-        var playerType = FindCubemapType(player, target);
+        var playerType = FindCubemapType(player, target, targetVersion);
         var results = new List<SceneReceipt>();
         Directory.CreateDirectory(staging);
         try
@@ -56,13 +61,14 @@ public static class PlayerReflectionProbes
                 var oldLevel = original.LoadAssetsFile(Path.Combine(source, sourceLevel), false);
                 try
                 {
+                    PlayerEnlighten.RequireVersion(original, oldLevel, SourceVersion);
                     var probes = ReadProbes(original, oldLevel).Where(p => p.Field["m_BakedTexture"]["m_PathID"].AsLong != 0).ToArray();
                     if (probes.Length == 0) continue;
                     if (!toScenes.TryGetValue(fromScenes[i], out int targetIndex))
                         throw new InvalidDataException("Player is missing a stock reflection-probe scene: " + fromScenes[i]);
                     string targetLevel = "level" + targetIndex;
                     ProbeReceipt[] restored = StageScene(original, oldLevel, probes, player, source,
-                        target, staging, targetLevel, playerType);
+                        target, staging, targetLevel, playerType, targetVersion);
                     results.Add(new(fromScenes[i], sourceLevel, targetLevel, restored));
                 }
                 finally { original.UnloadAllAssetsFiles(); }
@@ -82,7 +88,7 @@ public static class PlayerReflectionProbes
     }
 
     private static ProbeReceipt[] StageScene(AssetsManager original, AssetsFileInstance oldLevel, Probe[] sources,
-        AssetsManager player, string source, string target, string staging, string name, TypeTreeType playerType)
+        AssetsManager player, string source, string target, string staging, string name, TypeTreeType playerType, string targetVersion)
     {
         string input = Path.Combine(target, name), output = Path.Combine(staging, name);
         string resource = name + ".resS", resourcePath = Path.Combine(staging, resource);
@@ -92,9 +98,11 @@ public static class PlayerReflectionProbes
         var records = new List<ProbeReceipt>();
         try
         {
-            var candidates = ReadProbes(player, current).ToLookup(p => p.Identity, StringComparer.Ordinal);
+            PlayerEnlighten.RequireVersion(player, current, targetVersion);
+            var candidates = ReadProbes(player, current, playerLayout: true).ToLookup(p => p.Identity, StringComparer.Ordinal);
             if (current.file.Metadata.FindTypeTreeTypeIndexByID((int)AssetClassID.Cubemap, ushort.MaxValue) < 0)
                 current.file.Metadata.TypeTreeTypes.Add(playerType);
+            PlayerEnlighten.RequireTypeHash(current, AssetClassID.Cubemap, UnitySixCubemapHash);
             long nextId = current.file.AssetInfos.Max(a => a.PathId);
             var used = new HashSet<long>();
             using (var stream = new FileStream(resourcePath, FileMode.Append, FileAccess.Write, FileShare.None))
@@ -106,11 +114,11 @@ public static class PlayerReflectionProbes
                         throw new InvalidDataException($"Missing or ambiguous stock reflection probe {probe.Id} in {name}.");
                     var match = matches[0];
                     var baked = match.Field["m_BakedTexture"];
-                    if (baked["m_PathID"].AsLong != 0)
+                    if (baked["m_FileID"].AsInt != 0 || baked["m_PathID"].AsLong != 0)
                         throw new InvalidDataException($"Reflection probe {match.Id} in {name} already has a baked texture.");
                     var sourceRef = Resolve(original, oldLevel, probe.Field["m_BakedTexture"], AssetClassID.Cubemap);
                     string sourceAsset = Path.GetFileName(sourceRef.File.path);
-                    var cubemap = ReadTexture(original.GetBaseField(sourceRef.File, sourceRef.Info), source);
+                    var cubemap = ReadTexture(original.GetBaseField(sourceRef.File, sourceRef.Info), source, SourceCubemapDimension);
                     ulong offset = checked((ulong)stream.Position);
                     stream.Write(cubemap.Payload);
                     long id = checked(++nextId);
@@ -125,19 +133,19 @@ public static class PlayerReflectionProbes
                         cubemap.Width, cubemap.Mips, Bc6H, 0, Digest(cubemap.Payload), FaceDigests(cubemap.Payload, cubemap.FaceBytes)));
                 }
             }
-            using var writer = new AssetsFileWriter(output);
-            current.file.Write(writer, 0);
+            PlayerEnlighten.WritePlayerLevel(current, output);
         }
         finally { player.UnloadAssetsFile(current); }
 
         var staged = player.LoadAssetsFile(output, false);
         try
         {
+            PlayerEnlighten.RequireVersion(player, staged, targetVersion);
             foreach (var probe in records)
             {
-                var ptr = player.GetBaseField(staged, staged.file.GetAssetInfo(probe.TargetProbe))["m_BakedTexture"];
+                var ptr = ReadPlayerProbe(player, staged, staged.file.GetAssetInfo(probe.TargetProbe))["m_BakedTexture"];
                 var resolved = Resolve(player, staged, ptr, AssetClassID.Cubemap);
-                var actual = ReadTexture(player.GetBaseField(resolved.File, resolved.Info), staging);
+                var actual = ReadTexture(player.GetBaseField(resolved.File, resolved.Info), staging, TargetCubemapDimension);
                 if (resolved.File != staged || resolved.Info.PathId != probe.TargetCubemap ||
                     actual.Width != probe.Width || actual.Mips != probe.Mips || Digest(actual.Payload) != probe.Sha256 ||
                     !FaceDigests(actual.Payload, actual.FaceBytes).SequenceEqual(probe.FaceSha256))
@@ -148,7 +156,7 @@ public static class PlayerReflectionProbes
         return records.ToArray();
     }
 
-    private static TypeTreeType FindCubemapType(AssetsManager player, string root)
+    private static TypeTreeType FindCubemapType(AssetsManager player, string root, string targetVersion)
     {
         foreach (string path in Directory.EnumerateFiles(root, "sharedassets*.assets").Order(StringComparer.Ordinal))
         {
@@ -156,19 +164,22 @@ public static class PlayerReflectionProbes
             try
             {
                 int index = shared.file.Metadata.FindTypeTreeTypeIndexByID((int)AssetClassID.Cubemap, ushort.MaxValue);
-                if (index >= 0) return shared.file.Metadata.TypeTreeTypes[index];
+                if (index < 0) continue;
+                PlayerEnlighten.RequireVersion(player, shared, targetVersion);
+                PlayerEnlighten.RequireTypeHash(shared, AssetClassID.Cubemap, UnitySixCubemapHash);
+                return shared.file.Metadata.TypeTreeTypes[index];
             }
             finally { player.UnloadAssetsFile(shared); }
         }
         throw new InvalidDataException("The native player has no serialized cubemap type.");
     }
 
-    private static Probe[] ReadProbes(AssetsManager manager, AssetsFileInstance file)
+    private static Probe[] ReadProbes(AssetsManager manager, AssetsFileInstance file, bool playerLayout = false)
     {
         var probes = new List<Probe>();
         foreach (var info in file.file.GetAssetsOfType(AssetClassID.ReflectionProbe))
         {
-            var probe = manager.GetBaseField(file, info);
+            var probe = playerLayout ? ReadPlayerProbe(manager, file, info) : manager.GetBaseField(file, info);
             var owner = Resolve(manager, file, probe["m_GameObject"], AssetClassID.GameObject);
             if (owner.File != file) throw new InvalidDataException("ReflectionProbe owner belongs to another file.");
             var obj = manager.GetBaseField(file, owner.Info);
@@ -198,6 +209,36 @@ public static class PlayerReflectionProbes
         return probes.ToArray();
     }
 
+    private static AssetTypeValueField ReadPlayerProbe(AssetsManager manager, AssetsFileInstance file, AssetFileInfo info)
+    {
+        PlayerEnlighten.RequireTypeHash(file, AssetClassID.ReflectionProbe, UnitySixReflectionProbeHash);
+        var template = new AssetTypeTemplateField();
+        if (file.file.Metadata.TypeTreeEnabled)
+            template = manager.GetTemplateBaseField(file, info);
+        else
+        {
+            // Unity 6.7 added exposure to the player probe layout. The pinned
+            // fallback database predates it and would shift both texture pointers.
+            var type = manager.ClassDatabase.FindAssetClassByID((int)AssetClassID.ReflectionProbe);
+            template.FromClassDatabase(manager.ClassDatabase, type, preferEditor: false);
+            int blendDistance = template.Children.FindIndex(child => child.Name == "m_BlendDistance");
+            if (blendDistance <= 0 || template.Children[blendDistance - 1].Name != "m_IntensityMultiplier")
+                throw new InvalidDataException("Unsupported reflection probe template: " + file.path);
+            template.Children.Insert(blendDistance, new AssetTypeTemplateField
+            {
+                Name = "m_ExposureValue",
+                Type = "float",
+                ValueType = AssetValueType.Float,
+                HasValue = true,
+                Children = []
+            });
+        }
+        var probe = template.MakeValue(file.file.Reader, info.GetAbsoluteByteOffset(file.file));
+        if (!PlayerEnlighten.ReadObjectBytes(file, info).AsSpan().SequenceEqual(probe.WriteToByteArray()))
+            throw new InvalidDataException("Reflection probe did not roundtrip in " + file.path);
+        return probe;
+    }
+
     private static (AssetsFileInstance File, AssetFileInfo Info) Resolve(AssetsManager manager, AssetsFileInstance file,
         AssetTypeValueField ptr, AssetClassID type)
     {
@@ -207,11 +248,11 @@ public static class PlayerReflectionProbes
         return (resolved.file, resolved.info);
     }
 
-    private static Texture ReadTexture(AssetTypeValueField field, string root)
+    private static Texture ReadTexture(AssetTypeValueField field, string root, int dimension)
     {
         int width = field["m_Width"].AsInt, mips = field["m_MipCount"].AsInt;
         if (width != field["m_Height"].AsInt || field["m_TextureFormat"].AsInt != Bc6H ||
-            field["m_ImageCount"].AsInt != Faces || field["m_ColorSpace"].AsInt != 0 || field["m_TextureDimension"].AsInt != 2)
+            field["m_ImageCount"].AsInt != Faces || field["m_ColorSpace"].AsInt != 0 || field["m_TextureDimension"].AsInt != dimension)
             throw new InvalidDataException("Expected a linear BC6H baked reflection cubemap.");
         int faceBytes = CompleteFaceBytes(width, mips);
         if (field["m_CompleteImageSize"].AsInt != faceBytes)
@@ -234,7 +275,7 @@ public static class PlayerReflectionProbes
         if (data.Length != length) throw new InvalidDataException("Baked cubemap does not contain six complete faces.");
         var settings = field["m_TextureSettings"];
         int wrap = settings["m_WrapMode"].IsDummy ? settings["m_WrapU"].AsInt : settings["m_WrapMode"].AsInt;
-        return new(field["m_Name"].AsString, width, mips, faceBytes, 2, settings["m_FilterMode"].AsInt,
+        return new(field["m_Name"].AsString, width, mips, faceBytes, settings["m_FilterMode"].AsInt,
             settings["m_Aniso"].AsInt, settings["m_MipBias"].AsFloat, wrap, data);
     }
 
@@ -256,7 +297,6 @@ public static class PlayerReflectionProbes
     {
         var field = manager.CreateValueBaseField(level, (int)AssetClassID.Cubemap);
         field["m_Name"].AsString = cubemap.Name;
-        field["m_ForcedFallbackFormat"].AsInt = 4;
         field["m_IsAlphaChannelOptional"].AsBool = true;
         field["m_Width"].AsInt = cubemap.Width;
         field["m_Height"].AsInt = cubemap.Width;
@@ -264,7 +304,7 @@ public static class PlayerReflectionProbes
         field["m_TextureFormat"].AsInt = Bc6H;
         field["m_MipCount"].AsInt = cubemap.Mips;
         field["m_ImageCount"].AsInt = Faces;
-        field["m_TextureDimension"].AsInt = cubemap.Dimension;
+        field["m_TextureDimension"].AsInt = TargetCubemapDimension;
         field["m_ColorSpace"].AsInt = 0;
         var settings = field["m_TextureSettings"];
         settings["m_FilterMode"].AsInt = cubemap.Filter;

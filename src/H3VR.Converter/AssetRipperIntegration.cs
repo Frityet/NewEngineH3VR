@@ -220,7 +220,7 @@ public static class AssetRipperIntegration
         string repository, string logPath, CancellationToken cancellation)
     {
         SafeFiles.RequireSeparate(gameDirectory, outputDirectory);
-        SafeFiles.RequireSeparate(repository, outputDirectory);
+        SafeFiles.RequirePrivateOutput(repository, outputDirectory);
         var output = Path.GetFullPath(outputDirectory);
         if (Directory.Exists(output) && Directory.EnumerateFileSystemEntries(output).Any())
             throw new IOException("AssetRipper output directory must be empty; refusing to overwrite existing files: " + output);

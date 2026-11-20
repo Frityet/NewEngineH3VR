@@ -32,6 +32,22 @@ public static partial class SafeFiles
         if (Contains(source, destination) || Contains(destination, source))
             throw new InvalidDataException($"Input/output paths overlap: {source} and {destination}");
     }
+    public static void RequirePrivateOutput(string repository, string destination)
+    {
+        string root = Path.GetFullPath(repository);
+        string output = Path.GetFullPath(destination);
+        string local = Path.Combine(root, ".local");
+        string relative = Path.GetRelativePath(root, output);
+        var comparison = OperatingSystem.IsLinux() ? StringComparison.Ordinal : StringComparison.OrdinalIgnoreCase;
+        if (relative.StartsWith(".local" + Path.DirectorySeparatorChar, comparison))
+        {
+            if (new DirectoryInfo(local).LinkTarget is not null || !Contains(root, output) || !Contains(local, output) ||
+                Canonical(local).Equals(Canonical(output), comparison))
+                throw new InvalidDataException("Checkout-local output must stay under the real .local directory: " + output);
+            return;
+        }
+        RequireSeparate(root, output);
+    }
     public static string Inside(string root, string relative)
     {
         if (Path.IsPathRooted(relative) || relative.Split('/', '\\').Contains(".."))

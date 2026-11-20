@@ -61,15 +61,15 @@ public static class Integration
     private sealed record Manifest(int SchemaVersion, string UnityVersion, string BuildTarget, string XrBackend, string? Provider, List<FileEntry> Files);
 
     /// <summary>Apply explicitly supplied, hash-pinned OpenXR provider files to a project candidate.</summary>
-    public static void Apply(string manifestPath, string candidate, string buildTarget)
+    public static void Apply(string manifestPath, string candidate, string buildTarget, string unityVersion = ConversionConfig.TargetVersion)
     {
         var fullManifest = Path.GetFullPath(manifestPath); if (!File.Exists(fullManifest)) throw new FileNotFoundException("Integration manifest not found.", fullManifest);
         var sourceRoot = Path.GetDirectoryName(fullManifest)!;
         if (new FileInfo(fullManifest).LinkTarget is not null) throw new InvalidDataException("Integration manifest symlinks are not supported.");
         var manifest = JsonSerializer.Deserialize<Manifest>(File.ReadAllText(fullManifest), ConversionConfig.Json)
             ?? throw new InvalidDataException("Integration manifest is empty.");
-        if (manifest.SchemaVersion != 1 || manifest.UnityVersion != ConversionConfig.TargetVersion || manifest.BuildTarget != buildTarget || manifest.XrBackend != "OpenXR")
-            throw new InvalidDataException("Integration manifest must target schema 1, Unity " + ConversionConfig.TargetVersion + ", build target " + buildTarget + ", and OpenXR.");
+        if (manifest.SchemaVersion != 1 || manifest.UnityVersion != unityVersion || manifest.BuildTarget != buildTarget || manifest.XrBackend != "OpenXR")
+            throw new InvalidDataException("Integration manifest must target schema 1, Unity " + unityVersion + ", build target " + buildTarget + ", and OpenXR.");
         var hasProvider = !string.IsNullOrWhiteSpace(manifest.Provider);
         if (buildTarget == "StandaloneOSX" && manifest.Provider != MetalBridge)
             throw new InvalidDataException("StandaloneOSX requires the integration emitted by tools/UnityMetalCli build.");

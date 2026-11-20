@@ -4,7 +4,7 @@ using System.Text.RegularExpressions;
 
 namespace NativeH3VR.ShaderOverlay;
 
-/// <summary>Rebind the exact Unity 5 instanced matrix layout to Unity 2021's engine buffers.</summary>
+/// <summary>Rebind the Unity 5 instanced matrix layout to the current engine buffers.</summary>
 internal static partial class InstancingBindingRepair
 {
     private const string Binding = "CBUFFER_START(UnityDrawCallInfo)";

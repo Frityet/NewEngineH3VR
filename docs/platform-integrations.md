@@ -1,14 +1,14 @@
 # Building and running on macOS
 
-On Apple Silicon, the game builds with Unity **2021.3.45f2**, Mono and Metal. VR goes through our own ARM64 Metal plug-in, which opens one OpenXR session through the Khronos loader. It reads tracking and input and sends both eye images.
+On Apple Silicon, the converter targets Unity **6.7**, Mono and Metal. The ARM64 Metal plug-in opens one OpenXR session through the Khronos loader, reads tracking and input and sends both eye images.
 
-Unity's OpenXR 1.13 package is only used for the Windows build. ([Unity's runtime list](https://docs.unity3d.com/Packages/com.unity.xr.openxr@1.13/manual/index.html#runtimes), [OpenXR Metal spec](https://registry.khronos.org/OpenXR/specs/1.1/html/xrspec.html#XR_KHR_metal_enable))
+The Windows build uses Unity's OpenXR 1.19 package. [Unity OpenXR](https://docs.unity3d.com/Packages/com.unity.xr.openxr@1.19/manual/index.html) · [OpenXR Metal spec](https://registry.khronos.org/OpenXR/specs/1.1/html/xrspec.html#XR_KHR_metal_enable)
 
 ## What you need
 
 - .NET 10 SDK
 - Xcode command line tools
-- Unity 2021.3.45f2 for Apple Silicon, with Mac Standalone Support
+- Unity 6.7 for Apple Silicon, with Mac Standalone Support
 - MacVR, plus the OpenXR headers from the same MacVR version
 - CSteamworks and the FMOD SDK (see [platform adapters](../runtime/Platform/README.md))
 
@@ -21,13 +21,13 @@ dotnet run --project tools/PlatformPatch/NativeBuilder -c Release -- \
   --csteamworks "/path/to/CSteamworks" \
   --steam-api "/path/to/Steam Helper.app/Contents/MacOS/libsteam_api.dylib" \
   --fmod-sdk "/path/to/fmod-sdk-2.03.15" \
-  --output "/path/to/private/platform"
+  --output "$PWD/.local/platform"
 
 dotnet run --project tools/UnityMetalCli -c Release -- build \
   --unity-editor "/path/to/Unity.app/Contents/MacOS/Unity" \
   --openxr-headers "/path/to/MacVR/extern/openxr/include" \
-  --platform "/path/to/private/platform" \
-  --output "/path/to/private/integration"
+  --platform "$PWD/.local/platform" \
+  --output "$PWD/.local/integration"
 ```
 
 ## 2. Convert the game
@@ -35,13 +35,13 @@ dotnet run --project tools/UnityMetalCli -c Release -- build \
 Pass the integration to the converter:
 
 ```sh
---integration /path/to/private/integration/integration.json
+--integration "$PWD/.local/integration/integration.json"
 ```
 
 That file pins every source file and plug-in to the target with a SHA-256 hash.
 
 Things to know:
-- You need the exact Unity version above, with its Mac player module.
+- Use the same exact Unity version for integration and conversion. Both commands accept `--unity-version` and default to `6000.7.0b10`.
 - Use a fresh project, and keep it closed in Unity while the converter runs.
 - The finished app is signed ad-hoc on your machine.
 - Its receipt records the Steam build, extraction, Unity version, architecture, executable, DLL hashes and the mod manifest version it supports.
@@ -105,4 +105,4 @@ Then run `dotnet /absolute/path/to/UnityMetalCli.dll run` with the same options.
 
 ## Compute buffer sizes on Metal
 
-Metal shaders can't ask a buffer how big it is the way Direct3D 11 and Vulkan can. On macOS the converter records the property names the game creates with `Shader.PropertyToID`. When the game binds a `ComputeBuffer` to a material or property block, it also sets `_NativeH3VRBufferCount` in the same place. The translated Metal shaders read that as the element count. ([how Unity binds material properties](https://github.com/Unity-Technologies/UnityCsReference/blob/2021.3/Runtime/Export/Shaders/MaterialPropertyBlock.cs))
+Metal shaders can't ask a buffer how big it is the way Direct3D 11 and Vulkan can. On macOS the converter records the property names the game creates with `Shader.PropertyToID`. When the game binds a `ComputeBuffer` to a material or property block, it also sets `_NativeH3VRBufferCount` in the same place. The translated Metal shaders read that as the element count. [Unity's material property binding](https://github.com/Unity-Technologies/UnityCsReference/blob/6000.7/Runtime/Export/Shaders/MaterialPropertyBlock.cs)

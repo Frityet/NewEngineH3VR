@@ -19,7 +19,7 @@ public static class SourceStaging
                 ? new[] { "Unity.XR.Management", "Unity.XR.Management.Editor", "Unity.XR.OpenXR", "Unity.XR.OpenXR.Editor" }
                 : Array.Empty<string>(),
             versionDefines = unityXr
-                ? new[] { new { name = "com.unity.xr.openxr", expression = "1.13.0", define = "NATIVEH3VR_UNITY_OPENXR" } }
+                ? new[] { new { name = "com.unity.xr.openxr", expression = ProjectMigration.OpenXrPackageVersion, define = "NATIVEH3VR_UNITY_OPENXR" } }
                 : Array.Empty<object>(),
             includePlatforms = new[] { "Editor" },
             overrideReferences = true,

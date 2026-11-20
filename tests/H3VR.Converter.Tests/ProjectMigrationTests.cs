@@ -116,7 +116,8 @@ public static class ProjectMigrationTests
         const string xrSettings = "ProjectSettings/XRPackageSettings.json";
         fixture.WriteCandidate(manifest, """
             {"dependencies":{"com.unity.xr.openxr":"1.13.0","com.unity.xr.management":"4.4.0",
-              "com.unity.xr.core-utils":"2.1.1","com.unity.xr.legacyinputhelpers":"2.1.7","com.unity.modules.xr":"1.0.0"}}
+              "com.unity.xr.core-utils":"2.1.1","com.unity.xr.legacyinputhelpers":"2.1.7",
+              "com.unity.modules.xr":"1.0.0","com.unity.modules.vr":"1.0.0"}}
             """);
         fixture.WriteCandidate(xrSettings, "{}");
         var config = fixture.Config() with { BuildTarget = "StandaloneOSX" };
@@ -125,8 +126,9 @@ public static class ProjectMigrationTests
         var packages = document.RootElement.GetProperty("dependencies");
         Check(packages.EnumerateObject().All(item => !item.Name.StartsWith("com.unity.xr.", StringComparison.Ordinal)),
             "macOS retained Unity XR provider packages");
-        Check(packages.GetProperty("com.unity.inputsystem").GetString() == "1.6.3" &&
-            packages.GetProperty("com.unity.modules.xr").GetString() == "1.0.0", "macOS removed a required engine dependency");
+        Check(packages.GetProperty("com.unity.inputsystem").GetString() == "6.7.0" &&
+            packages.GetProperty("com.unity.modules.xr").GetString() == "1.0.0", "macOS lost a required engine dependency");
+        Check(!packages.TryGetProperty("com.unity.modules.vr", out _), "macOS retained the removed standalone VR module");
         Check(report.OpenXrPackage is null && !File.Exists(Path.Combine(fixture.Candidate, xrSettings)),
             "macOS retained Unity XR provider settings");
     }
@@ -147,10 +149,14 @@ public static class ProjectMigrationTests
         fixture.WriteCandidate(relative, "namespace H3VR { public class Fixture {} }", "11111111111111111111111111111111", 17);
         fixture.WriteCandidate("Assets/Scenes/Test.prefab", "m_Script: {fileID: 11500000, guid: 11111111111111111111111111111111, type: 3}\n");
         fixture.WriteCandidate("Assets/Scenes/Test.prefab.meta", "fileFormatVersion: 2\nguid: 44444444444444444444444444444444\nNativeFormatImporter:\n  assetBundleName: test_bundle\n  assetBundleVariant:\n");
-        fixture.WriteCandidate("Packages/manifest.json", "{\"dependencies\":{\"com.unity.ugui\":\"1.0.0\",\"com.unity.modules.ai\":\"1.0.0\"}}\n");
+        fixture.WriteCandidate("Packages/manifest.json", """
+            {"dependencies":{"com.unity.ugui":"1.0.0","com.unity.modules.ai":"1.0.0",
+              "com.unity.modules.vr":"1.0.0","com.unity.xr.openxr":"1.13.0"}}
+            """);
         fixture.WriteSteamActions("{\"default_bindings\":[{\"binding_url\":\"bindings_knuckles.json\"}]}", ("bindings_knuckles.json", "{\"controller_type\":\"knuckles\"}"));
         var sourceManifest = Path.Combine(fixture.Recovered, relative + ".meta"); var sourceHash = SafeFiles.Hash(sourceManifest);
-        var config = fixture.Config() with { BuildTarget = "StandaloneWindows64" };
+        const string selectedVersion = "6000.7.0b9";
+        var config = fixture.Config() with { BuildTarget = "StandaloneWindows64", UnityVersion = selectedVersion };
         var report = new ProjectMigration(config, fixture.Candidate).Run();
         var rewritten = File.ReadAllText(Path.Combine(fixture.Candidate, "Assets/Scenes/Test.prefab"));
         var managedMeta = File.ReadAllText(Path.Combine(fixture.Candidate, "Assets/Plugins/NativeH3VR.Game.dll.meta"));
@@ -160,12 +166,19 @@ public static class ProjectMigrationTests
         Check(managedMeta.Contains("H3VR.Fixture: 17", StringComparison.Ordinal), "original Unity execution order is copied to managed plugin metadata");
         Check(File.Exists(Path.Combine(fixture.Candidate, "NativeH3VR-RecoveredSources/Assembly-CSharp/H3VR/Fixture.cs")), "recovered source retained in candidate archive");
         Check(SafeFiles.Hash(sourceManifest) == sourceHash, "original recovered project metadata unchanged");
-        Check(!JsonDocument.Parse(File.ReadAllText(Path.Combine(fixture.Candidate, "Packages/manifest.json"))).RootElement.GetProperty("dependencies").TryGetProperty("com.unity.ugui", out _), "duplicate UGUI package removed");
-        Check(File.ReadAllText(Path.Combine(fixture.Candidate, "Packages/manifest.json")).Contains("com.unity.xr.openxr", StringComparison.Ordinal), "pinned OpenXR package configured");
-        var packages = JsonDocument.Parse(File.ReadAllText(Path.Combine(fixture.Candidate, "Packages/manifest.json"))).RootElement.GetProperty("dependencies");
-        Check(packages.GetProperty("com.unity.xr.management").GetString() == "4.4.0" && packages.GetProperty("com.unity.inputsystem").GetString() == "1.6.3" && packages.GetProperty("com.unity.xr.core-utils").GetString() == "2.1.1" && packages.GetProperty("com.unity.xr.legacyinputhelpers").GetString() == "2.1.7", "OpenXR dependency graph is explicitly pinned for Unity 2021");
+        using var manifest = JsonDocument.Parse(File.ReadAllText(Path.Combine(fixture.Candidate, "Packages/manifest.json")));
+        var packages = manifest.RootElement.GetProperty("dependencies");
+        Check(!packages.TryGetProperty("com.unity.ugui", out _), "duplicate UGUI package retained");
+        Check(!packages.TryGetProperty("com.unity.modules.vr", out _), "the removed standalone VR module was retained");
+        Check(packages.GetProperty("com.unity.xr.openxr").GetString() == "1.19.0" &&
+            packages.GetProperty("com.unity.inputsystem").GetString() == "6.7.0" &&
+            packages.GetProperty("com.unity.xr.management").GetString() == "6.0.0" &&
+            packages.GetProperty("com.unity.xr.core-utils").GetString() == "6.0.0" &&
+            packages.GetProperty("com.unity.xr.legacyinputhelpers").GetString() == "6.0.0" &&
+            report.OpenXrPackage == "com.unity.xr.openxr@1.19.0", "OpenXR dependencies are pinned for Unity 6.7");
         Check(File.ReadAllText(Path.Combine(fixture.Candidate, "ProjectSettings/ProjectSettings.asset")).Contains("activeInputHandler: 2", StringComparison.Ordinal), "both legacy and new input backends are enabled before first import");
-        Check(File.ReadAllText(Path.Combine(fixture.Candidate, "ProjectSettings/ProjectVersion.txt")).Contains("2021.3.45f2", StringComparison.Ordinal), "Unity target pinned");
+        Check(File.ReadAllText(Path.Combine(fixture.Candidate, "ProjectSettings/ProjectVersion.txt")) == $"m_EditorVersion: {selectedVersion}\n" &&
+            report.UnityVersion == selectedVersion, "project and report do not identify the selected exact Unity release");
         var bundlePlan = File.ReadAllText(Path.Combine(fixture.Candidate, report.AssetBundleMembership));
         Check(bundlePlan.Contains("test_bundle", StringComparison.Ordinal) && bundlePlan.Contains("Assets/Scenes/Test.prefab", StringComparison.Ordinal) && bundlePlan.Contains("\"addresses\": null", StringComparison.Ordinal), "records original bundle membership without fabricating serialized addresses");
     }
@@ -309,7 +322,7 @@ public static class ProjectMigrationTests
         Check(converted.Replace(rim, "      _RimColor: {r: 0.5, g: 2, b: 1, a: 0.2}", StringComparison.Ordinal) == material,
             "unrelated values, vector properties, non-HDR colors and texture references are preserved");
         Check(File.ReadAllText(original) == material && File.ReadAllText(Path.Combine(fixture.Candidate, authored)) == material,
-            "both the immutable recovery and user-authored 2021 material are untouched");
+            "both the immutable recovery and the user-authored material are untouched");
         Check(report.LegacyHdrMaterials is not null && File.Exists(Path.Combine(fixture.Candidate, report.LegacyHdrMaterials)),
             "the project reports exactly which stock values were changed");
     }
@@ -370,12 +383,15 @@ public static class ProjectMigrationTests
         var bytes = Encoding.UTF8.GetBytes("provider"); File.WriteAllBytes(Path.Combine(fixture.Root, "provider.dll"), bytes);
         var hash = Convert.ToHexStringLower(SHA256.HashData(bytes));
         var entries = Integration.RequiredMetalFiles().Select(destination => new { source = "provider.dll", destination, sha256 = hash });
-        var manifest = new { schemaVersion = 1, unityVersion = ConversionConfig.TargetVersion, buildTarget = "StandaloneOSX", xrBackend = "OpenXR", provider = Integration.MetalBridge, files = entries };
+        const string selectedVersion = "6000.7.0b9";
+        var manifest = new { schemaVersion = 1, unityVersion = selectedVersion, buildTarget = "StandaloneOSX", xrBackend = "OpenXR", provider = Integration.MetalBridge, files = entries };
         var manifestPath = Path.Combine(fixture.Root, "integration.json"); File.WriteAllText(manifestPath, JsonSerializer.Serialize(manifest));
-        Integration.Apply(manifestPath, fixture.Candidate, "StandaloneOSX");
+        Check(Capture(() => Integration.Apply(manifestPath, fixture.Candidate, "StandaloneOSX", ConversionConfig.TargetVersion)) is InvalidDataException,
+            "integration for a different 6.7 release was accepted");
+        Integration.Apply(manifestPath, fixture.Candidate, "StandaloneOSX", selectedVersion);
         Check(SafeFiles.Hash(Path.Combine(fixture.Candidate, "Assets/Plugins/macOS/libNativeH3VRMetal.dylib")) == hash, "copies the verified provider bytes");
         Check(File.ReadAllText(Path.Combine(fixture.Candidate, "ProjectSettings/H3VRProvider.json")).Contains(Integration.MetalBridge, StringComparison.Ordinal), "persists the Metal bridge selection for the editor configuration");
-        Integration.Apply(manifestPath, fixture.Candidate, "StandaloneOSX");
+        Integration.Apply(manifestPath, fixture.Candidate, "StandaloneOSX", selectedVersion);
         var missingProvider = new { schemaVersion = 1, unityVersion = ConversionConfig.TargetVersion, buildTarget = "StandaloneLinux64", xrBackend = "OpenXR", files = new[] { new { source = "provider.dll", destination = "Assets/OpenXRProvider/linux.dll", sha256 = hash } } };
         var missingPath = Path.Combine(fixture.Root, "missing-provider.json"); File.WriteAllText(missingPath, JsonSerializer.Serialize(missingProvider));
         Check(Capture(() => Integration.Apply(missingPath, fixture.Candidate, "StandaloneLinux64")) is InvalidDataException, "non-Windows integration requires a managed OpenXR loader type");

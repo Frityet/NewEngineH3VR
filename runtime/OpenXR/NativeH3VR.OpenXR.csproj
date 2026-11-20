@@ -15,7 +15,6 @@
   <ItemGroup>
     <Reference Include="UnityEngine.CoreModule"><HintPath>$(UnityManagedPath)/UnityEngine.CoreModule.dll</HintPath><Private>false</Private></Reference>
     <Reference Include="UnityEngine.XRModule"><HintPath>$(UnityManagedPath)/UnityEngine.XRModule.dll</HintPath><Private>false</Private></Reference>
-    <Reference Include="UnityEngine.VRModule"><HintPath>$(UnityManagedPath)/UnityEngine.VRModule.dll</HintPath><Private>false</Private></Reference>
     <Reference Include="UnityEngine.SubsystemsModule"><HintPath>$(UnityManagedPath)/UnityEngine.SubsystemsModule.dll</HintPath><Private>false</Private></Reference>
     <Reference Include="UnityEngine.InputLegacyModule"><HintPath>$(UnityManagedPath)/UnityEngine.InputLegacyModule.dll</HintPath><Private>false</Private></Reference>
     <Reference Include="UnityEngine.InputModule"><HintPath>$(UnityManagedPath)/UnityEngine.InputModule.dll</HintPath><Private>false</Private></Reference>
@@ -27,7 +26,7 @@
   </ItemGroup>
   <Target Name="ValidateOpenXRBuildInputs" BeforeTargets="ResolveReferences">
     <Error Condition="'$(UnityEngineAssemblies)' == '' and '$(UnityManagedPath)' == ''"
-           Text="Set UnityEngineAssemblies to the Unity 2021.3.45f2 Managed/UnityEngine directory." />
+           Text="Set UnityEngineAssemblies to the Unity 6.7 scripting assembly directory." />
     <Error Condition="'$(GameManaged)' == '' and '$(GameManagedPath)' == ''"
            Text="Set GameManaged to the converted managed assembly directory containing NativeH3VR.Game.dll and NativeH3VR.FirstPass.dll." />
     <Error Condition="!Exists('$(UnityManagedPath)/UnityEngine.CoreModule.dll')"

@@ -20,13 +20,24 @@ internal static class IntegrationBuild
         throw new DirectoryNotFoundException("Use the tool from its NativeH3VR source checkout to build the Metal plug-in.");
     }
 
+    internal static string EditorContents(string editor) => Directory.GetParent(editor)?.Parent?.FullName
+        ?? throw new InvalidDataException("Supply the Unity editor executable.");
+
+    internal static async Task<string> ReadEditorVersionAsync(string editor, CancellationToken cancellation)
+    {
+        if (!OperatingSystem.IsMacOS())
+            throw new PlatformNotSupportedException("The Metal tools require macOS and Xcode.");
+        string plist = Path.Combine(EditorContents(editor), "Info.plist");
+        return (await ChildProcess.CheckedAsync("/usr/bin/plutil",
+            ["-extract", "CFBundleVersion", "raw", "-o", "-", plist], cancellation, captureOutput: true)).Trim();
+    }
+
     internal static async Task BuildPluginAsync(string editor, string headers, string output, CancellationToken cancellation)
     {
         if (!OperatingSystem.IsMacOS())
             throw new PlatformNotSupportedException("Building the Apple Silicon Metal plug-in requires macOS and Xcode.");
-        string unity = Directory.GetParent(editor)?.Parent?.FullName
-            ?? throw new InvalidDataException("Supply the Unity editor executable.");
-        string pluginApi = Path.Combine(unity, "PluginAPI");
+        string unity = EditorContents(editor);
+        string pluginApi = Path.Combine(unity, "Resources", "PluginAPI");
         if (!File.Exists(Path.Combine(pluginApi, "IUnityGraphicsMetal.h")))
             throw new InvalidDataException("Unity editor is missing its Metal plug-in API headers.");
         if (!File.Exists(Path.Combine(headers, "openxr", "openxr_platform.h")))
@@ -51,12 +62,17 @@ internal static class IntegrationBuild
     }
 
     internal static async Task<string> BuildAsync(
-        string editor, string headers, string platform, string output, CancellationToken cancellation)
+        string editor, string headers, string platform, string output, string unityVersion, CancellationToken cancellation)
     {
-        editor = SafeFiles.Canonical(editor);
+        ConversionConfig.RequireSupportedUnityVersion(unityVersion);
+        editor = InstallationDiscovery.NormalizeEditorPath(SafeFiles.Canonical(editor));
         headers = SafeFiles.Canonical(headers);
         platform = SafeFiles.Canonical(platform);
+        SafeFiles.RequirePrivateOutput(SourceRoot(), output);
         output = SafeFiles.Canonical(output);
+        var actualVersion = await ReadEditorVersionAsync(editor, cancellation);
+        if (actualVersion != unityVersion)
+            throw new InvalidDataException($"Expected Unity {unityVersion}; this editor is {actualVersion}.");
         if (File.Exists(output) || Directory.Exists(output) || new FileInfo(output).LinkTarget is not null)
             throw new IOException("Choose a new integration output directory: " + output);
         string parent = Path.GetDirectoryName(output)!;
@@ -78,7 +94,7 @@ internal static class IntegrationBuild
                 entries.Add(new(source, "Assets/OpenXRProvider/" + source, SafeFiles.Hash(destination)));
             }
             entries.AddRange(StagePlatform(platform, staging));
-            var manifest = new Manifest(1, ConversionConfig.TargetVersion, "StandaloneOSX", "OpenXR", "NativeH3VR.UnityMetal", entries);
+            var manifest = new Manifest(1, unityVersion, "StandaloneOSX", "OpenXR", "NativeH3VR.UnityMetal", entries);
             SafeFiles.AtomicJson(Path.Combine(staging, "integration.json"), manifest);
             Directory.Move(staging, output);
             return Path.Combine(output, "integration.json");

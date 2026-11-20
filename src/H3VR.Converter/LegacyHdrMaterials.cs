@@ -107,8 +107,12 @@ internal static class LegacyHdrMaterials
         string report = Path.Combine("NativeH3VR-RecoveredSources", "legacy-hdr-materials.json");
         string destination = SafeFiles.Inside(root, report);
         Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
-        File.WriteAllText(destination, JsonSerializer.Serialize(new {
-            schemaVersion = 1, extractionFingerprint = extraction.Fingerprint, materials = receipts, dynamicTags
+        File.WriteAllText(destination, JsonSerializer.Serialize(new
+        {
+            schemaVersion = 1,
+            extractionFingerprint = extraction.Fingerprint,
+            materials = receipts,
+            dynamicTags
         }, ConversionConfig.Json));
         return report;
     }

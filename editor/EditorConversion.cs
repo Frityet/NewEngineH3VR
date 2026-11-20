@@ -7,6 +7,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
 using UnityEditor;
+using UnityEditor.Build;
 using UnityEditor.Build.Reporting;
 using UnityEditor.SceneManagement;
 using UnityEngine;
@@ -17,7 +18,6 @@ namespace H3VRConverter
 {
     public static class EditorConversion
     {
-        private const string TargetVersion = "2021.3.45f2";
         [Serializable] private sealed class MissingScript { public string asset; public long gameObject; public int count; }
         [Serializable] private sealed class Baseline { public MissingScript[] missingScripts; }
         [Serializable]
@@ -62,7 +62,9 @@ namespace H3VRConverter
             var errors = new List<string>();
             try
             {
-                if (Application.unityVersion != TargetVersion) throw new InvalidOperationException("Expected Unity " + TargetVersion + "; got " + Application.unityVersion);
+                var expectedVersion = Argument("-nativeH3vrUnityVersion");
+                if (!string.Equals(Application.unityVersion, expectedVersion, StringComparison.Ordinal))
+                    throw new InvalidOperationException("Expected Unity " + expectedVersion + "; got " + Application.unityVersion);
                 AssetDatabase.Refresh(ImportAssetOptions.ForceSynchronousImport);
                 var target = EditorUserBuildSettings.activeBuildTarget;
                 if (!BuildPipeline.IsBuildTargetSupported(BuildPipeline.GetBuildTargetGroup(target), target))
@@ -76,8 +78,9 @@ namespace H3VRConverter
                     PlayerSettings.productName = "NativeH3VR Linux Build Probe";
                 }
                 else OpenXRConfiguration.Configure(target);
-                PlayerSettings.SetScriptingBackend(BuildTargetGroup.Standalone, ScriptingImplementation.Mono2x);
-                PlayerSettings.SetManagedStrippingLevel(BuildTargetGroup.Standalone, ManagedStrippingLevel.Disabled);
+                var standalone = NamedBuildTarget.Standalone;
+                PlayerSettings.SetScriptingBackend(standalone, ScriptingImplementation.Mono2x);
+                PlayerSettings.SetManagedStrippingLevel(standalone, ManagedStrippingLevel.Disabled);
                 PlayerSettings.enableFrameTimingStats = true;
                 if (target == BuildTarget.StandaloneWindows64)
                 {
@@ -91,8 +94,8 @@ namespace H3VRConverter
                 }
                 else if (target == BuildTarget.StandaloneOSX)
                 {
-                    // Unity 2021.3 documents architecture 1 as ARM64.
-                    PlayerSettings.SetArchitecture(BuildTargetGroup.Standalone, 1);
+                    // Unity's standalone macOS architecture ID 1 selects ARM64.
+                    PlayerSettings.SetArchitecture(standalone, 1);
                     EditorUserBuildSettings.SetPlatformSettings("Standalone", "OSXUniversal", "Architecture", "ARM64");
                     PlayerSettings.SetUseDefaultGraphicsAPIs(target, false);
                     PlayerSettings.SetGraphicsAPIs(target, new[] { GraphicsDeviceType.Metal });
@@ -102,9 +105,9 @@ namespace H3VRConverter
                             Path.GetFullPath(Directory.GetCurrentDirectory())))).Replace("-", "").Substring(0, 16).ToLowerInvariant();
                     PlayerSettings.companyName = "NativeH3VR-" + workspaceId;
                     PlayerSettings.productName = "NativeH3VR";
-                    PlayerSettings.SetApplicationIdentifier(BuildTargetGroup.Standalone, "local.nativeh3vr.player." + workspaceId);
-                    if (PlayerSettings.GetArchitecture(BuildTargetGroup.Standalone) != 1 ||
-                        PlayerSettings.GetScriptingBackend(BuildTargetGroup.Standalone) != ScriptingImplementation.Mono2x ||
+                    PlayerSettings.SetApplicationIdentifier(standalone, "local.nativeh3vr.player." + workspaceId);
+                    if (PlayerSettings.GetArchitecture(standalone) != 1 ||
+                        PlayerSettings.GetScriptingBackend(standalone) != ScriptingImplementation.Mono2x ||
                         !PlayerSettings.GetGraphicsAPIs(target).SequenceEqual(new[] { GraphicsDeviceType.Metal }))
                         throw new InvalidOperationException("Could not select Apple Silicon, Mono and Metal for the macOS player.");
                 }

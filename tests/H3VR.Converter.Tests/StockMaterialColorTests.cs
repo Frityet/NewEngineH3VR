@@ -17,7 +17,8 @@ internal static class StockMaterialColorTests
             Require(LegacyStockMaterialColors.Apply(wrongRevision.MainModule, true) == 0);
             Require(LegacyStockMaterialColors.Apply(other.MainModule, true) == 0);
             Require(LegacyStockMaterialColors.Apply(stock.MainModule, false) == 0);
-        });
+        }
+        );
 
         yield return ("the stock HDR setter importer rejects a missing original call before changing the assembly", () =>
         {
@@ -35,7 +36,8 @@ internal static class StockMaterialColorTests
                 return;
             }
             throw new InvalidOperationException("An unexpected stock setter was accepted.");
-        });
+        }
+        );
     }
 
     static AssemblyDefinition Assembly(string name, Guid mvid)

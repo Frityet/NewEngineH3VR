@@ -14,6 +14,7 @@ public static class ApplicationTests
         yield return ("status does not require or create game and Unity paths", StatusIsReadOnly);
         yield return ("offline doctor checks extraction without probing or creating Unity and cache paths", DoctorExtractIsReadOnly);
         yield return ("extract validation does not require a Unity editor", ExtractNeedsNoEditor);
+        yield return ("checkout workspace must be isolated inside .local and cannot escape through a link", LocalWorkspaceBoundary);
         yield return ("tool cache defaults to the checkout and excludes other input paths", CheckoutCache);
         yield return ("cache and offline changes do not invalidate conversion receipts", CacheSettingsDoNotInvalidateReceipt);
     }
@@ -24,12 +25,15 @@ public static class ApplicationTests
         var configDir = Path.Combine(temp.Root, "settings");
         var cwd = Path.Combine(temp.Root, "run");
         Directory.CreateDirectory(configDir); Directory.CreateDirectory(cwd);
-        Write(Path.Combine(cwd, "flag-unity/2021.3.45f2/Editor/Unity.exe"), "synthetic editor marker");
+        const string selectedVersion = "6000.7.0b9";
+        var flagInstall = Path.Combine("flag-unity", selectedVersion);
+        var flagExecutable = Path.Combine(cwd, flagInstall, "Editor", "Unity.exe");
+        Write(flagExecutable, "synthetic editor marker");
         var configPath = Path.Combine(configDir, "h3vr.json");
         var json = new ConversionConfig
         {
             GameDirectory = "../json-game",
-            UnityEditor = "../json-unity/2021.3.45f2/Editor/Unity.exe",
+            UnityEditor = "../json-unity/6000.7.0b10/Editor/Unity.exe",
             Workspace = "../json-work",
             ToolCacheDirectory = "../json-cache",
             BuildTarget = "StandaloneWindows64"
@@ -39,7 +43,8 @@ public static class ApplicationTests
         var flags = new ConversionOptions
         {
             Game = "flag-game",
-            Unity = "flag-unity/2021.3.45f2",
+            Unity = flagInstall,
+            UnityVersion = selectedVersion,
             Workspace = "flag-work",
             Cache = "flag-cache",
             Shaders = "flag-shaders",
@@ -49,7 +54,9 @@ public static class ApplicationTests
         var applied = ConverterApplication.ApplyOptions(loaded, flags, cwd);
         Check(loaded.GameDirectory == Path.GetFullPath(Path.Combine(configDir, "../json-game")), "JSON game path was not resolved relative to its file");
         Check(applied.GameDirectory == Path.GetFullPath(Path.Combine(cwd, "flag-game")), "flag game path was not resolved relative to the command working directory");
-        Check(applied.UnityEditor == Path.GetFullPath(Path.Combine(cwd, "flag-unity/2021.3.45f2/Editor/Unity.exe")), "Unity folder flag was not normalized to its executable relative to CWD");
+        Check(applied.UnityEditor == flagExecutable, "Unity folder flag was not normalized to its executable relative to CWD");
+        Check(applied.UnityVersion == selectedVersion && loaded.UnityVersion == ConversionConfig.TargetVersion,
+            "the CLI Unity version did not override the configured version");
         Check(applied.Workspace == Path.GetFullPath(Path.Combine(cwd, "flag-work")) &&
               applied.ToolCacheDirectory == Path.GetFullPath(Path.Combine(cwd, "flag-cache")) &&
               applied.ShaderSources == Path.GetFullPath(Path.Combine(cwd, "flag-shaders")) &&
@@ -82,14 +89,14 @@ public static class ApplicationTests
         var config = new ConversionConfig();
         var games = new[] { Path.Combine(temp.Root, "H3VR-one") };
         var editors = new[] { Path.Combine(temp.Root, "Unity-one") };
-        var unique = ConverterApplication.WithDefaults(config, games, editors);
+        var unique = ConverterApplication.WithDefaults(config, games, editors, temp.Root);
         Check(unique.GameDirectory == games[0] && unique.UnityEditor == editors[0], "unique candidates were not selected by default");
         var multiple = ConverterApplication.WithDefaults(config, games.Append(Path.Combine(temp.Root, "H3VR-two")).ToArray(),
-            editors.Append(Path.Combine(temp.Root, "Unity-two")).ToArray());
+            editors.Append(Path.Combine(temp.Root, "Unity-two")).ToArray(), temp.Root);
         Check(multiple.GameDirectory.Length == 0 && multiple.UnityEditor.Length == 0,
             "application silently chose among multiple game/editor candidates");
-        Check(unique.Workspace == InstallationDiscovery.DefaultWorkspace() && unique.ToolCacheDirectory is null,
-            "workspace discovery did not keep the optional cache override unset");
+        Check(unique.Workspace == Path.Combine(temp.Root, ".local", "workspace") && unique.ToolCacheDirectory is null,
+            "workspace discovery did not anchor the default at the checkout or kept a cache override");
     }
 
     private static void StatusIsReadOnly()
@@ -156,6 +163,30 @@ public static class ApplicationTests
         config.Validate(repository, "extract");
         Check(Capture(() => config.Validate(repository, "validate")) is InvalidDataException,
             "non-extract validation unexpectedly accepted a missing Unity editor");
+    }
+
+    private static void LocalWorkspaceBoundary()
+    {
+        using var temp = new Temp();
+        var game = Path.Combine(temp.Root, "game");
+        Write(Path.Combine(game, "h3vr_Data/Managed/Assembly-CSharp.dll"), "synthetic marker");
+        var checkout = Path.Combine(temp.Root, "checkout");
+        var local = Path.Combine(checkout, ".local");
+        var external = Path.Combine(temp.Root, "external");
+        Directory.CreateDirectory(local);
+        Directory.CreateDirectory(external);
+        var link = Path.Combine(local, "link");
+        Directory.CreateSymbolicLink(link, external);
+        var config = new ConversionConfig
+        {
+            GameDirectory = game,
+            Workspace = Path.Combine(local, "workspace"),
+            BuildTarget = "StandaloneWindows64"
+        };
+        config.Validate(checkout, "extract");
+        foreach (var invalid in new[] { checkout, local, Path.Combine(checkout, "tools", "workspace"), Path.Combine(link, "workspace") })
+            Check(Capture(() => (config with { Workspace = invalid }).Validate(checkout, "extract")) is InvalidDataException,
+                "accepted an unsafe checkout workspace: " + invalid);
     }
 
     private static void CacheSettingsDoNotInvalidateReceipt()

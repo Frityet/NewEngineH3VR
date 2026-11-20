@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using System.Globalization;
 using System.Text.Json;
+using H3VR.Converter;
 
 namespace UnityMetalCli;
 
@@ -9,7 +10,7 @@ internal static class Program
     private static readonly Command[] Commands =
     [
         new("build", "Build the ARM64 Metal client and write a local Unity integration manifest.",
-            [PathOption("unity-editor"), PathOption("openxr-headers"), PathOption("platform"), PathOption("output")]),
+            [PathOption("unity-editor"), PathOption("openxr-headers"), PathOption("platform"), PathOption("output"), new("unity-version", "VERSION")]),
         new("run", "Launch a private Apple Silicon player against a verified MacVR package.",
             [
                 PathOption("app"), PathOption("runtime"), PathOption("state-dir"), PathOption("log-file"),
@@ -64,7 +65,8 @@ internal static class Program
             {
                 case "build":
                     Console.WriteLine(await IntegrationBuild.BuildAsync(
-                        options["unity-editor"], options["openxr-headers"], options["platform"], options["output"], cancellation.Token));
+                        options["unity-editor"], options["openxr-headers"], options["platform"], options["output"],
+                        options.Get("unity-version") ?? ConversionConfig.TargetVersion, cancellation.Token));
                     return 0;
                 case "run":
                     bool synthetic = options.Has("synthetic");

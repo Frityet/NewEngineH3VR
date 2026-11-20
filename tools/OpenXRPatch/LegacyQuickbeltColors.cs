@@ -3,7 +3,7 @@ using Mono.Cecil.Cil;
 
 public static class LegacyQuickbeltColors
 {
-    // Measured in both Unity 5.6 and 2021.3 using Mathf.GammaToLinearSpace(.3f).
+    // Captured from the original player with Mathf.GammaToLinearSpace(.3f).
     private const float LegacyTint = 0.3f;
     private const float LinearTint = 0.07323897f;
 

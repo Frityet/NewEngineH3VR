@@ -35,7 +35,7 @@ internal static class LegacyTextMesh
             || clear is null || body.ExceptionHandlers.Count != 0)
             throw new InvalidDataException("Unexpected legacy uGUI Text mesh layout.");
 
-        // Unity 2021's TextGenerator has no trailing quad and can return zero vertices.
+        // TextGenerator no longer supplies the trailing quad and can return zero vertices.
         // Keep the whole count and clear the mesh before leaving the empty path.
         oldPadding.OpCode = OpCodes.Dup;
         subtract.OpCode = OpCodes.Brtrue;

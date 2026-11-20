@@ -22,8 +22,10 @@ public sealed class ConverterApplication(string repository, IAnsiConsole console
         var needsEditor = request.Command == ConverterCommand.Init ||
             (request.Command is ConverterCommand.Convert or ConverterCommand.Doctor && (options.Tui || through != "extract"));
         var games = needsGame && config.GameDirectory.Length == 0 ? InstallationDiscovery.DiscoverGameDirectories() : [];
-        var editors = needsEditor && config.UnityEditor.Length == 0 ? InstallationDiscovery.DiscoverUnityEditors() : [];
-        config = WithDefaults(config, games, editors);
+        if (needsEditor) ConversionConfig.RequireSupportedUnityVersion(config.UnityVersion);
+        var editors = needsEditor && config.UnityEditor.Length == 0
+            ? InstallationDiscovery.DiscoverUnityEditors(version: config.UnityVersion) : [];
+        config = WithDefaults(config, games, editors, repository);
 
         if (options.Tui)
         {
@@ -55,7 +57,7 @@ public sealed class ConverterApplication(string repository, IAnsiConsole console
                 config.Validate(repository, through);
                 if (through != "extract") config.VerifyEditorVersion();
                 ShowConfiguration(config, through);
-                if (config.ShaderSources is null && through is not ("extract" or "managed"))
+                if (config.ShaderSources is null && config.DxbcCompiler is null && through is not ("extract" or "managed"))
                     console.WriteLine("Shader overlay is unset. Project preparation will stop if the recovery contains dummy shaders. See docs/shader-recovery.md.");
                 await new Pipeline(repository, config).Run(through, cancellation);
                 console.Write(new Text("Completed through " + through + ". Workspace: " + config.Workspace + "\n", new Style(Color.Green)));
@@ -72,8 +74,11 @@ public sealed class ConverterApplication(string repository, IAnsiConsole console
         {
             GameDirectory = options.Game ?? config.GameDirectory,
             UnityEditor = options.Unity ?? config.UnityEditor,
+            UnityVersion = options.UnityVersion ?? config.UnityVersion,
             Workspace = options.Workspace ?? config.Workspace,
             ShaderSources = options.Shaders ?? config.ShaderSources,
+            DxbcCompiler = options.DxbcCompiler ?? config.DxbcCompiler,
+            SpirvCross = options.SpirvCross ?? config.SpirvCross,
             RecoveredProject = options.Recovered ?? config.RecoveredProject,
             ExtractionWorkspace = options.ExtractionWorkspace ?? config.ExtractionWorkspace,
             IntegrationManifest = options.Integration ?? config.IntegrationManifest,
@@ -93,11 +98,11 @@ public sealed class ConverterApplication(string repository, IAnsiConsole console
         return result;
     }
 
-    internal static ConversionConfig WithDefaults(ConversionConfig config, IReadOnlyList<string> games, IReadOnlyList<string> editors) => config with
+    internal static ConversionConfig WithDefaults(ConversionConfig config, IReadOnlyList<string> games, IReadOnlyList<string> editors, string? workingDirectory = null) => config with
     {
         GameDirectory = config.GameDirectory.Length == 0 && games.Count == 1 ? games[0] : config.GameDirectory,
         UnityEditor = config.UnityEditor.Length == 0 && editors.Count == 1 ? editors[0] : config.UnityEditor,
-        Workspace = config.Workspace.Length == 0 ? InstallationDiscovery.DefaultWorkspace() : config.Workspace
+        Workspace = config.Workspace.Length == 0 ? InstallationDiscovery.DefaultWorkspace(workingDirectory) : config.Workspace
     };
 
     private async Task<string> ChooseDiscovered(string label, string current, IReadOnlyList<string> candidates, CancellationToken cancellation)
@@ -133,32 +138,15 @@ public sealed class ConverterApplication(string repository, IAnsiConsole console
         if (!File.Exists(Path.Combine(config.ManagedInput, "Assembly-CSharp.dll")))
             throw new InvalidDataException("Set --game to your installed H3VR directory.");
         var output = new ConversionConfig { Workspace = options.Output ?? config.Workspace + "-shaders" }.ResolvePaths(Environment.CurrentDirectory).Workspace;
-        var cache = config.CacheDirectory(repository);
-        foreach (var input in new[] { repository, config.GameDirectory, cache, config.Workspace })
-            SafeFiles.RequireSeparate(input, output);
-        config.ValidateToolCache(repository, config.GameDirectory, config.Workspace);
-        if (Directory.Exists(output) && Directory.EnumerateFileSystemEntries(output).Any())
-            throw new IOException("Shader output must be empty: " + output);
-        console.WriteLine("Preparing the pinned shader exporter in " + cache);
-        var exporter = await ShaderToolCache.EnsureAsync(cache, config.Offline, cancellation);
-        // The exporter writes next to its executable, even with a different
-        // working directory. Run an isolated copy so the verified cache remains immutable.
-        var runtimeCopy = output + ".exporter-" + Guid.NewGuid().ToString("N");
-        try
-        {
-            SafeFiles.CopyTree(Path.GetDirectoryName(exporter)!, runtimeCopy);
-            var result = await ShaderRecovery.RecoverAsync(new(config.GameData, output,
-                Path.Combine(runtimeCopy, Path.GetFileName(exporter))), cancellation);
-            console.WriteLine($"Recovered {result.ExportedShaders} shader files to {result.OutputDirectory}.");
-            console.WriteLine("These are raw, unvalidated sources. Validate and assemble an identity-matched overlay before using --shaders; see docs/shader-recovery.md.");
-            return 0;
-        }
-        finally { if (Directory.Exists(runtimeCopy)) Directory.Delete(runtimeCopy, true); }
+        var result = await LocalShaderPreparation.RecoverAsync(repository, config, output, cancellation);
+        console.WriteLine($"Recovered {result.ExportedShaders} shader files to {result.OutputDirectory}.");
+        console.WriteLine("These are raw, unvalidated sources. Validate and assemble an identity-matched overlay before using --shaders; see docs/shader-recovery.md.");
+        return 0;
     }
 
     private void ShowConfiguration(ConversionConfig config, string through)
     {
-        console.Write(new Rule("H3VR → Unity " + ConversionConfig.TargetVersion).LeftJustified());
+        console.Write(new Rule("H3VR → Unity " + config.UnityVersion).LeftJustified());
         var table = new Table().Border(TableBorder.Rounded).AddColumn("Setting").AddColumn("Value");
         Add("Game", config.GameDirectory.Length == 0 ? "Not found; use --game" : config.GameDirectory);
         Add("Unity", config.UnityEditor.Length == 0 ? "Not found; use --unity" : config.UnityEditor);
@@ -167,7 +155,7 @@ public sealed class ConverterApplication(string repository, IAnsiConsole console
         if (config.BuildProbe) Add("Build profile", "Linux cross-build probe (no XR or native game plug-ins)");
         if (config.CompactPlayerData) Add("Player data", "Chunked LZ4");
         Add("Recovery", config.ExtractionWorkspace ?? config.RecoveredProject ?? "AssetRipper 2.0.0 (automatic)");
-        Add("Shaders", config.ShaderSources ?? "Not set");
+        Add("Shaders", config.ShaderSources ?? (config.DxbcCompiler is null ? "Not set" : "Generate from the installed copy"));
         Add("Cache", config.CacheDirectory(repository));
         Add("Tool provisioning", config.Offline ? "Cached tools only" : "Download and build when needed");
         Add("Through", through);

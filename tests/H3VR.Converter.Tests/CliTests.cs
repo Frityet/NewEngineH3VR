@@ -27,6 +27,7 @@ public static class CliTests
         var console = new TestConsole();
         var requests = new List<CommandRequest>();
         int code = Cli.RunAsync(new[] { "--game", "/tmp/Game With Spaces", "--unity", "/tmp/Unity",
+                "--unity-version", "6000.7.0b9",
                 "--workspace", "/tmp/workspace", "--shaders", "/tmp/shaders", "--recovered", "/tmp/recovered",
                 "--target", "macos", "--integration", "/tmp/integration.json", "--cache", "/tmp/cache",
                 "--offline", "--through", "project", "--verbose", "--no-color", "--output", "/tmp/output" },
@@ -35,6 +36,7 @@ public static class CliTests
         var request = requests.Single();
         Check(code == 23 && request.Command == ConverterCommand.Convert, "bare flags did not dispatch Convert or preserve its exit code");
         Check(request.Options.Game == "/tmp/Game With Spaces" && request.Options.Unity == "/tmp/Unity" &&
+              request.Options.UnityVersion == "6000.7.0b9" &&
               request.Options.Workspace == "/tmp/workspace" && request.Options.Shaders == "/tmp/shaders" &&
               request.Options.Recovered == "/tmp/recovered" && request.Options.Target == "macos" &&
               request.Options.Integration == "/tmp/integration.json" && request.Options.Cache == "/tmp/cache" &&

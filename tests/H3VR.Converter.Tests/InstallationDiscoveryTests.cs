@@ -7,9 +7,11 @@ public static class InstallationDiscoveryTests
     public static IEnumerable<(string Name, Action Run)> Cases()
     {
         yield return ("Steam library discovery follows escaped multi-library VDF paths and filters H3VR", SteamLibraries);
-        yield return ("Unity discovery returns only the pinned Hub version and explicit editor", UnityEditors);
+        yield return ("Unity discovery filters to the exact selected Unity 6.7 patch", UnityEditors);
         yield return ("Unity editor path normalization accepts executable and install folders", EditorNormalization);
-        yield return ("default conversion workspace is a stable per-user location", DefaultWorkspace);
+        yield return ("Unity 6.7 editor layout uses relocated script and Mono reference assemblies", EditorLayout);
+        yield return ("Unity version guard accepts only exact 6.7 editor versions", SupportedVersions);
+        yield return ("default conversion workspace is isolated under the checkout", DefaultWorkspace);
     }
 
     private static void SteamLibraries()
@@ -43,20 +45,27 @@ public static class InstallationDiscoveryTests
         using var temp = new Temp();
         var hub = Path.Combine(temp.Root, "Hub Editors");
         var target = Path.Combine(hub, InstallationDiscovery.TargetUnityVersion);
-        var other = Path.Combine(hub, "2022.3.0f1");
+        const string alternate = "6000.7.0b9";
+        var otherPatch = Path.Combine(hub, alternate);
+        var outsideSeries = Path.Combine(hub, "6000.6.9f1");
         var explicitTarget = Path.Combine(temp.Root, "custom", InstallationDiscovery.TargetUnityVersion);
         var targetExe = InstallEditor(target);
-        InstallEditor(other);
+        var otherPatchExe = InstallEditor(otherPatch);
+        InstallEditor(outsideSeries);
         InstallEditor(explicitTarget);
         var found = InstallationDiscovery.DiscoverUnityEditors(temp.Root, [hub], explicitTarget);
         Check(found.Count == 2 && found.Contains(targetExe) && found.Contains(InstallationDiscovery.NormalizeEditorPath(explicitTarget)),
             "Unity discovery failed to return Hub plus explicit target editors or returned a non-target version");
+        Check(InstallationDiscovery.DiscoverUnityEditors(temp.Root, [hub], explicitTarget, alternate)
+            .SequenceEqual(new[] { otherPatchExe }), "custom patch selection included the default patch");
+        Check(Capture(() => InstallationDiscovery.DiscoverUnityEditors(temp.Root, [hub], explicitTarget, "6000.6.9f1")) is InvalidDataException,
+            "direct discovery accepted an editor outside Unity 6.7");
     }
 
     private static void EditorNormalization()
     {
         using var temp = new Temp();
-        var install = Path.Combine(temp.Root, "2021.3.45f2");
+        var install = Path.Combine(temp.Root, ConversionConfig.TargetVersion);
         var executable = InstallEditor(install);
         Check(InstallationDiscovery.NormalizeEditorPath(executable) == executable, "Unity executable path changed during normalization");
         Check(InstallationDiscovery.NormalizeEditorPath(install) == executable, "installed Unity editor folder did not normalize to its executable");
@@ -65,10 +74,44 @@ public static class InstallationDiscoveryTests
             "folder without a Unity executable was accepted");
     }
 
+    private static void EditorLayout()
+    {
+        using var temp = new Temp();
+        var install = Path.Combine(temp.Root, ConversionConfig.TargetVersion);
+        var data = OperatingSystem.IsMacOS()
+            ? Path.Combine(install, "Unity.app", "Contents")
+            : Path.Combine(install, "Editor", "Data");
+        var executable = OperatingSystem.IsMacOS()
+            ? Path.Combine(data, "MacOS", "Unity") : Path.Combine(install, "Editor", "Unity.exe");
+        var config = new ConversionConfig { UnityEditor = executable };
+        var scripting = Path.Combine(data, "Resources", "Scripting");
+        Check(config.UnityData == data && config.EngineAssemblies == Path.Combine(scripting, "Managed", "UnityEngine") &&
+              config.MonoReferenceAssemblies == Path.Combine(scripting, "MonoBleedingEdge", "lib", "mono", "4.7.1-api"),
+            "Unity 6.7 editor scripting assemblies are under Data/Resources/Scripting");
+        if (OperatingSystem.IsMacOS())
+            Check(config.MacPlayerAssemblies == Path.Combine(install, "PlaybackEngines", "MacStandaloneSupport", "Variations", "mono", "Managed"),
+                "Unity 6.7 macOS playback support is alongside Unity.app");
+
+        Write(Path.Combine(data, "Info.plist"), $"<plist><dict><key>CFBundleVersion</key><string>{ConversionConfig.TargetVersion}</string></dict></plist>");
+        config.VerifyEditorVersion();
+        Check(Capture(() => (config with { UnityVersion = "6000.7.0b9" }).VerifyEditorVersion()) is InvalidDataException,
+            "a different 6.7 patch must fail the configured version check");
+    }
+
+    private static void SupportedVersions()
+    {
+        foreach (var version in new[] { "6000.7.0a1", "6000.7.0b10", "6000.7.1f1", "6000.7.1p1" })
+            ConversionConfig.RequireSupportedUnityVersion(version);
+        foreach (var version in new[] { "6.7", "6000.7.0", "6000.6.9f1", "6000.70.0b1", "6000.7.0b10\n" })
+            Check(Capture(() => ConversionConfig.RequireSupportedUnityVersion(version)) is InvalidDataException,
+                "accepted a version outside the exact 6.7 series: " + version);
+    }
+
     private static void DefaultWorkspace()
     {
-        var home = Path.Combine(Path.GetTempPath(), "unity-user-home");
-        Check(InstallationDiscovery.DefaultWorkspace(home) == Path.Combine(home, "H3VR-Unity2021"), "workspace default is not user-local");
+        var checkout = Path.Combine(Path.GetTempPath(), "synthetic-checkout");
+        Check(InstallationDiscovery.DefaultWorkspace(checkout) == Path.GetFullPath(Path.Combine(checkout, ".local", "workspace")),
+            "workspace default is not rooted in the supplied checkout's .local folder");
     }
 
     private static void InstallGame(string library, string marker)

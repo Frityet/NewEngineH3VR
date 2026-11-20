@@ -1,17 +1,21 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Text.RegularExpressions;
 
 namespace H3VR.Converter;
 
 public sealed record ConversionConfig
 {
-    public const string TargetVersion = "2021.3.45f2";
+    public const string TargetVersion = "6000.7.0b10";
+    public string UnityVersion { get; init; } = TargetVersion;
     public string GameDirectory { get; init; } = "";
     public string UnityEditor { get; init; } = "";
     public string Workspace { get; init; } = "";
     public string? RecoveredProject { get; init; }
     public string? ExtractionWorkspace { get; init; }
     public string? ShaderSources { get; init; }
+    public string? DxbcCompiler { get; init; }
+    public string? SpirvCross { get; init; }
     public string? ToolCacheDirectory { get; init; }
     public bool Offline { get; init; }
     public string? IntegrationManifest { get; init; }
@@ -46,6 +50,8 @@ public sealed record ConversionConfig
             RecoveredProject = Optional(RecoveredProject),
             ExtractionWorkspace = Optional(ExtractionWorkspace),
             ShaderSources = Optional(ShaderSources),
+            DxbcCompiler = Optional(DxbcCompiler),
+            SpirvCross = Optional(SpirvCross),
             IntegrationManifest = Optional(IntegrationManifest),
             ToolCacheDirectory = Optional(ToolCacheDirectory)
         };
@@ -72,7 +78,21 @@ public sealed record ConversionConfig
         }
     }
     [JsonIgnore]
-    public string EngineAssemblies => Path.Combine(UnityData, "Managed", "UnityEngine");
+    public string UnityScripting => Path.Combine(UnityData, "Resources", "Scripting");
+    [JsonIgnore] public string EngineAssemblies => Path.Combine(UnityScripting, "Managed", "UnityEngine");
+    [JsonIgnore] public string MonoReferenceAssemblies => Path.Combine(UnityScripting, "MonoBleedingEdge", "lib", "mono", "4.7.1-api");
+    [JsonIgnore]
+    public string MacPlayerAssemblies => Path.Combine(
+        Path.GetDirectoryName(Path.GetDirectoryName(UnityData)!)!,
+        "PlaybackEngines", "MacStandaloneSupport", "Variations", "mono", "Managed");
+
+    public static bool IsUnitySixSeven(string? version) => version is not null && Regex.IsMatch(version, @"\A6000\.7\.\d+[abfp]\d+\z");
+
+    public static void RequireSupportedUnityVersion(string version)
+    {
+        if (!IsUnitySixSeven(version))
+            throw new InvalidDataException($"Choose an exact Unity 6.7 editor version such as {TargetVersion}.");
+    }
 
     internal string CacheDirectory(string repository) =>
         ToolCacheDirectory ?? DefaultCacheDirectory(repository);
@@ -85,7 +105,7 @@ public sealed record ConversionConfig
         var cache = Path.TrimEndingDirectorySeparator(Path.GetFullPath(CacheDirectory(repository)));
         var comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
         if (!cache.Equals(DefaultCacheDirectory(repository), comparison))
-            SafeFiles.RequireSeparate(repository, cache);
+            SafeFiles.RequirePrivateOutput(repository, cache);
         else if (new DirectoryInfo(cache).LinkTarget is not null)
             throw new InvalidDataException("The checkout's cache must be a real directory. Use --cache to choose another location.");
 
@@ -95,14 +115,16 @@ public sealed record ConversionConfig
 
     public void Validate(string repository, string through = "validate")
     {
+        RequireSupportedUnityVersion(UnityVersion);
         RequireColdRecovery(through);
-        if (string.IsNullOrWhiteSpace(Workspace)) throw new InvalidDataException("Set --workspace to an empty directory outside the checkout.");
+        if (string.IsNullOrWhiteSpace(Workspace)) throw new InvalidDataException("Set --workspace to an empty directory under .local or outside the checkout.");
         if (!File.Exists(Path.Combine(ManagedInput, "Assembly-CSharp.dll")))
             throw new InvalidDataException("Set --game to your installed H3VR folder containing h3vr_Data/Managed/Assembly-CSharp.dll, or use --tui.");
         if (BuildTarget == "StandaloneOSX") PlayerReceipt.ValidateSupportedInstallation(GameDirectory);
         if (through != "extract" && (!File.Exists(UnityEditor) || !File.Exists(Path.Combine(EngineAssemblies, "UnityEngine.CoreModule.dll"))))
-            throw new InvalidDataException("Set --unity to the Unity 2021.3.45f2 editor executable or installation folder, or use --tui.");
-        foreach (var input in new[] { GameDirectory, string.IsNullOrEmpty(UnityEditor) ? null : UnityData, repository, RecoveredProject, ExtractionWorkspace, ShaderSources }.OfType<string>())
+            throw new InvalidDataException($"Set --unity to an installation of Unity {UnityVersion} containing its scripting assemblies, or use --tui.");
+        SafeFiles.RequirePrivateOutput(repository, Workspace);
+        foreach (var input in new[] { GameDirectory, string.IsNullOrEmpty(UnityEditor) ? null : UnityData, RecoveredProject, ExtractionWorkspace, ShaderSources, IntegrationManifest is null ? null : Path.GetDirectoryName(IntegrationManifest) }.OfType<string>())
             SafeFiles.RequireSeparate(input, Workspace);
         if (BuildTarget is not ("StandaloneWindows64" or "StandaloneOSX" or "StandaloneLinux64"))
             throw new InvalidDataException("BuildTarget must be StandaloneWindows64, StandaloneOSX or StandaloneLinux64.");
@@ -110,6 +132,15 @@ public sealed record ConversionConfig
             throw new InvalidDataException("--build-probe requires --target linux without a platform integration.");
         if (through is not ("extract" or "managed") && BuildTarget != "StandaloneWindows64" && IntegrationManifest is null && !BuildProbe)
             throw new InvalidDataException("Non-Windows builds require a compatible platform integration manifest; Windows native plugins cannot run on other platforms.");
+        if ((DxbcCompiler is null) != (SpirvCross is null))
+            throw new InvalidDataException("Use --dxbc-compiler and --spirv-cross together to generate a local shader overlay.");
+        if (DxbcCompiler is not null)
+        {
+            if (ShaderSources is not null || RecoveredProject is not null || ExtractionWorkspace is not null)
+                throw new InvalidDataException("Automatic shader generation needs a cold extraction in this workspace. Omit --shaders, --recovered and --reuse-extraction.");
+            if (!File.Exists(DxbcCompiler) || !File.Exists(SpirvCross))
+                throw new InvalidDataException("Set --dxbc-compiler and --spirv-cross to the installed translator executables.");
+        }
         ValidateToolCache(repository, GameDirectory, string.IsNullOrEmpty(UnityEditor) ? null : UnityData, Workspace, RecoveredProject, ExtractionWorkspace, ShaderSources);
         if (through == "build" && BuildTarget == "StandaloneOSX")
             PlayerEnlighten.RequireClassDatabase(CacheDirectory(repository));
@@ -134,8 +165,8 @@ public sealed record ConversionConfig
         var document = System.Xml.Linq.XDocument.Load(plist);
         var key = document.Descendants("key").FirstOrDefault(k => k.Value == "CFBundleVersion");
         var value = key?.ElementsAfterSelf().FirstOrDefault()?.Value;
-        if (value != TargetVersion)
-            throw new InvalidDataException($"Expected Unity {TargetVersion}; this editor is {value ?? "unknown"}.");
+        if (value != UnityVersion)
+            throw new InvalidDataException($"Expected Unity {UnityVersion}; this editor is {value ?? "unknown"}.");
     }
 }
 

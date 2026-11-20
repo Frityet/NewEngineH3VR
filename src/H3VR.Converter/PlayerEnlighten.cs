@@ -14,6 +14,9 @@ public static class PlayerEnlighten
 {
     internal const string ClassDatabaseName = "legacy-unity-classdata.tpk";
     internal const string ClassDatabaseSha256 = "129e1f80f930415db6779fe6089afa75280cb51462bcee812beab6cd81a764c6";
+    private const uint SharedSubtreeFormat = 26;
+    private const int SerializedFileHeaderSize = 48;
+    private const string UnitySixLightmapSettingsHash = "2f93a6ca3848c1af1d1062d35b580284";
 
     public sealed record SceneReceipt(string Scene, string SourceLevel, string TargetLevel, int ProbeSets,
         string SourceLevelSha256, string OriginalTargetSha256, string StagedTargetSha256, string[] ProbeHashes);
@@ -31,8 +34,9 @@ public static class PlayerEnlighten
         return database;
     }
 
-    public static Receipt Stage(string sourceData, string targetData, string classDatabase, string expectedDatabaseSha256, string output)
+    public static Receipt Stage(string sourceData, string targetData, string classDatabase, string expectedDatabaseSha256, string output, string targetVersion)
     {
+        ConversionConfig.RequireSupportedUnityVersion(targetVersion);
         string source = Path.GetFullPath(sourceData), target = Path.GetFullPath(targetData);
         string database = Path.GetFullPath(classDatabase), dest = Path.GetFullPath(output);
         if (!Directory.Exists(source) || !Directory.Exists(target) || !File.Exists(database)) throw new FileNotFoundException("Missing input data or class database.");
@@ -52,7 +56,7 @@ public static class PlayerEnlighten
             string sourceGlobalHash = SafeFiles.Hash(Path.Combine(source, "globalgamemanagers"));
             string targetGlobalHash = SafeFiles.Hash(Path.Combine(target, "globalgamemanagers"));
             var sourceScenes = ReadScenePaths(manager, source, "5.6.7f1");
-            var targetScenes = ReadScenePaths(manager, target, "2021.3.45f2");
+            var targetScenes = ReadScenePaths(manager, target, targetVersion);
             var targetIndex = targetScenes.Select((name, index) => (name, index)).ToDictionary(x => x.name, x => x.index, StringComparer.OrdinalIgnoreCase);
             var planned = ReadSourceScenes(manager, source, sourceScenes);
             foreach (var scene in planned) if (!targetIndex.ContainsKey(scene.Scene)) throw new InvalidDataException("Player is missing original GI scene: " + scene.Scene);
@@ -65,7 +69,7 @@ public static class PlayerEnlighten
                 string input = Path.Combine(target, targetLevel), staged = Path.Combine(staging, targetLevel);
                 if (!File.Exists(input)) throw new FileNotFoundException("Player scene is missing: " + targetLevel);
                 string beforeHash = SafeFiles.Hash(input);
-                StageLevel(manager, input, staged, scene.Mapping);
+                StageLevel(manager, input, staged, scene.Mapping, targetVersion);
                 if (SafeFiles.Hash(input) != beforeHash) throw new IOException("Player input changed during staging: " + targetLevel);
                 files.Add(targetLevel, SafeFiles.Hash(staged));
                 foreach (var pair in scene.Files)
@@ -272,8 +276,13 @@ public static class PlayerEnlighten
             RequireVersion(manager, file, expectedVersion);
             var objects = file.file.GetAssetsOfType(AssetClassID.BuildSettings);
             if (objects.Count != 1) throw new InvalidDataException("Expected exactly one BuildSettings: " + path);
-            var array = manager.GetBaseField(file, objects[0])["scenes.Array"];
-            if (array.IsDummy) throw new InvalidDataException("Missing BuildSettings scenes: " + path);
+            var info = objects[0];
+            var template = manager.GetTemplateBaseField(file, info).Children[0];
+            if (template.Name != "scenes") throw new InvalidDataException("Missing leading BuildSettings scenes: " + path);
+            var sceneField = template.MakeValue(file.file.Reader, info.GetAbsoluteByteOffset(file.file));
+            var array = sceneField["Array"];
+            if (array.IsDummy || !ReadObjectBytes(file, info).AsSpan().StartsWith(sceneField.WriteToByteArray()))
+                throw new InvalidDataException("Cannot prove the BuildSettings scene table extent: " + path);
             var scenes = array.Children.Select(x => CanonicalScene(x.AsString)).ToArray();
             if (scenes.Length == 0 || scenes.Distinct(StringComparer.OrdinalIgnoreCase).Count() != scenes.Length) throw new InvalidDataException("Empty or duplicate scene paths: " + path);
             return scenes;
@@ -346,52 +355,112 @@ public static class PlayerEnlighten
         return bytes;
     }
 
-    private static void StageLevel(AssetsManager manager, string input, string output, byte[] mappingBytes)
+    private static void StageLevel(AssetsManager manager, string input, string output, byte[] mappingBytes, string targetVersion)
     {
         var file = manager.LoadAssetsFile(input, false);
-        long pathId; byte[] originalObject, patchedObject; int offset, oldLength;
+        long pathId; byte[] originalObject, patchedObject; int oldLength;
         Dictionary<long, (string Metadata, long Size, string Hash)> untouched;
         try
         {
-            RequireVersion(manager, file, "2021.3.45f2");
+            RequireVersion(manager, file, targetVersion);
             var objects = file.file.GetAssetsOfType(AssetClassID.LightmapSettings);
             if (objects.Count != 1) throw new InvalidDataException("Expected one target LightmapSettings: " + input);
             var info = objects[0]; pathId = info.PathId;
             untouched = FingerprintObjects(input, file.file, pathId);
-            var field = manager.GetBaseField(file, info); var mapping = field["m_EnlightenSceneMapping"];
-            if (mapping.IsDummy || !mapping.Children.Select(x => x.FieldName).SequenceEqual(MappingFields)) throw new InvalidDataException("Unsupported target mapping schema: " + input);
+            var mapping = ReadTargetMapping(manager, file, info);
             var arrays = mapping.Children.Select(x => x["Array"]).ToArray();
             if (arrays.Any(x => x.IsDummy) || arrays.Any(x => x.Children.Count != 0)) throw new InvalidDataException("Target mapping is not empty: " + input);
-            byte[] serialized = field.WriteToByteArray();
-            byte[] concatenated = field.Children.SelectMany(x => x.WriteToByteArray()).ToArray();
-            using (var read = File.OpenRead(input)) { read.Position = info.GetAbsoluteByteOffset(file.file); originalObject = new byte[checked((int)info.ByteSize)]; read.ReadExactly(originalObject); }
-            if (!originalObject.AsSpan().SequenceEqual(serialized) || !serialized.AsSpan().SequenceEqual(concatenated)) throw new InvalidDataException("Cannot prove target serialized field extents: " + input);
-            int fieldIndex = field.Children.FindIndex(x => x.FieldName == "m_EnlightenSceneMapping");
-            if (fieldIndex < 0) throw new InvalidDataException("Target mapping field absent: " + input);
-            offset = field.Children.Take(fieldIndex).Sum(x => x.WriteToByteArray().Length); oldLength = mapping.WriteToByteArray().Length;
-            if (oldLength != 20 || mapping.WriteToByteArray().Any(x => x != 0)) throw new InvalidDataException("Unexpected empty target mapping encoding: " + input);
+            byte[] emptyMapping = mapping.WriteToByteArray();
+            originalObject = ReadObjectBytes(file, info);
+            oldLength = emptyMapping.Length;
+            if (oldLength != 20 || emptyMapping.Any(x => x != 0) || !originalObject.AsSpan().StartsWith(emptyMapping))
+                throw new InvalidDataException("Unexpected empty target mapping encoding: " + input);
             patchedObject = new byte[checked(originalObject.Length - oldLength + mappingBytes.Length)];
-            originalObject.AsSpan(0, offset).CopyTo(patchedObject); mappingBytes.CopyTo(patchedObject, offset);
-            originalObject.AsSpan(offset + oldLength).CopyTo(patchedObject.AsSpan(offset + mappingBytes.Length));
+            mappingBytes.CopyTo(patchedObject, 0);
+            originalObject.AsSpan(oldLength).CopyTo(patchedObject.AsSpan(mappingBytes.Length));
             info.SetNewData(patchedObject);
-            using var stream = File.Create(output); using var writer = new AssetsFileWriter(stream); file.file.Write(writer, 0);
+            WritePlayerLevel(file, output);
         }
         finally { manager.UnloadAssetsFile(file); }
         var staged = manager.LoadAssetsFile(output, false);
         try
         {
-            RequireVersion(manager, staged, "2021.3.45f2");
+            RequireVersion(manager, staged, targetVersion);
             var stagedUntouched = FingerprintObjects(output, staged.file, pathId);
             if (untouched.Count != stagedUntouched.Count || untouched.Any(p => !stagedUntouched.TryGetValue(p.Key, out var value) || value != p.Value))
                 throw new InvalidDataException("Unrelated player objects changed during serialization: " + input);
             var info = staged.file.GetAssetInfo(pathId) ?? throw new InvalidDataException("Staged LightmapSettings is missing.");
-            byte[] actual = new byte[checked((int)info.ByteSize)]; using var stream = File.OpenRead(output); stream.Position = info.GetAbsoluteByteOffset(staged.file); stream.ReadExactly(actual);
+            byte[] actual = ReadObjectBytes(staged, info);
             if (!actual.AsSpan().SequenceEqual(patchedObject)) throw new InvalidDataException("Staged LightmapSettings failed byte roundtrip.");
-            var parsed = manager.GetBaseField(staged, info)["m_EnlightenSceneMapping"];
+            var parsed = ReadTargetMapping(manager, staged, info);
             if (!parsed.WriteToByteArray().AsSpan().SequenceEqual(mappingBytes)) throw new InvalidDataException("Staged probe mapping failed parse roundtrip.");
-            if (!actual.AsSpan(0, offset).SequenceEqual(originalObject.AsSpan(0, offset)) || !actual.AsSpan(offset + mappingBytes.Length).SequenceEqual(originalObject.AsSpan(offset + oldLength))) throw new InvalidDataException("Unrelated target object bytes changed.");
+            if (!actual.AsSpan(mappingBytes.Length).SequenceEqual(originalObject.AsSpan(oldLength))) throw new InvalidDataException("Unrelated target object bytes changed.");
         }
         finally { manager.UnloadAssetsFile(staged); }
+    }
+
+    private static AssetTypeValueField ReadTargetMapping(AssetsManager manager, AssetsFileInstance file, AssetFileInfo info)
+    {
+        RequireTypeHash(file, AssetClassID.LightmapSettings, UnitySixLightmapSettingsHash);
+        // The 6.7 player keeps the mapping first but changed later GI settings fields.
+        // Decode just the mapping so the remaining serialized object stays byte-identical.
+        var template = manager.GetTemplateBaseField(file, info).Children[0];
+        if (template.Name != "m_EnlightenSceneMapping" || !template.Children.Select(x => x.Name).SequenceEqual(MappingFields))
+            throw new InvalidDataException("Unsupported target mapping schema: " + file.path);
+        return template.MakeValue(file.file.Reader, info.GetAbsoluteByteOffset(file.file));
+    }
+
+    internal static byte[] ReadObjectBytes(AssetsFileInstance file, AssetFileInfo info)
+    {
+        using var stream = File.OpenRead(file.path);
+        stream.Position = info.GetAbsoluteByteOffset(file.file);
+        var bytes = new byte[checked((int)info.ByteSize)];
+        stream.ReadExactly(bytes);
+        return bytes;
+    }
+
+    internal static void WritePlayerLevel(AssetsFileInstance file, string output)
+    {
+        var header = file.file.Header;
+        var metadata = file.file.Metadata;
+        if (header.Version != SharedSubtreeFormat || metadata.TypeTreeEnabled || !string.IsNullOrEmpty(metadata.UserInformation))
+            throw new InvalidDataException("Unsupported Unity 6.7 player scene metadata: " + file.path);
+        VerifyEmptySharedSubtreeTable(file.path, header);
+        // The pinned AssetsTools writer omits the v26 shared-subtree count.
+        // An empty table is four zero bytes before the empty user-info string.
+        metadata.UserInformation = new string('\0', sizeof(uint));
+        try
+        {
+            using var writer = new AssetsFileWriter(output);
+            file.file.Write(writer, 0);
+        }
+        finally { metadata.UserInformation = string.Empty; }
+
+        using var reader = new AssetsFileReader(output);
+        var writtenHeader = new AssetsFileHeader();
+        writtenHeader.Read(reader);
+        VerifyEmptySharedSubtreeTable(output, writtenHeader);
+    }
+
+    private static void VerifyEmptySharedSubtreeTable(string path, AssetsFileHeader header)
+    {
+        using var reader = new AssetsFileReader(path) { BigEndian = header.Endianness };
+        reader.Position = SerializedFileHeaderSize;
+        var metadata = new AssetsFileMetadata();
+        metadata.Read(reader, header.Version);
+        if (metadata.TypeTreeEnabled || !string.IsNullOrEmpty(metadata.UserInformation) ||
+            reader.Position + sizeof(uint) != SerializedFileHeaderSize + (long)header.MetadataSize)
+            throw new InvalidDataException("Unity 6.7 scene requires an empty shared-subtree table: " + path);
+        reader.Position--;
+        if (reader.ReadUInt32() != 0 || reader.ReadByte() != 0)
+            throw new InvalidDataException("Unexpected shared-subtree table or user information: " + path);
+    }
+
+    internal static void RequireTypeHash(AssetsFileInstance file, AssetClassID type, string expected)
+    {
+        int index = file.file.Metadata.FindTypeTreeTypeIndexByID((int)type, ushort.MaxValue);
+        if (index < 0 || file.file.Metadata.TypeTreeTypes[index].TypeHash.ToString() != expected)
+            throw new InvalidDataException($"Unsupported {type} layout in {file.file.Metadata.UnityVersion}: {file.path}");
     }
 
     private static Dictionary<long, (string Metadata, long Size, string Hash)> FingerprintObjects(string path, AssetsFile file, long excluded)
@@ -416,10 +485,11 @@ public static class PlayerEnlighten
         return result;
     }
 
-    private static void RequireVersion(AssetsManager manager, AssetsFileInstance file, string version)
+    internal static void RequireVersion(AssetsManager manager, AssetsFileInstance file, string version)
     {
         if (file.file.Metadata.UnityVersion != version) throw new InvalidDataException("Unsupported Unity version: " + file.file.Metadata.UnityVersion);
-        manager.LoadClassDatabaseFromPackage(version);
+        if (manager.LoadClassDatabaseFromPackage(version) is null)
+            throw new InvalidDataException("Missing class database for Unity " + version);
     }
     private static void RejectLinks(string root)
     {

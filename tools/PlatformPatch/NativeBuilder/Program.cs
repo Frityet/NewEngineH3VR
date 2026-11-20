@@ -86,7 +86,8 @@ internal static partial class NativeBuilder
         var sdk = Path.Combine(options["--fmod-sdk"], "api");
         if (Directory.Exists(output) || File.Exists(output))
             throw new IOException("Output already exists. Choose a new directory.");
-        foreach (var input in new[] { repository, wrapper, options["--fmod-sdk"], Path.GetDirectoryName(steamApi)! })
+        SafeFiles.RequirePrivateOutput(repository, output);
+        foreach (var input in new[] { wrapper, options["--fmod-sdk"], Path.GetDirectoryName(steamApi)! })
             SafeFiles.RequireSeparate(input, output);
 
         if (await Git(wrapper, ["rev-parse", "HEAD"], cancellation) != CSteamworksRevision)

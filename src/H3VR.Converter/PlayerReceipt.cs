@@ -45,7 +45,7 @@ internal static class PlayerReceipt
         return build;
     }
 
-    internal static string Write(string app, string game, string extractionReceipt)
+    internal static string Write(string app, string game, string extractionReceipt, string unityVersion = ConversionConfig.TargetVersion)
     {
         ValidateSupportedInstallation(game);
         var contents = Path.Combine(app, "Contents");
@@ -67,7 +67,7 @@ internal static class PlayerReceipt
         {
             schemaVersion = 1,
             modHostSchemaVersion = 2,
-            unityVersion = ConversionConfig.TargetVersion,
+            unityVersion,
             buildTarget = "StandaloneOSX",
             architecture = "arm64",
             playerExecutable = executable,

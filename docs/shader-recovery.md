@@ -23,7 +23,7 @@ dotnet run --project src/H3VR.Converter -- recover-shaders \
 - The first run builds the exporter and caches it in the repo's ignored `cache/` folder. Later runs check its hashes before reusing it.
 - `--cache` puts the cache somewhere else. `--offline` only uses a cached build that's already been checked.
 - If you leave out `--output`, it uses your workspace path with `-shaders` on the end.
-- The output folder must be empty, and can't be inside the game, this repo, the workspace or the tool cache.
+- The output folder must be empty and separate from the game, workspace and tool cache. Use an ignored folder under the checkout's `.local` directory or a separate private directory.
 - Big shaders can take many minutes. Each request has a two-hour limit, and you can cancel.
 
 You get these files in the output folder:
@@ -75,6 +75,21 @@ What the fork adds:
 
 You can rerun recovery and linking as often as you like in the same workspace, as long as the game and extractor stay the same.
 
+To prepare the graphics and compute overlay in one command, give it the completed cold extraction, raw recovery and translation tools from this guide.
+
+```sh
+dotnet run --project tools/ShaderOverlay -c Release -- prepare \
+  --workspace "/path/to/private-workspace" \
+  --recovery "/path/to/private-raw-shaders" \
+  --steam-install "/path/to/H3VR" \
+  --class-database "/path/to/legacy-unity-classdata.tpk" \
+  --dxbc-compiler "/path/to/dxil-spirv" \
+  --spirv-cross "/path/to/spirv-cross" \
+  --output "/path/to/private-shader-overlay"
+```
+
+The command creates the output only after both stages succeed. Pass that directory to the converter's `--shaders` option. To diagnose either stage separately, use the commands below.
+
 ### 1. Link the export to the extraction
 
 Extraction and shader recovery each record where every shader came from. This step joins the two:
@@ -112,9 +127,9 @@ Large passes are split into guarded include files (hashed in the receipt) that c
 
 The link step also writes `shader-variant-domains.json`. It lists the real keyword combinations for every pass group whose original Direct3D programs match all the generated guards.
 
-When Unity builds for Metal, Direct3D 11 or Vulkan, the build strips any combination that isn't in that list for its pass group ([how Unity does this](https://docs.unity3d.com/2021.3/Documentation/ScriptReference/Build.IPreprocessShaders.OnProcessShader.html)). The guards in the source still catch anything the catalog can't vouch for.
+When Unity builds for Metal, Direct3D 11 or Vulkan, the build strips any combination that isn't in that list for its pass group. The guards in the source still catch anything the catalog can't vouch for. [Unity shader preprocessing](https://docs.unity3d.com/6000.7/Documentation/ScriptReference/Build.IPreprocessShaders.OnProcessShader.html)
 
-If a material turns on several keywords from the same group, Unity picks the closest variant it has ([shader keywords](https://docs.unity3d.com/cn/2021.3/Manual/shader-keywords-scripts.html)). Making sure that matches what Unity 5.6 did means comparing renders.
+If a material turns on several keywords from the same group, Unity picks the closest variant it has. Making sure that matches what Unity 5.6 did means comparing renders. [Unity shader keywords](https://docs.unity3d.com/6000.7/Documentation/Manual/shader-keywords.html)
 
 ### Why the raw export isn't enough
 
@@ -124,7 +139,7 @@ The recovery receipt marks the output `raw-export-unvalidated`, and the converte
 - reflection metadata or keyword variants
 - Unity import, Metal pipeline creation, or how it looks
 
-Our earlier working overlay needed custom fixes, targeted Unity/Metal tests, and some hand-restored shaders (partly from public historical sources). These tools alone can't rebuild it. A fresh install needs its own review and testing.
+The pinned exporter and overlay tools apply the recorded source and keyword repairs. The Unity build still needs to compile the translated programs and render the target scenes. Validate again whenever the Steam build, exporter or Unity version changes.
 
 **Don't replace every shader with one fallback shader just to make the project compile.**
 
@@ -135,6 +150,16 @@ The steps above only cover regular shaders. Steam build `25002541` also has 11 c
 You need:
 - [dxil-spirv](https://github.com/HansKristian-Work/dxil-spirv/tree/a781dce9b5f2dd076f419d7f98dcc2dcf5f011d5) at `a781dce9b5f2dd076f419d7f98dcc2dcf5f011d5`, built locally
 - [SPIRV-Cross](https://github.com/KhronosGroup/SPIRV-Cross) from Vulkan SDK `1.4.357.0`
+
+To build the pinned DXIL translator, check out that commit, run `git submodule update --init` and build the CLI with CMake.
+
+```sh
+cmake -S "/path/to/dxil-spirv-source" -B "/path/to/translator-build" \
+  -DCMAKE_BUILD_TYPE=Release -DSPIRV_SKIP_TESTS=ON
+cmake --build "/path/to/translator-build" --config Release --target dxil-spirv
+```
+
+Keep the translator in its build directory with its shared library.
 
 ```sh
 dotnet run --project tools/ShaderOverlay -c Release -- compute \

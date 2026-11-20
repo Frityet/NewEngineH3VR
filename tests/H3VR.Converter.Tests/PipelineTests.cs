@@ -241,6 +241,8 @@ public static class PipelineTests
         Check(before == afterProjectOptions, "managed-stage fingerprint included shader settings that begin at project preparation");
         var targetChange = new Pipeline(fixture.Repository, config with { BuildTarget = "StandaloneOSX" }).FingerprintForTests("managed");
         Check(before != targetChange, "managed-stage fingerprint ignored the target-specific adapter");
+        var versionChange = new Pipeline(fixture.Repository, config with { UnityVersion = "6000.7.0b9" }).FingerprintForTests("managed");
+        Check(before != versionChange, "managed-stage fingerprint ignored the selected Unity version");
         File.WriteAllText(Path.Combine(fixture.EngineAssemblies, "UnityEngine.CoreModule.dll"), "updated-engine-assembly");
         var afterUnityChange = new Pipeline(fixture.Repository, config).FingerprintForTests("managed");
         Check(before != afterUnityChange, "managed-stage fingerprint ignored Unity engine inputs");
@@ -324,7 +326,7 @@ public static class PipelineTests
         public string Shaders => Path.Combine(root, "shaders");
         public string Workspace => Path.Combine(root, "workspace");
         public string UnityData => Path.Combine(root, "UnityEditor", "Data");
-        public string EngineAssemblies => Path.Combine(UnityData, "Managed", "UnityEngine");
+        public string EngineAssemblies => Path.Combine(UnityData, "Resources", "Scripting", "Managed", "UnityEngine");
 
         public Fixture()
         {
@@ -365,7 +367,9 @@ public static class PipelineTests
         {
             Write(Path.Combine(root, "UnityEditor/Unity"), "synthetic editor executable");
             Write(Path.Combine(EngineAssemblies, "UnityEngine.CoreModule.dll"), "synthetic engine assembly");
-            Write(Path.Combine(UnityData, "MonoBleedingEdge/lib/mono/4.7.1-api/mscorlib.dll"), "synthetic framework assembly");
+            Write(Path.Combine(UnityData, "Resources/Scripting/MonoBleedingEdge/lib/mono/4.7.1-api/mscorlib.dll"), "synthetic framework assembly");
+            Write(Path.Combine(root, "PlaybackEngines/MacStandaloneSupport/Variations/mono/Managed/UnityEngine.VideoModule.dll"),
+                "synthetic macOS Mono player assembly");
         }
 
         public Dictionary<string, string> InputHashes()
