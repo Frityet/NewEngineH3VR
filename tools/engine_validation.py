@@ -18,6 +18,14 @@ import tempfile
 FIXTURE = Path(__file__).resolve().parents[1] / "fixture"
 TARGET_VERSION = "6000.7.0b10"
 CAPTURES = ("raster.png", "stereo-left.png", "stereo-right.png")
+EXPECTED_CHECKS = frozenset({
+    "alpha-blend", "back-face-culled", "camera-layer-exclusion", "depth-rejects-later-far-draw",
+    "far-draw-remains-visible-around-occluder", "far-plane-clip", "fixed-step-gravity", "front-face-visible",
+    "geometry-visible-at-viewport-edge", "graphics-device", "near-plane-clip", "opaque-background-under-blend",
+    "parented-transform-round-trip", "physics-contact", "physics-raycast", "point-texture-bottom-left",
+    "point-texture-bottom-right", "point-texture-top-left", "point-texture-top-right", "raster-shader",
+    "stereo-horizontal-parallax", "stereo-vertical-alignment",
+})
 MAX_MEAN_CHANNEL_ERROR = 1.0
 PIXEL_ERROR_THRESHOLD = 8
 MAX_CHANGED_PIXEL_FRACTION = 0.005
@@ -91,12 +99,14 @@ def run_process(command, log, env, timeout):
         raise ValidationError(f"Process exited with status {result.returncode}. See {log.parent}")
 
 
-def read_report(directory, version, graphics):
+def read_report(directory, version, graphics, scripting_backend):
     report = json.loads((directory / "report.json").read_text(encoding="utf-8"))
     if not isinstance(report, dict) or report.get("version") != version:
         raise ValidationError(f"Expected a report from Unity {version} in {directory}")
     if report.get("graphicsDevice") != graphics:
         raise ValidationError(f"Expected {graphics} in {directory}, found {report.get('graphicsDevice')!r}")
+    if report.get("scriptingBackend") != scripting_backend:
+        raise ValidationError(f"Expected {scripting_backend} in {directory}, found {report.get('scriptingBackend')!r}")
     checks = report.get("checks")
     if not isinstance(checks, list) or not checks:
         raise ValidationError(f"No checks in {directory}")
@@ -108,6 +118,10 @@ def read_report(directory, version, graphics):
         if not name or name in names or check.get("passed") is not True:
             raise ValidationError(f"Invalid or failed check {name!r} in {directory}")
         names.add(name)
+    missing = sorted(EXPECTED_CHECKS - names)
+    unexpected = sorted(names - EXPECTED_CHECKS)
+    if missing or unexpected:
+        raise ValidationError(f"Wrong fixture checks in {directory}. Missing {missing}. Unexpected {unexpected}.")
     captures = report.get("captures")
     if report.get("passed") is not True or captures != list(CAPTURES):
         raise ValidationError(f"Fixture failed or did not produce its full report in {directory}")
@@ -191,9 +205,10 @@ def check_player(player, target):
 
 def run_fixture(editor, target, output, *, build_only, keep_player, reference, coreclr):
     profile = TARGETS[target]
+    scripting_backend = "CoreCLR" if coreclr else "Mono"
     output.mkdir()
     summary = {"version": editor.version, "architecture": profile.architecture,
-               "scripting_backend": "CoreCLR" if coreclr else "Mono",
+               "scripting_backend": scripting_backend,
                "graphics_api": profile.graphics, "status": "built", "passed": True}
     with tempfile.TemporaryDirectory(prefix="unity-engine-probe-") as temporary:
         scratch = Path(temporary)
@@ -224,7 +239,7 @@ def run_fixture(editor, target, output, *, build_only, keep_player, reference, c
                 executable, profile.graphics_flag, "-logFile", output / "player.log",
                 "-probe-output", output,
             ], output / "player-process.log", env, 90)
-            checks = read_report(output, editor.version, profile.graphics)
+            checks = read_report(output, editor.version, profile.graphics, scripting_backend)
             summary.update(status="ran", checks=sorted(checks))
         if keep_player:
             shutil.move(player_dir, output / "player")

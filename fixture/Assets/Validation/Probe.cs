@@ -35,6 +35,7 @@ namespace EngineValidation
         {
             public string version;
             public string graphicsDevice;
+            public string scriptingBackend;
             public bool passed;
             public Check[] checks;
             public string[] captures;
@@ -58,11 +59,13 @@ namespace EngineValidation
                 Record("probe-exception", false, error.ToString());
             }
 
+            string scriptingBackend = DetectScriptingBackend();
             var report = new Report
             {
                 version = Application.unityVersion,
                 graphicsDevice = SystemInfo.graphicsDeviceType.ToString(),
-                passed = checks.Count != 0 && checks.TrueForAll(check => check.passed),
+                scriptingBackend = scriptingBackend,
+                passed = scriptingBackend != "Unknown" && checks.Count != 0 && checks.TrueForAll(check => check.passed),
                 checks = checks.ToArray(),
                 captures = captures.ToArray()
             };
@@ -79,6 +82,16 @@ namespace EngineValidation
             }
 
             Application.Quit(report.passed ? 0 : 1);
+        }
+
+        private static string DetectScriptingBackend()
+        {
+            var runtimeLibrary = typeof(object).Assembly;
+            if (runtimeLibrary.GetName().Name == "System.Private.CoreLib")
+                return "CoreCLR";
+            if (runtimeLibrary.GetType("Mono.Runtime") != null)
+                return "Mono";
+            return "Unknown";
         }
 
         private void RunChecks()

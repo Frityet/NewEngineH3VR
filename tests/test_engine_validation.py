@@ -29,7 +29,8 @@ class EngineValidationTests(unittest.TestCase):
         report = {
             "version": engine.TARGET_VERSION,
             "graphicsDevice": "Metal",
-            "checks": [{"name": "depth", "passed": True}],
+            "scriptingBackend": "Mono",
+            "checks": [{"name": name, "passed": True} for name in sorted(engine.EXPECTED_CHECKS)],
             "captures": list(engine.CAPTURES),
             "passed": True,
         }
@@ -148,7 +149,8 @@ class EngineValidationTests(unittest.TestCase):
 
     def test_validates_version_metal_and_success(self):
         self.write_report()
-        self.assertEqual(engine.read_report(self.output, engine.TARGET_VERSION, "Metal"), {"depth"})
+        self.assertEqual(engine.read_report(self.output, engine.TARGET_VERSION, "Metal", "Mono"),
+                         engine.EXPECTED_CHECKS)
         for changes in ({"version": "2021.3.45f2"}, {"graphicsDevice": "Null"},
                         {"passed": False}, {"checks": []},
                         {"checks": [{"name": "depth", "passed": "true"}]},
@@ -156,25 +158,43 @@ class EngineValidationTests(unittest.TestCase):
                         {"captures": ["../out.png"]}):
             self.write_report(**changes)
             with self.subTest(changes=changes), self.assertRaises(engine.ValidationError):
-                engine.read_report(self.output, engine.TARGET_VERSION, "Metal")
+                engine.read_report(self.output, engine.TARGET_VERSION, "Metal", "Mono")
+
+    def test_requires_complete_fixture_checks(self):
+        checks = [{"name": name, "passed": True} for name in sorted(engine.EXPECTED_CHECKS)]
+        for changes, message in ((checks[1:], "Missing .*alpha-blend"),
+                                 (checks + [{"name": "unrecognized", "passed": True}], "Unexpected .*unrecognized")):
+            self.write_report(checks=changes)
+            with self.subTest(message=message), self.assertRaisesRegex(engine.ValidationError, message):
+                engine.read_report(self.output, engine.TARGET_VERSION, "Metal", "Mono")
+
+    def test_requires_observed_scripting_backend(self):
+        self.write_report(scriptingBackend="CoreCLR")
+        self.assertEqual(engine.read_report(self.output, engine.TARGET_VERSION, "Metal", "CoreCLR"),
+                         engine.EXPECTED_CHECKS)
+        for backend in ("CoreCLR", "Unknown", None):
+            self.write_report(scriptingBackend=backend)
+            with self.subTest(backend=backend), self.assertRaisesRegex(engine.ValidationError, "Expected Mono"):
+                engine.read_report(self.output, engine.TARGET_VERSION, "Metal", "Mono")
 
     def test_requires_expected_graphics_backend_for_each_platform(self):
         for graphics in ("Direct3D11", "Vulkan"):
             self.write_report(graphicsDevice=graphics)
             with self.subTest(graphics=graphics):
-                self.assertEqual(engine.read_report(self.output, engine.TARGET_VERSION, graphics), {"depth"})
+                self.assertEqual(engine.read_report(self.output, engine.TARGET_VERSION, graphics, "Mono"),
+                                 engine.EXPECTED_CHECKS)
                 with self.assertRaisesRegex(engine.ValidationError, "Expected Metal"):
-                    engine.read_report(self.output, engine.TARGET_VERSION, "Metal")
+                    engine.read_report(self.output, engine.TARGET_VERSION, "Metal", "Mono")
 
     def test_missing_and_malformed_captures_never_pass(self):
         self.write_report()
         (self.output / "raster.png").unlink()
         with self.assertRaises(FileNotFoundError):
-            engine.read_report(self.output, engine.TARGET_VERSION, "Metal")
+            engine.read_report(self.output, engine.TARGET_VERSION, "Metal", "Mono")
         self.write_report()
         (self.output / "raster.png").write_bytes(b"corrupt")
         with self.assertRaisesRegex(engine.ValidationError, "Invalid PNG capture"):
-            engine.read_report(self.output, engine.TARGET_VERSION, "Metal")
+            engine.read_report(self.output, engine.TARGET_VERSION, "Metal", "Mono")
 
     def test_subprocess_error_is_visible_and_keeps_log(self):
         log = self.output / "process.log"
