@@ -9,6 +9,17 @@ Shader "NativeH3VR/Stock PBR"
         _BumpMap("Normal Map", 2D) = "bump" {}
         _HasBumpMap("Use Normal Map", Float) = 1
         _BumpScale("Normal Strength", Float) = 1
+        _DetailT("Detail Enabled", Float) = 0
+        _DetailMaskSource("Detail Mask Source", Float) = 0
+        [NoScaleOffset] _DetailMask("Detail Mask", 2D) = "white" {}
+        _DetailMaskStrength("Detail Mask Strength", Float) = 1
+        _DetailMode("Detail Color Mode", Float) = 0
+        _DetailAlbedoMap("Detail Color", 2D) = "white" {}
+        _DetailAlbedoMapVelocity("Detail Scroll", Vector) = (0, 0, 0, 0)
+        _DetailAlbedoMapUV("Detail UV Set", Float) = 0
+        [NoScaleOffset] _DetailNormalMap("Detail Normal Map", 2D) = "bump" {}
+        _DetailWeight("Detail Weight", Float) = 1
+        _DetailNormalMapScale("Detail Normal Strength", Float) = 1
         _SpecTex("Metal / Occlusion / Specularity / Roughness", 2D) = "white" {}
         _Metal("Metallic", Range(0, 1)) = 1
         _Roughness("Roughness", Range(0, 1)) = 1
@@ -37,6 +48,9 @@ Shader "NativeH3VR/Stock PBR"
 
         TEXTURE2D(_MainTex); SAMPLER(sampler_MainTex);
         TEXTURE2D(_BumpMap); SAMPLER(sampler_BumpMap);
+        TEXTURE2D(_DetailMask); SAMPLER(sampler_DetailMask);
+        TEXTURE2D(_DetailAlbedoMap); SAMPLER(sampler_DetailAlbedoMap);
+        TEXTURE2D(_DetailNormalMap); SAMPLER(sampler_DetailNormalMap);
         TEXTURE2D(_SpecTex); SAMPLER(sampler_SpecTex);
         TEXTURE2D(_EmissionMap); SAMPLER(sampler_EmissionMap);
         TEXTURE2D(_IncandescenceMap); SAMPLER(sampler_IncandescenceMap);
@@ -53,6 +67,15 @@ Shader "NativeH3VR/Stock PBR"
             float _BaseColorVertexTint;
             float _HasBumpMap;
             float _BumpScale;
+            float4 _DetailAlbedoMap_ST;
+            float4 _DetailAlbedoMapVelocity;
+            float _DetailT;
+            float _DetailMaskSource;
+            float _DetailMaskStrength;
+            float _DetailMode;
+            float _DetailAlbedoMapUV;
+            float _DetailWeight;
+            float _DetailNormalMapScale;
             float _Metal;
             float _Roughness;
             float _MainRoughnessSource;
@@ -82,11 +105,35 @@ Shader "NativeH3VR/Stock PBR"
             return color;
         }
 
-        half3 StockNormal(float2 uv, half3 normalWS, half4 tangentWS)
+        float2 StockDetailUV(float2 uv0, float2 uv1)
+        {
+            float2 uv = _DetailAlbedoMapUV < 0.5 ? uv0 : uv1;
+            return TRANSFORM_TEX(uv, _DetailAlbedoMap) + _Time.y * _DetailAlbedoMapVelocity.xy;
+        }
+
+        half StockDetailWeight(float2 baseUV, half vertexAlpha)
+        {
+            half mask = vertexAlpha;
+            if (_DetailMaskSource < 0.5)
+                mask = SAMPLE_TEXTURE2D(_DetailMask, sampler_DetailMask, baseUV).a;
+            return lerp(1.0h, mask, _DetailMaskStrength) * _DetailWeight;
+        }
+
+        half3 StockNormal(float2 uv, float2 detailUV, half detailWeight, half3 normalWS, half4 tangentWS)
         {
             if (_HasBumpMap < 0.5 || dot(tangentWS.xyz, tangentWS.xyz) < 0.01)
                 return normalize(normalWS);
             half3 normalTS = UnpackNormalScale(SAMPLE_TEXTURE2D(_BumpMap, sampler_BumpMap, uv), _BumpScale);
+            if (_DetailT > 0.5)
+            {
+                half2 detailXY = UnpackNormalScale(SAMPLE_TEXTURE2D(_DetailNormalMap, sampler_DetailNormalMap,
+                    detailUV), _DetailNormalMapScale * detailWeight).xy;
+                // Alloy reconstructs Z for each weighted normal before blending their slopes.
+                half baseZ = sqrt(saturate(1.0h - dot(normalTS.xy, normalTS.xy)));
+                half detailZ = sqrt(saturate(1.0h - dot(detailXY, detailXY)));
+                normalTS = half3(normalTS.xy + detailXY, baseZ * detailZ);
+                normalTS = normalize(normalTS);
+            }
             half3 bitangentWS = tangentWS.w * cross(normalWS, tangentWS.xyz);
             return normalize(TransformTangentToWorld(normalTS, half3x3(tangentWS.xyz, bitangentWS, normalWS)));
         }
@@ -108,6 +155,7 @@ Shader "NativeH3VR/Stock PBR"
             float2 uv : TEXCOORD0;
             half3 normalWS : TEXCOORD1;
             half4 tangentWS : TEXCOORD2;
+            float2 detailUV : TEXCOORD3;
             half4 color : COLOR;
             UNITY_VERTEX_INPUT_INSTANCE_ID
             UNITY_VERTEX_OUTPUT_STEREO
@@ -121,6 +169,7 @@ Shader "NativeH3VR/Stock PBR"
             UNITY_INITIALIZE_VERTEX_OUTPUT_STEREO(output);
             output.positionCS = TransformObjectToHClip(input.positionOS.xyz);
             output.uv = BaseUV(input.uv);
+            output.detailUV = StockDetailUV(input.uv, input.staticLightmapUV);
             VertexNormalInputs normal = GetVertexNormalInputs(input.normalOS, input.tangentOS);
             output.normalWS = normal.normalWS;
             output.tangentWS = half4(normal.tangentWS, input.tangentOS.w * GetOddNegativeScale());
@@ -176,6 +225,7 @@ Shader "NativeH3VR/Stock PBR"
                 float3 positionWS : TEXCOORD2;
                 half3 normalWS : TEXCOORD3;
                 half4 tangentWS : TEXCOORD4;
+                float2 detailUV : TEXCOORD6;
                 float4 color : COLOR;
             #if USE_LIGHTMAP_UV_INTERPOLATOR
                 float2 staticLightmapUV : TEXCOORD5;
@@ -198,6 +248,7 @@ Shader "NativeH3VR/Stock PBR"
                 output.normalWS = normal.normalWS;
                 output.tangentWS = half4(normal.tangentWS, input.tangentOS.w * GetOddNegativeScale());
                 output.uv = BaseUV(input.uv);
+                output.detailUV = StockDetailUV(input.uv, input.staticLightmapUV);
                 output.originalUV = input.uv;
                 output.color = input.color;
             #if USE_LIGHTMAP_UV_INTERPOLATOR
@@ -213,6 +264,15 @@ Shader "NativeH3VR/Stock PBR"
 
                 half textureAlpha;
                 half4 baseColor = StockBase(input.uv, input.color, textureAlpha);
+                half detailWeight = 0.0h;
+                if (_DetailT > 0.5)
+                {
+                    detailWeight = StockDetailWeight(input.uv, input.color.a);
+                    // Alloy applies either straight multiplication or its linear-space MulX2 factor.
+                    half multiplier = _DetailMode < 0.5 ? 1.0h : 4.594794h;
+                    half3 detail = SAMPLE_TEXTURE2D(_DetailAlbedoMap, sampler_DetailAlbedoMap, input.detailUV).rgb;
+                    baseColor.rgb = saturate(baseColor.rgb * lerp(1.0h, detail * multiplier, detailWeight));
+                }
                 half4 packed = 1.0h;
                 if (_MainRoughnessSource > 0.5)
                     packed.a = textureAlpha;
@@ -240,7 +300,7 @@ Shader "NativeH3VR/Stock PBR"
                 InputData lighting = (InputData)0;
                 lighting.positionWS = input.positionWS;
                 lighting.positionCS = input.positionCS;
-                lighting.normalWS = StockNormal(input.uv, input.normalWS, input.tangentWS);
+                lighting.normalWS = StockNormal(input.uv, input.detailUV, detailWeight, input.normalWS, input.tangentWS);
                 lighting.viewDirectionWS = GetWorldSpaceNormalizeViewDir(input.positionWS);
                 lighting.shadowCoord = TransformWorldToShadowCoord(input.positionWS, false);
                 lighting.normalizedScreenSpaceUV = GetNormalizedScreenSpaceUV(input.positionCS);
@@ -337,7 +397,10 @@ Shader "NativeH3VR/Stock PBR"
                 half textureAlpha;
                 StockBase(input.uv, input.color, textureAlpha);
             #endif
-                half3 normal = StockNormal(input.uv, input.normalWS, input.tangentWS);
+                half detailWeight = 0.0h;
+                if (_DetailT > 0.5 && _HasBumpMap > 0.5)
+                    detailWeight = StockDetailWeight(input.uv, input.color.a);
+                half3 normal = StockNormal(input.uv, input.detailUV, detailWeight, input.normalWS, input.tangentWS);
             #ifdef _GBUFFER_NORMALS_OCT
                 float2 oct = PackNormalOctQuadEncode(normal);
                 return half4(PackFloat2To888(saturate(oct * 0.5 + 0.5)), 0);

@@ -45,7 +45,7 @@ namespace H3VRConverter
         };
         private static readonly string[] AlloyFeatures =
         {
-            "_ParallaxT", "_AO2", "_DetailT", "_TeamColor", "_Decal", "_Rim", "_Dissolve",
+            "_ParallaxT", "_AO2", "_TeamColor", "_Decal", "_Rim", "_Dissolve",
             "_WetnessProperties", "_MainTexUV", "_IncandescenceMapUV",
         };
 
@@ -337,6 +337,23 @@ namespace H3VRConverter
             return true;
         }
 
+        private static bool CanConvertAlloyDetail(Material material)
+        {
+            bool detailEnabled = material.HasProperty("_DetailT") && material.GetFloat("_DetailT") > 0.5f;
+            if (detailEnabled != material.IsKeywordEnabled("_DETAIL_MULX2"))
+                return false;
+            if (!detailEnabled)
+                return true;
+
+            float uvSet = material.GetFloat("_DetailAlbedoMapUV");
+            float maskSource = material.GetFloat("_DetailMaskSource");
+            float blendMode = material.GetFloat("_DetailMode");
+            return (uvSet == 0 || uvSet == 1) &&
+                (maskSource == 0 || maskSource == 1) &&
+                (blendMode == 0 || blendMode == 1) &&
+                (maskSource == 1) == material.IsKeywordEnabled("_NORMALMAP");
+        }
+
         private static bool ConvertAlloy(Material material, Shader stockPbr)
         {
             // Restrict PBR migration to the common opaque and alpha-test recipes. Dynamic
@@ -345,7 +362,8 @@ namespace H3VRConverter
             if (mode < 0 || mode > 1 || material.renderQueue > (int)RenderQueue.GeometryLast ||
                 material.GetFloat("_ZWrite") < 0.5f ||
                 !string.IsNullOrEmpty(material.GetTag("NativeH3VRLegacyHdrColor", false)) ||
-                AlloyFeatures.Any(property => material.HasProperty(property) && material.GetFloat(property) > 0.5f))
+                AlloyFeatures.Any(property => material.HasProperty(property) && material.GetFloat(property) > 0.5f) ||
+                !CanConvertAlloyDetail(material))
                 return false;
 
             int queue = material.renderQueue;
