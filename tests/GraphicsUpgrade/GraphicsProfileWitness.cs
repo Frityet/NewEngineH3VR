@@ -128,6 +128,15 @@ namespace NativeH3VR.QA
                         yield return Sample(scene, "balanced-repeat", false);
                 }
 
+                if (scene == "WarehouseRange_Rebuilt" || scene == "Friendly45_New")
+                {
+                    var shadowQuality = Enum.Parse(key, "ShadowQuality");
+                    var highShadows = options.GetMethod("GetIndex").Invoke(null, new[] { shadowQuality });
+                    set.Invoke(null, new[] { shadowQuality, (object)0 });
+                    yield return Sample(scene, "quality-shadows-off", false);
+                    set.Invoke(null, new[] { shadowQuality, highShadows });
+                }
+
                 set.Invoke(null, new[] { Enum.Parse(key, "Exposure"), (object)4 });
                 yield return Sample(scene, "quality-zero-exposure", false);
 

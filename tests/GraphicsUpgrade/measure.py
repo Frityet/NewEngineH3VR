@@ -11,6 +11,13 @@ import numpy as np
 from PIL import Image
 
 EYES = ("left", "right")
+LUMA_WEIGHTS = (0.2126, 0.7152, 0.0722)
+# Normalized crop bounds (left, top, right, bottom) for the witness's fixed
+# poses. Crop to the sunlit ground and exclude the closest controls and hands.
+SHADOW_REGIONS = {
+    "WarehouseRange_Rebuilt": ((480 / 1440, 1030 / 1600, 975 / 1440, 1260 / 1600), 0.015),
+    "Friendly45_New": ((0.27, 0.61, 0.73, 0.82), 0.03),
+}
 
 
 def pixels(root, scene, label, eye):
@@ -42,6 +49,18 @@ def compare(reference, sample):
             "fractionChangingOver5": round(float((delta.max(axis=2) > 5).mean()), 5)}
 
 
+def shadow_response(scene, images):
+    (left, top, right, bottom), minimum = SHADOW_REGIONS[scene]
+    height, width = images["quality"].shape[:2]
+    region = np.s_[round(top * height):round(bottom * height), round(left * width):round(right * width)]
+    shadow = (images["quality-shadows-off"][region] - images["quality"][region]) @ LUMA_WEIGHTS
+    repeat = (images["balanced-repeat"][region] - images["balanced"][region]) @ LUMA_WEIGHTS
+    darkened = float((shadow > 8).mean())
+    noise = float((np.abs(repeat) > 8).mean())
+    return {"fractionDarkenedOver8": darkened, "repeatFractionChangingOver8": noise,
+            "requiredFractionDarkenedOver8": minimum + noise}
+
+
 def inspect(root, baseline):
     failures = []
     report = {}
@@ -64,6 +83,8 @@ def inspect(root, baseline):
         labels = ("performance", "balanced", "balanced-repeat", "quality", "quality-effects-off")
         if (root / f"{scene}-quality-zero-exposure-pose.txt").is_file():
             labels += ("quality-zero-exposure",)
+        if scene in SHADOW_REGIONS and (root / f"{scene}-quality-shadows-off-pose.txt").is_file():
+            labels += ("quality-shadows-off",)
         reference_pose = pose(root, scene, "balanced")
         for label in labels:
             if not np.allclose(pose(root, scene, label), reference_pose, atol=1e-4, rtol=0):
@@ -89,6 +110,10 @@ def inspect(root, baseline):
             for comparison in (key for key in differences if key != "balancedRepeat"):
                 if differences[comparison]["meanAbsoluteRgbBytes"] <= noise + 0.15:
                     failures.append(f"{scene} {eye} {comparison} was indistinguishable from the repeat noise")
+            if "quality-shadows-off" in images:
+                shadows = data.setdefault("groundShadows", {})[eye] = shadow_response(scene, images)
+                if shadows["fractionDarkenedOver8"] <= shadows["requiredFractionDarkenedOver8"]:
+                    failures.append(f"{scene} {eye} ground shadows were too weak relative to the shadows-off capture")
             if baseline and (baseline / f"{scene}-stock-{eye}.png").is_file():
                 stock = pixels(baseline, scene, "stock", eye)
                 if np.allclose(pose(baseline, scene, "stock"), reference_pose, atol=1e-4, rtol=0) and stock.shape == images["quality"].shape:
