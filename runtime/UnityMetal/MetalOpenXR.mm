@@ -643,8 +643,67 @@ public:
 
 Session bridge;
 std::mutex mutex;
-IUnityGraphicsMetalV1 *unityMetal = nullptr;
+IUnityGraphicsMetalV2 *unityMetal = nullptr;
 dispatch_queue_t releases = nil;
+
+bool encodeEyeCopies(id<MTLCommandBuffer> commands) {
+    for (unsigned i = 0; i < bridge.eyes.size(); i++) {
+        const auto &eye = bridge.eyes[i];
+        id<MTLTexture> target = (__bridge id<MTLTexture>)eye.images[eye.index].texture;
+        MTLRenderPassDescriptor *pass = [MTLRenderPassDescriptor renderPassDescriptor];
+        pass.colorAttachments[0].texture = target;
+        pass.colorAttachments[0].loadAction = MTLLoadActionDontCare;
+        pass.colorAttachments[0].storeAction = MTLStoreActionStore;
+        id<MTLRenderCommandEncoder> encoder = [commands renderCommandEncoderWithDescriptor:pass];
+        if (!encoder) {
+            bridge.fail("Metal eye copy encoder creation failed");
+            return false;
+        }
+        encoder.label = i == 0 ? @"OpenXR left eye copy" : @"OpenXR right eye copy";
+        [encoder setRenderPipelineState:bridge.copyPipeline];
+        [encoder setFragmentTexture:bridge.sources[i] atIndex:0];
+        const auto &view = bridge.views[i];
+        const auto &overlay = bridge.overlay;
+        const EyeCopy uniforms{
+            {overlay.foreground[0], overlay.foreground[1], overlay.foreground[2], overlay.foreground[3]},
+            {overlay.background[0], overlay.background[1], overlay.background[2], overlay.background[3]},
+            {view.pose.position.x, view.pose.position.y, view.pose.position.z, overlay.grid},
+            {view.pose.orientation.x, view.pose.orientation.y, view.pose.orientation.z, view.pose.orientation.w},
+            {std::tan(view.fov.angleLeft), std::tan(view.fov.angleRight), std::tan(view.fov.angleUp), std::tan(view.fov.angleDown)},
+        };
+        [encoder setFragmentBytes:&uniforms length:sizeof(uniforms) atIndex:0];
+        [encoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3];
+        [encoder endEncoding];
+    }
+    return true;
+}
+
+void copyRenderedEyes(bool renderingComplete, uint64_t unityGpuNs) {
+    std::lock_guard<std::mutex> guard(mutex);
+    @autoreleasepool {
+        bridge.unityGpuNs = unityGpuNs;
+        if (!renderingComplete) bridge.fail("Unity Metal command buffer did not complete");
+        id<MTLCommandBuffer> copy = renderingComplete && !bridge.closeRequested ? [bridge.queue commandBuffer] : nil;
+        if (!copy) {
+            if (renderingComplete && !bridge.closeRequested) bridge.fail("Metal eye copy buffer creation failed");
+            bridge.finish(false);
+            if (bridge.closeRequested) bridge.destroy();
+            return;
+        }
+        copy.label = @"OpenXR stereo copy";
+        const bool encoded = encodeEyeCopies(copy);
+        [copy addCompletedHandler:^(id<MTLCommandBuffer> done) {
+            const bool complete = done.status == MTLCommandBufferStatusCompleted;
+            dispatch_async(releases, ^{
+                std::lock_guard<std::mutex> finishGuard(mutex);
+                if (!complete) bridge.fail("Metal eye copy buffer did not complete");
+                bridge.finish(complete && encoded && !bridge.closeRequested);
+                if (bridge.closeRequested) bridge.destroy();
+            });
+        }];
+        [copy commit];
+    }
+}
 
 void UNITY_INTERFACE_API draw(int eventId) {
     std::lock_guard<std::mutex> guard(mutex);
@@ -656,50 +715,15 @@ void UNITY_INTERFACE_API draw(int eventId) {
             bridge.finish(false);
             return;
         }
-        unityMetal->EndCurrentCommandEncoder();
+        // Unity's scene and video work can own other encoders on this buffer.
+        // Let Unity commit it and copy on our queue after its GPU work finishes.
+        // Drawing keeps the source textures and swapchain images owned until then.
         bridge.phase = Phase::Drawing;
-        bool encoded = true;
-        for (unsigned i = 0; i < bridge.eyes.size(); i++) {
-            const auto &eye = bridge.eyes[i];
-            id<MTLTexture> target = (__bridge id<MTLTexture>)eye.images[eye.index].texture;
-            MTLRenderPassDescriptor *pass = [MTLRenderPassDescriptor renderPassDescriptor];
-            pass.colorAttachments[0].texture = target;
-            pass.colorAttachments[0].loadAction = MTLLoadActionDontCare;
-            pass.colorAttachments[0].storeAction = MTLStoreActionStore;
-            id<MTLRenderCommandEncoder> encoder = [commands renderCommandEncoderWithDescriptor:pass];
-            if (!encoder) {
-                bridge.fail("Metal eye copy encoder creation failed");
-                encoded = false;
-                break;
-            }
-            encoder.label = i == 0 ? @"OpenXR left eye copy" : @"OpenXR right eye copy";
-            [encoder setRenderPipelineState:bridge.copyPipeline];
-            [encoder setFragmentTexture:bridge.sources[i] atIndex:0];
-            const auto &view = bridge.views[i];
-            const auto &overlay = bridge.overlay;
-            const EyeCopy uniforms{
-                {overlay.foreground[0], overlay.foreground[1], overlay.foreground[2], overlay.foreground[3]},
-                {overlay.background[0], overlay.background[1], overlay.background[2], overlay.background[3]},
-                {view.pose.position.x, view.pose.position.y, view.pose.position.z, overlay.grid},
-                {view.pose.orientation.x, view.pose.orientation.y, view.pose.orientation.z, view.pose.orientation.w},
-                {std::tan(view.fov.angleLeft), std::tan(view.fov.angleRight), std::tan(view.fov.angleUp), std::tan(view.fov.angleDown)},
-            };
-            [encoder setFragmentBytes:&uniforms length:sizeof(uniforms) atIndex:0];
-            [encoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3];
-            [encoder endEncoding];
-        }
-        const bool copiedBoth = encoded;
         [commands addCompletedHandler:^(id<MTLCommandBuffer> done) {
-            // Never block Unity's driver completion thread on xrEndFrame.
-            dispatch_async(releases, ^{
-                std::lock_guard<std::mutex> finishGuard(mutex);
-                const bool complete = done.status == MTLCommandBufferStatusCompleted;
-                if (!complete) bridge.fail("Unity Metal command buffer did not complete");
-                const double seconds = done.GPUEndTime - done.GPUStartTime;
-                bridge.unityGpuNs = seconds > 0 && seconds < 10 ? uint64_t(seconds * 1e9) : 0;
-                bridge.finish(complete && copiedBoth);
-                if (bridge.closeRequested) bridge.destroy();
-            });
+            const bool complete = done.status == MTLCommandBufferStatusCompleted;
+            const double seconds = done.GPUEndTime - done.GPUStartTime;
+            const uint64_t gpuNs = seconds > 0 && seconds < 10 ? uint64_t(seconds * 1e9) : 0;
+            dispatch_async(releases, ^{ copyRenderedEyes(complete, gpuNs); });
         }];
     }
 }
@@ -708,7 +732,7 @@ void UNITY_INTERFACE_API draw(int eventId) {
 
 extern "C" void UNITY_INTERFACE_EXPORT UNITY_INTERFACE_API UnityPluginLoad(IUnityInterfaces *interfaces) {
     std::lock_guard<std::mutex> guard(mutex);
-    unityMetal = interfaces->Get<IUnityGraphicsMetalV1>();
+    unityMetal = interfaces->Get<IUnityGraphicsMetalV2>();
     if (!releases) releases = dispatch_queue_create("org.nativeh3vr.xr.release", DISPATCH_QUEUE_SERIAL);
 }
 

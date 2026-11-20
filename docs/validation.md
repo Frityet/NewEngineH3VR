@@ -1,20 +1,22 @@
 # Unity 6.7 validation
 
-The converter targets Unity 6.7. The current editor tested on Apple Silicon is `6000.7.0b10`. The Unity test scenes generate their own content and require no H3VR files.
+The converter targets Unity 6.7. The Apple Silicon build and runtime checks used `6000.7.0b10`.
 
 ## Engine and OpenXR checks
 
 - The macOS standalone engine fixture ran on ARM64 Metal and passed 22 rendering, transform, and physics checks.
-- The native Unity Metal smoke built an ARM64 player and loaded a relocated MacVR 0.4.0 export. It completed 240 synthetic stereo frames and verified focus, the Index controller profile, haptics, the play area, and the two eye images.
+- The native Unity Metal smoke built an ARM64 player and loaded a relocated MacVR 0.4.0 export. It completed over 240 synthetic stereo frames and verified focus, the Index controller profile, haptics, the play area, and the two eye images.
 - The Unity editor generated standalone players and asset bundles for macOS and Windows using the converter's editor entry point and synthetic assets.
 
-These tests cover the engine, build tools and synthetic OpenXR frame delivery. Verify game startup, gameplay, and physical VR on the rebuilt game itself.
+These fixtures generate their own content and require no H3VR files.
 
-## Original Steam player under Wine
+## Steam build and Wine comparison
 
-Steam app 450540, build 25002541, ran in an isolated Wine prefix using Unity 5.6.7f1, D3D11 and OpenVR through OpenComposite. The MacVR synthetic run reached the original control-mode menu and recorded 3,558 completed stereo frames. Steam initialization was unavailable in this isolated runtime run. A separate Steam-managed startup reached Steam initialization.
+The converter built a signed macOS ARM64 player from Steam app 450540, build 25002541. Unity validated 46 scenes and 8,293 prefabs with zero new missing-script references and zero shader compilation errors. The player also passed stock address checks across 18 asset bundles. The three densest legacy convex hulls use a vertex-limited approximation in the rebuilt player.
 
-A direct comparison needs the rebuilt Unity 6.7 player and the same scene, tracking pose, graphics options, and input sequence. The renderer audit contains controls and measurements collected before the 6.7 upgrade. [Stock rendering audit](stock-menu-rendering.md)
+The original player ran in an isolated Wine prefix using Unity 5.6.7f1, D3D11 and OpenVR through OpenComposite. Native and Wine runs replayed the same synthetic MacVR head and controller samples at 3072×1600 packed stereo. Both passed seven checks covering the opening prompt, head turn, controller selection, scene loading, and stereo output after entering The Sampler Platter. The trial recorded 722 completed stereo frames on Wine and 961 on native. A separate Steam-managed startup confirmed Steam initialization for the original player.
+
+After aligning the captures, the 95th-percentile landmark error was 0.33 pixels per eye in the menu and 0.64–0.68 pixels after the scene load. Average low-pass RGB difference was about 1.8 of 255 in the menu and 7.8 of 255 after the load. The native tutorial card appeared darker. These measurements cover the tested startup and scene transition. Broader gameplay, audio parity, and physical headset use still need verification. [Stock rendering audit](stock-menu-rendering.md)
 
 ## Running the native OpenXR test
 
