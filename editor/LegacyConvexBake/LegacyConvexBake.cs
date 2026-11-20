@@ -12,14 +12,16 @@ namespace H3VRConverter
 {
     public static class LegacyConvexBake
     {
-        [Serializable] private sealed class Plan
+        [Serializable]
+        private sealed class Plan
         {
             public int schemaVersion;
             public string unityVersion;
             public Request[] requests;
         }
 
-        [Serializable] private sealed class Request
+        [Serializable]
+        private sealed class Request
         {
             public int index;
             public string path;
@@ -30,7 +32,8 @@ namespace H3VRConverter
 
         [Serializable] private sealed class Report { public int schemaVersion = 1; public Replacement[] replacements; }
 
-        [Serializable] private sealed class Replacement
+        [Serializable]
+        private sealed class Replacement
         {
             public int index;
             public long bakedFileId;
