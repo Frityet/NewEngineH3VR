@@ -191,6 +191,7 @@ cases.Add(("macOS project and player stages reject external recovery", () =>
     (config with { RecoveredProject = null }).RequireColdRecovery("build");
 }
 ));
+cases.AddRange(StockShaderWarmupTests.Cases());
 cases.AddRange(ProjectMigrationTests.Cases());
 cases.Add(GraphicsOptionsHookTests.Case());
 

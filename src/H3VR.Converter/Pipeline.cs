@@ -272,6 +272,8 @@ public sealed partial class Pipeline(string repository, ConversionConfig config)
                 retargeted, Path.Combine(adapter, "NativeH3VR.OpenXR.dll"), patched, "--unity-engine", config.EngineAssemblies };
             if (config.BuildTarget == "StandaloneOSX" && LegacyHdrMaterials.IsLinearProject(config.Export))
                 patchArgs.Add("--legacy-stock-rim");
+            if (StockShaderWarmupProject.TryPrepare(config.Export, out _))
+                patchArgs.Add("--stock-shader-warmup");
             await Processes.Run("dotnet", patchArgs, repository, cancellation: cancellation);
             await VerifyManaged(patched, cancellation);
             Directory.Move(patched, config.ManagedOutput);

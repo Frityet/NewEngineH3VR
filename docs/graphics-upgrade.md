@@ -37,9 +37,11 @@ macOS renders both tracked views through URP render requests. When HDR or MSAA n
 
 Stock scope and spectator cameras keep their per-camera culling and cleanup callbacks under URP, including nested renders. The game’s procedural trails and temporary view feedback have their own render passes. The renderer skips those passes when no effect is active.
 
-The stock game warms the same shader collection during engine startup and when its game manager awakens. The URP build filters legacy vertex-lit, forward and lightmapping-only pass entries from that warmup. On the tested Steam import this reduces it from 842 serialized entries to 155. A complete copy of the collection retains the original variants for build inclusion.
+The stock game requests the same shader collection during engine startup and when its game manager awakens. Both converted renderers queue that collection and warm at most one variant per frame while the game has paused rendering for a level transition. Work carries forward to the next transition. The URP build also filters legacy vertex-lit, forward and lightmapping-only entries from the warmup collection. On the tested Steam import this reduces it from 842 serialized entries to 155. A complete copy retains the original variants for build inclusion.
 
 Both rendering paths reuse a pair of eye matrices after Unity copies them and defer allocation of the camera-relative material property block until a renderer writes to it. In a Unity 6.7 editor benchmark of the imported stock callback, the median with one initialized renderer fell from 1.54 to 0.54 µs. Measured heap growth fell from about 159 bytes per call to zero after warm-up.
+
+On an Apple M5 Max with synthetic MacVR, the optimized built-in player submitted its first stereo frame 1.28 s after Unity initialized. Two control runs with the original shader warmup took 89.69 and 94.23 s. Loading the main menu, entering Warehouse and returning to the menu produced zero missed compositor slots across six sampled windows. These timings exclude process startup before Unity initialized.
 
 ## Testing an imported macOS build
 

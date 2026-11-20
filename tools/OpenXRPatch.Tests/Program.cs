@@ -3,6 +3,7 @@ using Mono.Cecil.Cil;
 using System.Diagnostics;
 using System.Text.Json;
 
+StockShaderWarmupPatchChecks.Run();
 var root = FindRoot();
 var temp = Path.Combine(Path.GetTempPath(), "nativeh3vr-openxr-tests-" + Guid.NewGuid().ToString("N"));
 var input = Path.Combine(temp, "input");

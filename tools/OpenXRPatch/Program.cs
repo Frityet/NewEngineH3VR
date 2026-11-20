@@ -19,9 +19,11 @@ if (args.Length == 4 && args[0] == "--stock-hdr-materials-only")
     return 0;
 }
 
+bool stockShaderWarmup = args.Contains("--stock-shader-warmup", StringComparer.Ordinal);
+args = args.Where(arg => arg != "--stock-shader-warmup").ToArray();
 if (args.Length is not (3 or 5 or 6) || (args.Length == 6 && args[5] is not ("--legacy-quickbelt-rim" or "--legacy-stock-rim")))
 {
-    Console.Error.WriteLine("usage: OpenXRPatch <managed-input-dir> <NativeH3VR.OpenXR.dll> <patched-output-dir> [--unity-engine <Managed/UnityEngine-dir> [--legacy-stock-rim]]");
+    Console.Error.WriteLine("usage: OpenXRPatch <managed-input-dir> <NativeH3VR.OpenXR.dll> <patched-output-dir> [--unity-engine <Managed/UnityEngine-dir> [--legacy-stock-rim]] [--stock-shader-warmup]");
     return 64;
 }
 
@@ -325,6 +327,8 @@ foreach (string name in assemblyNames)
     using var assembly = AssemblyDefinition.ReadAssembly(source,
         new ReaderParameters { ReadWrite = false, AssemblyResolver = resolver });
     var module = assembly.MainModule;
+    if (stockShaderWarmup && StockShaderWarmupPatch.Apply(module, adapter.MainModule))
+        changes.Add(new { assembly = name, method = "System.Void FistVR.GM::Awake()", kind = "deferred-stock-shader-warmup" });
     if (metal)
     {
         foreach (var method in MacOptionalFeatures.Apply(module))
