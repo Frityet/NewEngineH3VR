@@ -23,7 +23,7 @@ PHASES = ("take", "hold")
 REPEATS = ("r01", "r02", "r03")
 POSE_POSITION_METERS = 0.01
 POSE_ROTATION_DEGREES = 0.25
-METRICS = ("stereoCpu", "unityMetalCommandBuffer", "compositorCompletionInterval")
+METRICS = ("stereoCpu", "unityMetalCommandBuffer", "compositorCompletionInterval", "unityFrameGpu")
 
 
 def require(condition, message):
@@ -54,6 +54,23 @@ def distribution(samples):
     return {"samples": len(samples), "p50Ms": round(median(samples), 4), "p95Ms": round(p95, 4)}
 
 
+def frame_gpu_samples(path, first, last):
+    if not path.is_file():
+        return []  # Older captures predate the engine frame counter.
+    with path.open(newline="") as file:
+        rows = list(csv.DictReader(file))
+    stamps = [int(row["frame_start_timestamp"]) for row in rows]
+    require(all(a < b for a, b in zip(stamps, stamps[1:])), f"Repeated or out-of-order GPU frame in {path}")
+    samples = []
+    for row in rows:
+        frame = int(row["observed_unity_frame"])
+        duration = float(row["unity_gpu_frame_ms"])
+        require(first <= frame <= last and math.isfinite(duration) and duration > 0,
+                f"Invalid Unity GPU frame sample in {path}")
+        samples.append(duration)
+    return samples
+
+
 def window_trace(path, stem, unity_trace, runtime):
     first, last = map(int, (path / f"{stem}-frames.txt").read_text().split())
     timings = json.loads((path / f"{stem}-timings.json").read_text())
@@ -81,6 +98,7 @@ def window_trace(path, stem, unity_trace, runtime):
         "stereoCpu": values(unity, "eye_render_cpu_ms"),
         "unityMetalCommandBuffer": values(unique.values(), "unity_metal_gpu_ns", 1e-6),
         "compositorCompletionInterval": intervals,
+        "unityFrameGpu": frame_gpu_samples(path / f"{stem}-unity-gpu.csv", first, last),
     }
     summaries = {key: distribution(series) for key, series in samples.items()}
     for key, receipt_key in zip(METRICS, ("unity_eye_render_cpu", "unity_metal_command_buffer",
@@ -266,6 +284,7 @@ def inspect(root):
             "stereoCpu": "CPU time for both eye renders and submit scheduling",
             "compositorCompletionInterval": "Time between synthetic MacVR compositor completion callbacks",
             "unityMetalCommandBuffer": "GPU duration of Unity's final OpenXR-event Metal command buffer. Earlier buffers may contribute to the frame",
+            "unityFrameGpu": "Unity FrameTimingManager GPU duration per engine frame in milliseconds, when available. This includes updates without eye rendering and idle gaps within the measured interval.",
             "tailHitches": {
                 "maxCompositorCompletionGapMs": "Longest interval between compositor callbacks within a capture window",
                 "maxMissedWaitSlotsPerEvent": "Largest synthetic slot loss reported by one runtime wait event",
@@ -351,7 +370,7 @@ def write_csv(path, report):
         for result in report["results"]:
             writer.writerow([*(result[key] for key in metadata),
                              *(number for key in ranges for number in result[key]),
-                             *(result[key][field] for key in METRICS for field in metrics)])
+                             *((result[key] or {}).get(field) for key in METRICS for field in metrics)])
 
 
 def main():

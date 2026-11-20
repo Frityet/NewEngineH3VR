@@ -80,7 +80,7 @@ python3 tests/GraphicsUpgrade/run.py --profile --scene WarehouseRange_Rebuilt --
 uv run tests/GraphicsUpgrade/measure.py "$PWD/.local/graphics-profile"
 ```
 
-The interaction check exercises the stock panel, controller ray, preset and preference restore. The profile run captures each submitted eye, switches presets at a fixed pose and records renderer settings, stereo CPU submission and compositor frame intervals. The Metal GPU counter times the Unity command buffer that owns the OpenXR submission event. Earlier command buffers can contribute additional GPU work.
+The interaction check exercises the stock panel, controller ray, preset and preference restore. The profile run captures each submitted eye, switches presets at a fixed pose and records renderer settings, stereo CPU submission and compositor frame intervals. The Metal GPU counter times the Unity command buffer that owns the OpenXR submission event. Earlier command buffers can contribute additional GPU work. When the player supplies GPU frame timings, the profiler also saves Unity’s independent GPU duration for each engine frame. This includes engine updates between stereo submissions. The analyzer reports both distributions separately and leaves unavailable counters blank.
 
 ## Take & Hold comparison
 

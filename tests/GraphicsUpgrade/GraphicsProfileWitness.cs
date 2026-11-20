@@ -165,6 +165,11 @@ namespace NativeH3VR.QA
             if (preset >= 0)
                 SavePipeline(name, preset);
 
+            var latest = profile && FrameTimingManager.IsFeatureEnabled() ? new FrameTiming[1] : null;
+            // The manual stereo bridge can run several engine updates per submitted eye pair.
+            var gpuFrames = latest == null ? null :
+                new List<(int frame, ulong timestamp, double duration)>(profilePairs * 8);
+            ulong previousTimestamp = 0;
             recordState?.Invoke("begin");
             int firstFrame = Time.frameCount + 1;
             ulong start = stereo.CompletedFrames;
@@ -173,12 +178,30 @@ namespace NativeH3VR.QA
             while (stereo.CompletedFrames < start + (ulong)count)
             {
                 Require(Time.realtimeSinceStartup < deadline, "No submitted stereo interval for " + name);
+                if (latest != null)
+                {
+                    FrameTimingManager.CaptureFrameTimings();
+                    // Unity publishes these asynchronously. Discard the window boundary and repeated reports.
+                    if (Time.frameCount >= firstFrame + 16 && FrameTimingManager.GetLatestTimings(1, latest) == 1 &&
+                        latest[0].frameStartTimestamp > previousTimestamp && latest[0].gpuFrameTime > 0)
+                    {
+                        previousTimestamp = latest[0].frameStartTimestamp;
+                        gpuFrames.Add((Time.frameCount, previousTimestamp, latest[0].gpuFrameTime));
+                    }
+                }
                 yield return null;
             }
             int lastFrame = Time.frameCount - 1;
             recordState?.Invoke("end");
             if (profile)
+            {
                 File.WriteAllText(Path.Combine(output, name + "-frames.txt"), firstFrame + " " + lastFrame);
+                using var timings = File.CreateText(Path.Combine(output, name + "-unity-gpu.csv"));
+                timings.WriteLine("observed_unity_frame,frame_start_timestamp,unity_gpu_frame_ms");
+                if (gpuFrames != null)
+                    foreach (var (frame, timestamp, duration) in gpuFrames)
+                        timings.WriteLine(FormattableString.Invariant($"{frame},{timestamp},{duration:R}"));
+            }
 
             VerifyControllers(name);
             yield return new WaitForEndOfFrame();
