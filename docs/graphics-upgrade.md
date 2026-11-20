@@ -37,6 +37,8 @@ macOS renders both tracked views through URP render requests. When HDR or MSAA n
 
 Stock scope and spectator cameras keep their per-camera culling and cleanup callbacks under URP, including nested renders. The game’s procedural trails and temporary view feedback have their own render passes. The renderer skips those passes when no effect is active.
 
+The stock game warms the same shader collection during engine startup and when its game manager awakens. The URP build filters legacy vertex-lit, forward and lightmapping-only pass entries from that warmup. On the tested Steam import this reduces it from 842 serialized entries to 155. A complete copy of the collection retains the original variants for build inclusion.
+
 Both rendering paths reuse a pair of eye matrices after Unity copies them and defer allocation of the camera-relative material property block until a renderer writes to it. In a Unity 6.7 editor benchmark of the imported stock callback, the median with one initialized renderer fell from 1.54 to 0.54 µs. Measured heap growth fell from about 159 bytes per call to zero after warm-up.
 
 ## Testing an imported macOS build

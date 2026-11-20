@@ -3,6 +3,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Text;
 using System.Text.RegularExpressions;
 using UnityEditor;
 using UnityEditor.Rendering;
@@ -20,6 +21,16 @@ namespace H3VRConverter
             @"\{fileID: 10303, guid: 0000000000000000f000000000000000, type: 0\}",
             RegexOptions.CultureInvariant);
         private const string TerrainLitName = "Universal Render Pipeline/Terrain/Lit";
+        private const string StockWarmupPath = "Assets/ShaderVariantCollection/H3_ShaderAsset3.shadervariants";
+        private const string InclusionDirectory = "Assets/Resources/NativeH3VR/ShaderVariants";
+        private const string InclusionPath = InclusionDirectory + "/H3_ShaderAsset3Full.shadervariants";
+        private static readonly Regex VariantGroup = new Regex(
+            @"(?m)^  - first: \{fileID: (?:0|-?\d+, guid: [a-f0-9]{32}, type: \d+)\}\r?\n    second:\r?\n      variants:\r?\n",
+            RegexOptions.CultureInvariant);
+        private static readonly Regex Variant = new Regex(
+            @"(?m)^      - keywords:[^\r\n]*\r?\n        passType: (?<pass>-?\d+)(?:\r?\n|$)",
+            RegexOptions.CultureInvariant);
+
         private static readonly Regex LegacyPass = new Regex(
             @"(?<prefix>""LightMode""[ 	]*=[ 	]*"")(?<mode>ForwardBase|Always|Vertex|VertexLM|VertexLMRGBM|PrepassBase)""",
             RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
@@ -47,6 +58,13 @@ namespace H3VRConverter
         }
 
         [Serializable]
+        private sealed class WarmupReport
+        {
+            public int originalVariants;
+            public int retainedVariants;
+        }
+
+        [Serializable]
         private sealed class Report
         {
             public int schemaVersion = 1;
@@ -55,6 +73,7 @@ namespace H3VRConverter
             public int placeholderMaterials;
             public int replacedDefaultReferences;
             public int retaggedShaders;
+            public WarmupReport shaderWarmup;
         }
 
         public static void Apply()
@@ -71,6 +90,7 @@ namespace H3VRConverter
             var changed = new SortedSet<string>(StringComparer.Ordinal);
             var families = new SortedDictionary<string, Family>(StringComparer.Ordinal);
             int placeholders = 0;
+            var shaderWarmup = FilterStockShaderWarmup(changed);
             int retaggedShaders = RetagLegacyPasses(changed);
             // Standalone and sub-asset materials are shared by scenes, Resources and the
             // rebuilt bundles. Mutate the objects in place to preserve asset identities.
@@ -112,10 +132,97 @@ namespace H3VRConverter
                 families = families.Values.ToArray(),
                 placeholderMaterials = placeholders,
                 replacedDefaultReferences = replacedDefaultReferences,
-                retaggedShaders = retaggedShaders
+                retaggedShaders = retaggedShaders,
+                shaderWarmup = shaderWarmup
             };
             File.WriteAllText("ProjectSettings/NativeH3VRGraphicsMaterials.json", JsonUtility.ToJson(report, true) + "\n");
             Debug.Log($"NATIVEH3VR_GRAPHICS_MATERIALS converted={families.Values.Sum(family => family.converted)} retained={families.Values.Sum(family => family.retained)} placeholders={placeholders} defaultReferences={replacedDefaultReferences} retaggedShaders={retaggedShaders}");
+        }
+
+        private static WarmupReport FilterStockShaderWarmup(SortedSet<string> changed)
+        {
+            var stock = AssetDatabase.LoadAssetAtPath<ShaderVariantCollection>(StockWarmupPath);
+            if (stock == null || stock.name != "H3_ShaderAsset3")
+                return null;
+
+            string current = File.ReadAllText(StockWarmupPath);
+            bool hasFullCopy = File.Exists(InclusionPath);
+            string original = hasFullCopy ? File.ReadAllText(InclusionPath) : current;
+            if (!TryFilterWarmup(original, out var filtered, out var report) ||
+                (current != original && current != filtered))
+                return null;
+            if (report.originalVariants == report.retainedVariants)
+                return report;
+
+            // Resources keeps the complete collection in the build. The stock collection
+            // retains its identity for both the Graphics Settings preload and GM.Awake.
+            if (!hasFullCopy)
+            {
+                Directory.CreateDirectory(InclusionDirectory);
+                File.Copy(StockWarmupPath, InclusionPath);
+                AssetDatabase.ImportAsset(InclusionPath, ImportAssetOptions.ForceSynchronousImport);
+                changed.Add(InclusionPath);
+            }
+            if (current != filtered)
+            {
+                File.WriteAllText(StockWarmupPath, filtered);
+                AssetDatabase.ImportAsset(StockWarmupPath, ImportAssetOptions.ForceSynchronousImport);
+                changed.Add(StockWarmupPath);
+            }
+
+            Debug.Log($"NATIVEH3VR_GRAPHICS_SHADER_WARMUP original={report.originalVariants} retained={report.retainedVariants}");
+            return report;
+        }
+
+        private static bool TryFilterWarmup(string original, out string filtered, out WarmupReport report)
+        {
+            filtered = null;
+            report = new WarmupReport();
+            var groups = VariantGroup.Matches(original);
+            if (groups.Count == 0)
+                return false;
+
+            string header = original.Substring(0, groups[0].Index);
+            if (!header.EndsWith("  m_Shaders:\n", StringComparison.Ordinal) &&
+                !header.EndsWith("  m_Shaders:\r\n", StringComparison.Ordinal))
+                return false;
+
+            var result = new StringBuilder(header);
+            for (int index = 0; index < groups.Count; index++)
+            {
+                var group = groups[index];
+                int start = group.Index + group.Length;
+                int end = index + 1 == groups.Count ? original.Length : groups[index + 1].Index;
+                var variants = Variant.Matches(original.Substring(start, end - start));
+                if (variants.Count == 0)
+                    return false;
+
+                int consumed = 0;
+                bool wroteGroup = false;
+                foreach (Match entry in variants)
+                {
+                    if (entry.Index != consumed || !int.TryParse(entry.Groups["pass"].Value, out int pass))
+                        return false;
+                    consumed += entry.Length;
+                    report.originalVariants++;
+                    // Retagged forward passes have new warmup keys in URP. ForwardAdd
+                    // and Meta have no runtime draw here. Keep unknown pass IDs.
+                    if (pass == (int)PassType.Vertex || pass == (int)PassType.ForwardBase ||
+                        pass == (int)PassType.ForwardAdd || pass == (int)PassType.Meta)
+                        continue;
+                    if (!wroteGroup)
+                    {
+                        result.Append(group.Value);
+                        wroteGroup = true;
+                    }
+                    result.Append(entry.Value);
+                    report.retainedVariants++;
+                }
+                if (start + consumed != end)
+                    return false;
+            }
+            filtered = result.ToString();
+            return report.retainedVariants != 0;
         }
 
         private static int RetagLegacyPasses(SortedSet<string> changed)
