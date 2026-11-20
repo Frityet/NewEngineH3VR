@@ -90,7 +90,8 @@ def window_trace(path, stem, unity_trace, runtime):
                 and measured["samples"] == recorded["samples"], f"Invalid {key} sample count")
         require(all(abs(measured[f"p{rank}Ms"] - recorded[f"p{rank}_ms"]) <= 0.00011 for rank in (50, 95)),
                 f"{key} percentiles differ from timing receipt")
-    missed = sum(int(row["slot_misses"]) for row in runtime if row["kind"] == "wait")
+    missed_slots = [int(row["slot_misses"]) for row in runtime if row["kind"] == "wait"]
+    missed = sum(missed_slots)
     # run.py takes counter endpoints from the entire trace. Several Unity
     # frames can share either boundary timestamp and advance the counter.
     skip_counts = [int(row["stereo_skipped"]) for row in unity_trace
@@ -110,11 +111,16 @@ def window_trace(path, stem, unity_trace, runtime):
     seconds = (end - start + period) / 1e9
     memory = [int(row["system_used_bytes"]) for row in unity if row.get("system_used_bytes")]
 
+    main_thread = max(values(unity, "main_thread_ns", 1e-6), default=None)
+
     return samples, {
         "firstUnityFrame": first, "lastUnityFrame": last, "displayDurationSeconds": seconds,
         "syntheticHeadsetHz": round(1e9 / period, 4),
         "deliveredHz": round(len(complete) / seconds, 4),
         "completedPairs": len(complete), "unitySkipped": skipped, "missedWaitSlots": missed,
+        "maxCompositorCompletionGapMs": round(max(intervals), 4),
+        "maxMissedWaitSlotsPerEvent": max(missed_slots, default=0),
+        "maxUnityMainThreadMs": round(main_thread, 4) if main_thread is not None else None,
         "peakUnitySystemUsedBytes": max(memory, default=None),
         "metrics": summaries,
     }
@@ -203,6 +209,8 @@ def pool(windows):
     states = [window["gameplay"][edge] for window in windows for edge in ("begin", "end")]
     memory = [window["peakUnitySystemUsedBytes"] for window in windows
               if window["peakUnitySystemUsedBytes"] is not None]
+    main_thread = [window["maxUnityMainThreadMs"] for window in windows
+                   if window["maxUnityMainThreadMs"] is not None]
     eye_checks = [window["eyes"][eye] for window in windows for eye in EYES]
     return {
         "runs": len(windows), "completedPairs": complete, "displayDurationSeconds": round(seconds, 4),
@@ -210,6 +218,9 @@ def pool(windows):
         "deliveredHzRange": numeric_range([window["deliveredHz"] for window in windows]),
         "unitySkipped": sum(window["unitySkipped"] for window in windows),
         "missedWaitSlots": sum(window["missedWaitSlots"] for window in windows),
+        "maxCompositorCompletionGapMs": max(window["maxCompositorCompletionGapMs"] for window in windows),
+        "maxMissedWaitSlotsPerEvent": max(window["maxMissedWaitSlotsPerEvent"] for window in windows),
+        "maxUnityMainThreadMs": max(main_thread, default=None),
         "peakUnitySystemUsedBytes": max(memory, default=None),
         "peakUnitySystemUsedBytesRange": numeric_range(memory) if memory else None,
         "activeNpcCountRange": numeric_range([state["activeNpcCount"] for state in states]),
@@ -232,6 +243,11 @@ def inspect(root):
             "stereoCpu": "CPU time for both eye renders and submit scheduling",
             "compositorCompletionInterval": "Time between synthetic MacVR compositor completion callbacks",
             "unityMetalCommandBuffer": "GPU duration of Unity's final OpenXR-event Metal command buffer. Earlier buffers may contribute to the frame",
+            "tailHitches": {
+                "maxCompositorCompletionGapMs": "Longest interval between compositor callbacks within a capture window",
+                "maxMissedWaitSlotsPerEvent": "Largest synthetic slot loss reported by one runtime wait event",
+                "maxUnityMainThreadMs": "Largest positive Unity main-thread profiler reading, when available",
+            },
             "memory": "Unity System Used Memory profiler counter, when available",
             "npcCounts": "Live endpoint observations while scenes continue simulating with matched seeds",
             "poseToleranceMeters": POSE_POSITION_METERS, "poseToleranceDegrees": POSE_ROTATION_DEGREES,
@@ -289,6 +305,7 @@ def inspect(root):
 def write_csv(path, report):
     metadata = ("mapId", "mapName", "scene", "phase", "mode", "runs", "completedPairs",
                 "displayDurationSeconds", "deliveredHz", "unitySkipped", "missedWaitSlots",
+                "maxCompositorCompletionGapMs", "maxMissedWaitSlotsPerEvent", "maxUnityMainThreadMs",
                 "peakUnitySystemUsedBytes", "maxBlackFraction", "maxErrorPinkFraction",
                 "maxStrongMagentaFraction")
     ranges = ("deliveredHzRange", "activeNpcCountRange", "objectiveNpcCountRange", "phaseElapsedSecondsRange")
