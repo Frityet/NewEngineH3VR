@@ -26,7 +26,7 @@ public sealed class ConversionOptions : CommandSettings
     public string? ConfigArgument { get; init; }
 
     [CommandOption("--config <PATH>")]
-    [Description("Optional legacy JSON configuration file.")]
+    [Description("Optional JSON configuration file. The init command writes under the checkout's .local/ directory.")]
     public string? ConfigOption { get; init; }
 
     [CommandOption("--game <PATH>")]
@@ -42,7 +42,7 @@ public sealed class ConversionOptions : CommandSettings
     public string? UnityVersion { get; init; }
 
     [CommandOption("--workspace <PATH>")]
-    [Description("Writable conversion workspace (default: .local/workspace).")]
+    [Description("Writable workspace under the checkout's .local/ directory (default: .local/workspace).")]
     public string? Workspace { get; init; }
 
     [CommandOption("--shaders <PATH>")]
@@ -82,7 +82,7 @@ public sealed class ConversionOptions : CommandSettings
     public bool? CompactPlayerData { get; init; }
 
     [CommandOption("--cache <PATH>")]
-    [Description("Tool download and build cache directory. Defaults to cache/ in this checkout.")]
+    [Description("Tool cache under the checkout's .local/ or cache/ directory (default: cache/).")]
     public string? Cache { get; init; }
 
     [CommandOption("--offline")]
@@ -106,7 +106,7 @@ public sealed class ConversionOptions : CommandSettings
     public bool NoColor { get; init; }
 
     [CommandOption("--output <PATH>")]
-    [Description("Optional output directory for recover-shaders source export.")]
+    [Description("Optional recover-shaders output directory under the checkout's .local/ directory.")]
     public string? Output { get; init; }
 
     public string? ConfigFile => ConfigOption ?? ConfigArgument;

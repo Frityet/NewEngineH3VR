@@ -11,7 +11,7 @@ internal static class LocalShaderPreparation
         if (Directory.Exists(output) && Directory.EnumerateFileSystemEntries(output).Any())
             throw new IOException("Shader output must be empty: " + output);
         Console.WriteLine("Preparing the pinned shader exporter in " + cache);
-        var exporter = await ShaderToolCache.EnsureAsync(cache, config.Offline, cancellation);
+        var exporter = await ShaderToolCache.EnsureAsync(repository, cache, config.Offline, cancellation);
         // The exporter writes next to its executable. Give each run a private copy.
         var runtimeCopy = output + ".exporter-" + Guid.NewGuid().ToString("N");
         try

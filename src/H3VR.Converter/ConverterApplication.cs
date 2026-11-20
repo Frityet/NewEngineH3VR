@@ -40,10 +40,11 @@ public sealed class ConverterApplication(string repository, IAnsiConsole console
         switch (request.Command)
         {
             case ConverterCommand.Init:
-                var file = options.ConfigFile ?? Path.Combine(Environment.CurrentDirectory, "h3vr-conversion.json");
+                var file = Path.GetFullPath(options.ConfigFile ?? Path.Combine(repository, ".local", "h3vr-conversion.json"));
+                SafeFiles.RequirePrivateOutput(repository, file);
                 if (File.Exists(file)) throw new IOException("Configuration already exists; refusing to overwrite it: " + file);
-                SafeFiles.AtomicJson(Path.GetFullPath(file), config);
-                console.WriteLine("Saved optional configuration: " + Path.GetFullPath(file));
+                SafeFiles.AtomicJson(file, config);
+                console.WriteLine("Saved optional configuration: " + file);
                 console.WriteLine("You can also run directly with --game, --unity and --workspace, or --tui.");
                 return 0;
             case ConverterCommand.Status:

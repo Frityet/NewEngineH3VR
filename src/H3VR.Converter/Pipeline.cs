@@ -120,15 +120,19 @@ public sealed partial class Pipeline(string repository, ConversionConfig config)
     {
         if (!Steps.Contains(through)) throw new ArgumentException("Unknown step: " + through);
         config.RequireColdRecovery(through);
-        Directory.CreateDirectory(config.Workspace);
         var marker = Path.Combine(config.Workspace, ".h3vr-converter-workspace");
+        var lockPath = Path.Combine(Receipts, "lock");
+        foreach (var path in new[] { config.Workspace, marker, lockPath, config.ManagedOutput, config.Project,
+            Path.Combine(config.Workspace, "recovery"), Path.Combine(config.Workspace, "player") })
+            SafeFiles.RequirePrivateOutput(repository, path);
+        Directory.CreateDirectory(config.Workspace);
         if (!File.Exists(marker))
         {
             if (Directory.EnumerateFileSystemEntries(config.Workspace).Any()) throw new IOException("Workspace must initially be empty. Choose a fresh workspace; existing projects are never replaced.");
             File.WriteAllText(marker, "H3VR.Converter workspace schema 1\n");
         }
         Directory.CreateDirectory(Receipts);
-        using var lease = new FileStream(Path.Combine(Receipts, "lock"), FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
+        using var lease = new FileStream(lockPath, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
         using var sourceLease = OpenExtractionLease();
         Console.WriteLine("Fingerprinting local inputs before conversion/resume…");
         var gameFingerprint = GameFingerprint();

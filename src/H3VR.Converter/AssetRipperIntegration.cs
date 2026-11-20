@@ -68,9 +68,15 @@ public static class AssetRipperIntegration
         string logPath, CancellationToken cancellation)
     {
         repository = Path.GetFullPath(repository);
+        SafeFiles.RequirePrivateOutput(repository, outputDirectory);
+        SafeFiles.RequirePrivateOutput(repository, logPath);
+        SafeFiles.RequireSeparate(config.GameDirectory, outputDirectory);
+        SafeFiles.RequireSeparate(config.GameDirectory, logPath);
+        config.ValidateToolCache(repository, config.GameDirectory, outputDirectory, logPath);
         var fingerprint = Fingerprint(repository);
         var cacheRoot = DefaultCacheDirectory(config, repository);
         var cache = Path.Combine(cacheRoot, fingerprint);
+        SafeFiles.RequireToolCachePath(repository, cache);
 
         var executable = await GetWorkerAsync(repository, config, cache, fingerprint, cancellation);
         cancellation.ThrowIfCancellationRequested();
@@ -87,6 +93,7 @@ public static class AssetRipperIntegration
 
         Directory.CreateDirectory(Path.GetDirectoryName(cache)!);
         var leasePath = cache + ".lock";
+        SafeFiles.RequireToolCachePath(repository, leasePath);
         using var lease = AcquireLease(leasePath);
         if (TryVerifyCache(cache, fingerprint, out verifiedWorker)) return verifiedWorker;
         if (Directory.Exists(cache))
@@ -219,8 +226,6 @@ public static class AssetRipperIntegration
     private static async Task RunWorkerAsync(string workerDll, string gameDirectory, string outputDirectory,
         string repository, string logPath, CancellationToken cancellation)
     {
-        SafeFiles.RequireSeparate(gameDirectory, outputDirectory);
-        SafeFiles.RequirePrivateOutput(repository, outputDirectory);
         var output = Path.GetFullPath(outputDirectory);
         if (Directory.Exists(output) && Directory.EnumerateFileSystemEntries(output).Any())
             throw new IOException("AssetRipper output directory must be empty; refusing to overwrite existing files: " + output);

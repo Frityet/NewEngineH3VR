@@ -21,19 +21,24 @@ public static class ShaderToolCache
     private const string ManifestName = "h3vr-shader-tool-cache.json";
     private static readonly JsonSerializerOptions Json = new() { IncludeFields = true, WriteIndented = true };
 
-    public static async Task<string> EnsureAsync(string cacheDirectory, bool offline, CancellationToken cancellation)
+    public static Task<string> EnsureAsync(string cacheDirectory, bool offline, CancellationToken cancellation) =>
+        EnsureAsync(Repository.Find(), cacheDirectory, offline, cancellation);
+
+    internal static async Task<string> EnsureAsync(string repository, string cacheDirectory, bool offline, CancellationToken cancellation)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(cacheDirectory);
         var root = Path.GetFullPath(cacheDirectory);
-        Directory.CreateDirectory(root);
         var commit = ShaderExporter.UpstreamCommit;
         var rid = CurrentRuntimeIdentifier();
         // A publish can succeed while omitting runtime dependencies.
         var key = $"{ShaderExporter.ForkCommit}-{rid}";
         var destination = Path.Combine(root, key);
         var locks = Path.Combine(root, ".locks");
+        var lockPath = Path.Combine(locks, key + ".lock");
+        SafeFiles.RequireToolCachePath(repository, destination);
+        SafeFiles.RequireToolCachePath(repository, lockPath);
         Directory.CreateDirectory(locks);
-        await using var lease = await AcquireLock(Path.Combine(locks, key + ".lock"), cancellation);
+        await using var lease = await AcquireLock(lockPath, cancellation);
 
         if (Directory.Exists(destination))
         {
@@ -48,7 +53,7 @@ public static class ShaderToolCache
         var staging = Path.Combine(root, ".shader-exporter-provision-" + Guid.NewGuid().ToString("N"));
         try
         {
-            var executable = await ShaderExporter.ProvisionAsync(staging, cancellation);
+            var executable = await ShaderExporter.ProvisionAsync(repository, staging, cancellation);
             if (!TryCreateManifest(staging, commit, rid, executable, out var manifest, out var reason))
                 throw new InvalidDataException("Provisioned ShaderExporter failed integrity checks: " + reason);
             await File.WriteAllTextAsync(Path.Combine(staging, ManifestName), JsonSerializer.Serialize(manifest, Json) + "\n", cancellation);

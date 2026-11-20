@@ -103,11 +103,7 @@ public sealed record ConversionConfig
     internal void ValidateToolCache(string repository, params string?[] inputs)
     {
         var cache = Path.TrimEndingDirectorySeparator(Path.GetFullPath(CacheDirectory(repository)));
-        var comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
-        if (!cache.Equals(DefaultCacheDirectory(repository), comparison))
-            SafeFiles.RequirePrivateOutput(repository, cache);
-        else if (new DirectoryInfo(cache).LinkTarget is not null)
-            throw new InvalidDataException("The checkout's cache must be a real directory. Use --cache to choose another location.");
+        SafeFiles.RequireToolCachePath(repository, cache);
 
         foreach (var input in inputs.OfType<string>())
             SafeFiles.RequireSeparate(input, cache);
@@ -117,13 +113,13 @@ public sealed record ConversionConfig
     {
         RequireSupportedUnityVersion(UnityVersion);
         RequireColdRecovery(through);
-        if (string.IsNullOrWhiteSpace(Workspace)) throw new InvalidDataException("Set --workspace to an empty directory under .local or outside the checkout.");
+        if (string.IsNullOrWhiteSpace(Workspace)) throw new InvalidDataException("Set --workspace to an empty directory under the checkout's .local directory.");
+        SafeFiles.RequirePrivateOutput(repository, Workspace);
         if (!File.Exists(Path.Combine(ManagedInput, "Assembly-CSharp.dll")))
             throw new InvalidDataException("Set --game to your installed H3VR folder containing h3vr_Data/Managed/Assembly-CSharp.dll, or use --tui.");
         if (BuildTarget == "StandaloneOSX") PlayerReceipt.ValidateSupportedInstallation(GameDirectory);
         if (through != "extract" && (!File.Exists(UnityEditor) || !File.Exists(Path.Combine(EngineAssemblies, "UnityEngine.CoreModule.dll"))))
             throw new InvalidDataException($"Set --unity to an installation of Unity {UnityVersion} containing its scripting assemblies, or use --tui.");
-        SafeFiles.RequirePrivateOutput(repository, Workspace);
         foreach (var input in new[] { GameDirectory, string.IsNullOrEmpty(UnityEditor) ? null : UnityData, RecoveredProject, ExtractionWorkspace, ShaderSources, IntegrationManifest is null ? null : Path.GetDirectoryName(IntegrationManifest) }.OfType<string>())
             SafeFiles.RequireSeparate(input, Workspace);
         if (BuildTarget is not ("StandaloneWindows64" or "StandaloneOSX" or "StandaloneLinux64"))

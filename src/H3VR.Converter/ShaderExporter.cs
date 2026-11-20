@@ -34,16 +34,20 @@ public static class ShaderExporter
     /// Provisions a self-contained AssetRipper executable. The destination must not already exist.
     /// The build checkout is temporary and contains only public source and generic exporter fixes.
     /// </summary>
-    public static async Task<string> ProvisionAsync(string outputDirectory, CancellationToken cancellationToken = default)
+    public static Task<string> ProvisionAsync(string outputDirectory, CancellationToken cancellationToken = default) =>
+        ProvisionAsync(Repository.Find(), outputDirectory, cancellationToken);
+
+    internal static async Task<string> ProvisionAsync(string repository, string outputDirectory, CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(outputDirectory);
         var destination = Path.GetFullPath(outputDirectory);
+        SafeFiles.RequireToolCachePath(repository, destination);
         if (Directory.Exists(destination) || File.Exists(destination))
             throw new IOException($"Output already exists: {destination}");
 
         var parent = Path.GetDirectoryName(destination) ?? throw new ArgumentException("Output needs a parent directory.", nameof(outputDirectory));
         Directory.CreateDirectory(parent);
-        var workspace = Path.Combine(Path.GetTempPath(), "h3vr-assetripper-" + Guid.NewGuid().ToString("N"));
+        var workspace = Path.Combine(parent, ".shader-exporter-build-" + Guid.NewGuid().ToString("N"));
         var checkout = Path.Combine(workspace, "source");
         var buildOutput = Path.Combine(workspace, "publish");
         var staging = Path.Combine(parent, "." + Path.GetFileName(destination) + ".provision-" + Guid.NewGuid().ToString("N"));

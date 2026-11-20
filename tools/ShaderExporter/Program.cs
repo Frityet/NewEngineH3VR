@@ -2,7 +2,7 @@ using H3VR.Converter;
 
 if (args.Length != 2 || args[0] != "provision")
 {
-    Console.Error.WriteLine("Usage: dotnet run --project tools/ShaderExporter -- provision <new-output-directory>");
+    Console.Error.WriteLine("Usage: dotnet run --project tools/ShaderExporter -- provision <new-directory-under-.local-or-cache>");
     return 2;
 }
 

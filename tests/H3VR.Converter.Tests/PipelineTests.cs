@@ -15,6 +15,7 @@ public static class PipelineTests
         yield return ("project fingerprint covers shader overlay inputs", ShaderMutationChangesProjectFingerprint);
         yield return ("managed fingerprint covers Unity and target but ignores shaders", ManagedFingerprintSelection);
         yield return ("workspace lock excludes concurrent conversion and can be reacquired", WorkspaceLock);
+        yield return ("resuming a workspace refuses a lock redirected outside the checkout", WorkspaceLockBoundary);
         yield return ("baseline records only null MonoScript slots by source object and asset", BaselineNullScripts);
         yield return ("build receipt tracks generated StreamingAssets bundle bytes", BuildReceiptTracksBundles);
         yield return ("staging removes only verified recovered Unity bundles and their manifests", StageStreamingAssets);
@@ -22,6 +23,19 @@ public static class PipelineTests
         yield return ("cold extraction receipt tracks provenance maps", ColdReceiptTracksMaps);
         yield return ("shared extraction reuses verified bytes and rejects source mutations", SharedExtractionRejectsChanges);
         yield return ("successful editor receipt records named shader upgrades and keeps other hashes", ShaderUpgradeReceipt);
+    }
+
+    private static void WorkspaceLockBoundary()
+    {
+        if (OperatingSystem.IsWindows()) return;
+        using var fixture = new Fixture();
+        var lockPath = Path.Combine(fixture.Workspace, ".conversion", "lock");
+        Directory.CreateDirectory(Path.GetDirectoryName(lockPath)!);
+        Write(Path.Combine(fixture.Workspace, ".h3vr-converter-workspace"), "fixture");
+        var external = Path.Combine(fixture.rootPath, "external-lock");
+        File.CreateSymbolicLink(lockPath, external);
+        var error = Capture(() => fixture.Pipeline().Run("extract", CancellationToken.None).GetAwaiter().GetResult());
+        Check(error is InvalidDataException && !File.Exists(external), "resuming a workspace followed a symlink to an external lock");
     }
 
     private static void StageStreamingAssets()
@@ -324,7 +338,7 @@ public static class PipelineTests
         public string GameData => Path.Combine(GameDirectory, "h3vr_Data");
         public string Recovered => Path.Combine(root, "recovered");
         public string Shaders => Path.Combine(root, "shaders");
-        public string Workspace => Path.Combine(root, "workspace");
+        public string Workspace => Path.Combine(Repository, ".local", "workspace");
         public string UnityData => Path.Combine(root, "UnityEditor", "Data");
         public string EngineAssemblies => Path.Combine(UnityData, "Resources", "Scripting", "Managed", "UnityEngine");
 

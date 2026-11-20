@@ -26,13 +26,13 @@ printf '129e1f80f930415db6779fe6089afa75280cb51462bcee812beab6cd81a764c6  cache/
 
 ```sh
 dotnet run --project src/H3VR.Converter -- recover-shaders \
-  --game "/path/to/H3VR" --output "/path/to/private-raw-shaders"
+  --game "/path/to/H3VR" --output "$PWD/.local/raw-shaders"
 ```
 
 - The first run builds the exporter and caches it in the repo's ignored `cache/` folder. Later runs check its hashes before reusing it.
-- `--cache` puts the cache somewhere else. `--offline` only uses a cached build that's already been checked.
+- `--cache` chooses a directory under the checkout's `.local/` or `cache/`. `--offline` only uses a cached build that's already been checked.
 - If you leave out `--output`, it uses your workspace path with `-shaders` on the end.
-- The output folder must be empty and separate from the game, workspace and tool cache. Use an ignored folder under the checkout's `.local` directory or a separate private directory.
+- Choose an empty output folder under the checkout's `.local/` directory. Keep it separate from the game, workspace and tool cache.
 - Big shaders can take many minutes. Each request has a two-hour limit, and you can cancel.
 
 You get these files in the output folder:
@@ -88,13 +88,13 @@ To prepare the graphics and compute overlay in one command, give it the complete
 
 ```sh
 dotnet run --project tools/ShaderOverlay -c Release -- prepare \
-  --workspace "/path/to/private-workspace" \
-  --recovery "/path/to/private-raw-shaders" \
+  --workspace "$PWD/.local/workspace" \
+  --recovery "$PWD/.local/raw-shaders" \
   --steam-install "/path/to/H3VR" \
   --class-database "/path/to/legacy-unity-classdata.tpk" \
   --dxbc-compiler "/path/to/dxil-spirv" \
   --spirv-cross "/path/to/spirv-cross" \
-  --output "/path/to/private-shader-overlay"
+  --output "$PWD/.local/shader-overlay"
 ```
 
 The command creates the output only after both stages succeed. Pass that directory to the converter's `--shaders` option. To diagnose either stage separately, use the commands below.
@@ -105,17 +105,17 @@ Extraction and shader recovery each record where every shader came from. This st
 
 ```sh
 dotnet run --project tools/ShaderOverlay -c Release -- link \
-  --workspace "/path/to/private-workspace" \
-  --recovery "/path/to/private-raw-shaders" \
+  --workspace "$PWD/.local/workspace" \
+  --recovery "$PWD/.local/raw-shaders" \
   --steam-install "/path/to/H3VR" \
-  --output "/path/to/private-shader-correspondence.json"
+  --output "$PWD/.local/shader-correspondence.json"
 ```
 
 Shaders are matched by their saved identity and hashes, never by name. Any project path that doesn't match fails the command and is listed in the report.
 
 ### 2. Build an overlay candidate
 
-Once everything matches, add `--overlay-candidate` to stage the shaders with their original GUIDs. Use it to find import, shader and material errors. Proving they render correctly still means compiling and running the original variants on Metal.
+Once everything matches, add `--overlay-candidate "$PWD/.local/shader-overlay"` to stage the shaders with their original GUIDs. Use it to find import, shader and material errors. Proving they render correctly still means compiling and running the original variants on Metal.
 
 Also add `--repair-exclusive-keywords`. This rebuilds keyword groups from the original Direct3D vertex and fragment program pairs:
 - It checks that their keywords match every generated guard.
@@ -172,8 +172,8 @@ Keep the translator in its build directory with its shared library.
 
 ```sh
 dotnet run --project tools/ShaderOverlay -c Release -- compute \
-  --workspace "/path/to/private-workspace" \
-  --overlay "/path/to/private-shader-overlay" \
+  --workspace "$PWD/.local/workspace" \
+  --overlay "$PWD/.local/shader-overlay" \
   --dxbc-compiler "/path/to/dxil-spirv" \
   --spirv-cross "/path/to/spirv-cross"
 ```

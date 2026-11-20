@@ -8,7 +8,8 @@ using System.Text.Json;
 
 var Strings = new[] { "TextAsset", "Base", "string", "m_Name", "Array", "int", "size", "char", "data", "m_Script" };
 const string fixtureVersion = "6000.7.0b10";
-var root = Path.Combine(Path.GetTempPath(), "assetripper-worker-fixture-" + Guid.NewGuid().ToString("N"));
+var repository = Repository.Find();
+var root = Path.Combine(repository, ".local", "assetripper-worker-fixture-" + Guid.NewGuid().ToString("N"));
 var input = Path.Combine(root, "input");
 Directory.CreateDirectory(input);
 var firstExport = Path.Combine(root, "export-online");
@@ -18,7 +19,6 @@ try
 {
     CreateSyntheticTextAsset(Path.Combine(input, "synthetic.assets"), fixtureVersion, "SyntheticHello", "ASSET-RIPPER-FIXTURE-TEST");
 
-    var repository = Repository.Find();
     await AssetRipperIntegration.ExportAsync(repository, config, firstExport, Path.Combine(root, "online.log"), CancellationToken.None);
     ValidateExport(firstExport);
     var git = new ProcessStartInfo("git") { WorkingDirectory = repository, RedirectStandardOutput = true, UseShellExecute = false };

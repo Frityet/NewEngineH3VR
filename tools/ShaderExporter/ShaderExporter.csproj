@@ -6,6 +6,6 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
   <ItemGroup>
-    <Compile Include="../../src/H3VR.Converter/ShaderExporter.cs" Link="ShaderExporter.cs" />
+    <ProjectReference Include="../../src/H3VR.Converter/H3VR.Converter.csproj" />
   </ItemGroup>
 </Project>

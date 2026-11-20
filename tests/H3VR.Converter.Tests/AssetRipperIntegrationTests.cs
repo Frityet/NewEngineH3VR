@@ -17,14 +17,15 @@ public static class AssetRipperIntegrationTests
         yield return ("offline availability check does not bootstrap or create cache", () =>
         {
             var root = Path.Combine(Path.GetTempPath(), "assetripper-offline-" + Guid.NewGuid().ToString("N"));
-            var config = new ConversionConfig { Offline = true, ToolCacheDirectory = Path.Combine(root, "cache") };
+            var checkout = Path.Combine(root, "checkout");
+            var config = new ConversionConfig { Offline = true, GameDirectory = Path.Combine(root, "game") };
             try
             {
-                var available = AssetRipperIntegration.CheckAvailability(config, Repository.Find(), out var detail);
+                var available = AssetRipperIntegration.CheckAvailability(config, checkout, out var detail);
                 Check(!available && detail.Contains("Offline", StringComparison.Ordinal), "missing cache was not reported");
                 Check(!Directory.Exists(root), "availability check mutated the cache location");
-                ThrowsAsync(() => AssetRipperIntegration.ExportAsync(Repository.Find(), config,
-                    Path.Combine(root, "output"), Path.Combine(root, "log.txt"), CancellationToken.None));
+                ThrowsAsync(() => AssetRipperIntegration.ExportAsync(checkout, config,
+                    Path.Combine(checkout, ".local", "output"), Path.Combine(checkout, ".local", "log.txt"), CancellationToken.None));
                 Check(!Directory.Exists(root), "offline cache miss created files");
             }
             finally { if (Directory.Exists(root)) Directory.Delete(root, true); }

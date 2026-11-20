@@ -12,6 +12,8 @@ public static class ApplicationTests
         yield return ("application accepts documented build-target aliases", TargetAliases);
         yield return ("application chooses only unique discovery results automatically", UniqueDiscoveryOnly);
         yield return ("status does not require or create game and Unity paths", StatusIsReadOnly);
+        yield return ("init writes only below checkout .local and status accepts an external configuration", ConfigurationOutputBoundary);
+        yield return ("shader recovery refuses an external output before provisioning", ShaderOutputBoundary);
         yield return ("offline doctor checks extraction without probing or creating Unity and cache paths", DoctorExtractIsReadOnly);
         yield return ("extract validation does not require a Unity editor", ExtractNeedsNoEditor);
         yield return ("checkout workspace must be isolated inside .local and cannot escape through a link", LocalWorkspaceBoundary);
@@ -113,12 +115,45 @@ public static class ApplicationTests
         Check(!Directory.Exists(workspace), "status created a workspace or modified receipts");
     }
 
+    private static void ConfigurationOutputBoundary()
+    {
+        using var temp = new Temp();
+        var checkout = Directory.CreateDirectory(Path.Combine(temp.Root, "checkout")).FullName;
+        var app = new ConverterApplication(checkout, new TestConsole());
+        var outside = Path.Combine(temp.Root, "outside.json");
+        int Run(ConverterCommand command, string? path = null) => app.RunAsync(
+            new(command, new ConversionOptions { ConfigOption = path }), CancellationToken.None).GetAwaiter().GetResult();
+
+        Check(Capture(() => Run(ConverterCommand.Init, outside)) is InvalidDataException && !File.Exists(outside),
+            "init wrote a configuration outside the checkout");
+        Check(Run(ConverterCommand.Init) == 0 && File.Exists(Path.Combine(checkout, ".local", "h3vr-conversion.json")),
+            "init did not write its default configuration inside .local");
+        File.WriteAllText(outside, "{}");
+        Check(Run(ConverterCommand.Status, outside) == 0 && File.ReadAllText(outside) == "{}",
+            "an external configuration could not be read without modifying it");
+    }
+
+    private static void ShaderOutputBoundary()
+    {
+        using var temp = new Temp();
+        var checkout = Directory.CreateDirectory(Path.Combine(temp.Root, "checkout")).FullName;
+        var game = Path.Combine(temp.Root, "game");
+        Write(Path.Combine(game, "h3vr_Data/Managed/Assembly-CSharp.dll"), "synthetic marker");
+        var output = Path.Combine(temp.Root, "outside");
+        var options = new ConversionOptions { Game = game, Output = output, Offline = true };
+        var app = new ConverterApplication(checkout, new TestConsole());
+        Check(Capture(() => app.RunAsync(new(ConverterCommand.RecoverShaders, options), CancellationToken.None)
+                  .GetAwaiter().GetResult()) is InvalidDataException &&
+              !Directory.Exists(output) && !Directory.Exists(Path.Combine(checkout, "cache")),
+            "shader recovery accepted an external output or provisioned tools before refusing it");
+    }
+
     private static void DoctorExtractIsReadOnly()
     {
         using var temp = new Temp();
         var game = Path.Combine(temp.Root, "game");
         Write(Path.Combine(game, "h3vr_Data/Managed/Assembly-CSharp.dll"), "synthetic marker");
-        var workspace = Path.Combine(temp.Root, "workspace");
+        var workspace = Path.Combine(temp.Root, ".local", "workspace");
         var cache = Path.Combine(temp.Root, "cache");
         var previousUnity = Environment.GetEnvironmentVariable("UNITY_EDITOR");
         try
@@ -152,14 +187,14 @@ public static class ApplicationTests
         using var temp = new Temp();
         var game = Path.Combine(temp.Root, "game");
         Write(Path.Combine(game, "h3vr_Data/Managed/Assembly-CSharp.dll"), "synthetic marker");
+        var repository = Path.Combine(temp.Root, "repository"); Directory.CreateDirectory(repository);
         var config = new ConversionConfig
         {
             GameDirectory = game,
             UnityEditor = "",
-            Workspace = Path.Combine(temp.Root, "workspace"),
+            Workspace = Path.Combine(repository, ".local", "workspace"),
             BuildTarget = "StandaloneWindows64"
         };
-        var repository = Path.Combine(temp.Root, "repository"); Directory.CreateDirectory(repository);
         config.Validate(repository, "extract");
         Check(Capture(() => config.Validate(repository, "validate")) is InvalidDataException,
             "non-extract validation unexpectedly accepted a missing Unity editor");
@@ -184,7 +219,8 @@ public static class ApplicationTests
             BuildTarget = "StandaloneWindows64"
         };
         config.Validate(checkout, "extract");
-        foreach (var invalid in new[] { checkout, local, Path.Combine(checkout, "tools", "workspace"), Path.Combine(link, "workspace") })
+        foreach (var invalid in new[] { checkout, local, external, Path.Combine(checkout + "-other", ".local", "workspace"),
+            Path.Combine(checkout, "tools", "workspace"), Path.Combine(link, "workspace") })
             Check(Capture(() => (config with { Workspace = invalid }).Validate(checkout, "extract")) is InvalidDataException,
                 "accepted an unsafe checkout workspace: " + invalid);
     }
@@ -205,18 +241,18 @@ public static class ApplicationTests
         var recovered = Path.Combine(temp.Root, "recovered");
         Write(Path.Combine(recovered, "ProjectSettings/ProjectVersion.txt"), "m_EditorVersion: 2020.3.1f1\n");
         Write(Path.Combine(recovered, "Assets/source.txt"), "recovered source");
-        var workspace = Path.Combine(temp.Root, "workspace");
+        var workspace = Path.Combine(repo, ".local", "workspace");
         var first = new ConversionConfig
         {
             GameDirectory = game,
             UnityEditor = "",
             Workspace = workspace,
             RecoveredProject = recovered,
-            ToolCacheDirectory = Path.Combine(temp.Root, "cache-a"),
+            ToolCacheDirectory = Path.Combine(repo, ".local", "cache-a"),
             Offline = false
         };
         new Pipeline(repo, first).Run("extract", CancellationToken.None).GetAwaiter().GetResult();
-        var second = first with { ToolCacheDirectory = Path.Combine(temp.Root, "cache-b"), Offline = true };
+        var second = first with { ToolCacheDirectory = Path.Combine(repo, ".local", "cache-b"), Offline = true };
         new Pipeline(repo, second).Run("extract", CancellationToken.None).GetAwaiter().GetResult();
         Check(File.Exists(Path.Combine(workspace, ".conversion/extract.json")), "receipt disappeared when cache-only settings changed");
     }
@@ -227,7 +263,7 @@ public static class ApplicationTests
         var repository = Path.Combine(temp.Root, "checkout");
         var local = Path.Combine(repository, "cache");
         var game = Path.Combine(temp.Root, "steam-install");
-        var workspace = Path.Combine(temp.Root, "workspace");
+        var workspace = Path.Combine(repository, ".local", "workspace");
         Directory.CreateDirectory(repository);
         Directory.CreateDirectory(game);
         var config = new ConversionConfig();
@@ -236,8 +272,10 @@ public static class ApplicationTests
             "the worker cache resolved outside the default directory");
         config.ValidateToolCache(repository, game, workspace);
         Check(!Directory.Exists(local), "validation must not create the cache");
-        (config with { ToolCacheDirectory = Path.Combine(temp.Root, "external") }).ValidateToolCache(repository, game, workspace);
-        foreach (var invalid in new[] { repository, Path.Combine(repository, "src"), Path.Combine(game, "tool-cache"), workspace })
+        foreach (var valid in new[] { Path.Combine(local, "other"), Path.Combine(repository, ".local", "tools") })
+            (config with { ToolCacheDirectory = valid }).ValidateToolCache(repository, game, workspace);
+        foreach (var invalid in new[] { repository, Path.Combine(repository, "src"), Path.Combine(temp.Root, "external"),
+            Path.Combine(game, "tool-cache"), workspace })
             Check(Capture(() => (config with { ToolCacheDirectory = invalid }).ValidateToolCache(repository, game, workspace)) is InvalidDataException,
                 "overlapping cache was accepted: " + invalid);
         if (OperatingSystem.IsWindows()) return;

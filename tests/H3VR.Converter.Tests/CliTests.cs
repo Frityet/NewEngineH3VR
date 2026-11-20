@@ -117,7 +117,8 @@ public static class CliTests
                 .GetAwaiter().GetResult();
             Check(code == 0 && !dispatched &&
                   console.Output.Contains("--output", StringComparison.Ordinal) &&
-                  console.Output.Contains("Optional output directory", StringComparison.Ordinal),
+                  console.Output.Contains("Optional recover-shaders output", StringComparison.Ordinal) &&
+                  console.Output.Contains(".local/", StringComparison.Ordinal),
                 "generated recover-shaders help omitted its options or descriptions");
         }
     }

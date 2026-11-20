@@ -30,7 +30,7 @@ dotnet run --project src/H3VR.Converter -c Release -- \
 
 For Windows, use `--target windows` and omit `--integration`. The converter looks for Steam and the Unity Hub editor automatically. Use `--game`, `--unity`, or `--unity-version` when your installation differs. To reuse an existing overlay, use `--shaders` in place of the two translator flags.
 
-The default workspace is `.local/workspace`. Unity files go into `project/` and the player into `player/` under that workspace. The shader recovery and overlay directories sit beside the workspace. You can set a different private directory with `--workspace`.
+The default workspace is `.local/workspace`. Unity files go into `project/` and the player into `player/` under that workspace. The shader recovery and overlay directories sit beside the workspace. Use `--workspace` to choose another directory under the checkout's ignored `.local/` directory. The tool cache defaults to `cache/`. You can override it with a directory under `.local/` or `cache/` using `--cache`.
 
 If a run stops partway, run the same command again. It picks up where it left off.
 

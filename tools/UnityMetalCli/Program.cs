@@ -147,6 +147,8 @@ internal static class Program
         }
         if (command.AllowsPlayerArguments)
             Console.WriteLine("Choose exactly one of --synthetic and --headset.");
+        if (command.Name is "build" or "run" or "smoke")
+            Console.WriteLine("Choose output paths under the checkout's .local/ directory.");
     }
 
     private sealed record Option(string Name, string? Value = null, bool Required = false, int Arity = 1);

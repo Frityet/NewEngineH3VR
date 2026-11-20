@@ -85,7 +85,8 @@ internal static class MetalSmoke
     private static async Task<double[][][]> CheckCaptureAsync(string capture, int width, int height,
                                                              CancellationToken cancellation)
     {
-        DirectoryInfo temporary = Directory.CreateTempSubdirectory("nh3vr-bitmap-");
+        DirectoryInfo temporary = Directory.CreateDirectory(Path.Combine(Path.GetDirectoryName(capture)!,
+            ".bitmap-" + Guid.NewGuid().ToString("N")));
         byte[] data;
         try
         {

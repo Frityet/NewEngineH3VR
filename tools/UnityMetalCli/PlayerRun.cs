@@ -23,6 +23,9 @@ internal static class PlayerRun
         if (!OperatingSystem.IsMacOS())
             throw new PlatformNotSupportedException("Launching an Apple Silicon player requires macOS.");
 
+        string repository = IntegrationBuild.SourceRoot();
+        foreach (string output in new[] { launch.State, launch.Log, launch.Trace, launch.Profile, launch.Capture }.OfType<string>())
+            SafeFiles.RequirePrivateOutput(repository, output);
         string app = SafeFiles.Canonical(launch.App);
         string runtimeRoot = SafeFiles.Canonical(launch.Runtime);
         string state = SafeFiles.Canonical(launch.State);
@@ -60,54 +63,47 @@ internal static class PlayerRun
 
         Directory.CreateDirectory(state);
         using var lockedState = AcquireLock(state);
-        DirectoryInfo endpoints = Directory.CreateTempSubdirectory("nh3vr-xr-");
-        try
+        string settings = StateSubdirectory(state, "preferences");
+        var environment = extraEnvironment is null
+            ? new Dictionary<string, string?>(StringComparer.Ordinal)
+            : new Dictionary<string, string?>(extraEnvironment, StringComparer.Ordinal);
+        environment["XR_API_LAYER_PATH"] = null;
+        environment["XR_ENABLE_API_LAYERS"] = null;
+        environment["VR_OPENXR_CAPTURE_EVERY"] = null;
+        environment["XR_RUNTIME_JSON"] = runtime.Manifest;
+        environment["NATIVEH3VR_OPENXR_LOADER"] = runtime.Loader;
+        environment["NATIVEH3VR_STATE_DIR"] = state;
+        environment["NATIVEH3VR_MODS_DIR"] = mods;
+        environment["CFFIXED_USER_HOME"] = settings;
+        environment["VR_OPENXR_SIMULATE"] = launch.Synthetic ? "1" : "0";
+        environment["VR_OPENXR_HEADLESS"] = launch.Synthetic ? "1" : "0";
+        environment["VR_OPENXR_FRAME_TRACE"] = trace;
+        environment["NATIVEH3VR_UNITY_TRACE"] = profile;
+        environment["VR_OPENXR_CAPTURE"] = capture;
+        if (launch.Synthetic)
         {
-            string settings = StateSubdirectory(state, "preferences");
-            var environment = extraEnvironment is null
-                ? new Dictionary<string, string?>(StringComparer.Ordinal)
-                : new Dictionary<string, string?>(extraEnvironment, StringComparer.Ordinal);
-            environment["XR_API_LAYER_PATH"] = null;
-            environment["XR_ENABLE_API_LAYERS"] = null;
-            environment["VR_OPENXR_CAPTURE_EVERY"] = null;
-            environment["XR_RUNTIME_JSON"] = runtime.Manifest;
-            environment["NATIVEH3VR_OPENXR_LOADER"] = runtime.Loader;
-            environment["NATIVEH3VR_STATE_DIR"] = state;
-            environment["NATIVEH3VR_MODS_DIR"] = mods;
-            environment["CFFIXED_USER_HOME"] = settings;
-            environment["VR_OPENXR_SIMULATE"] = launch.Synthetic ? "1" : "0";
-            environment["VR_OPENXR_HEADLESS"] = launch.Synthetic ? "1" : "0";
-            environment["VR_OPENXR_FRAME_TRACE"] = trace;
-            environment["NATIVEH3VR_UNITY_TRACE"] = profile;
-            environment["VR_OPENXR_CAPTURE"] = capture;
-            if (launch.Synthetic)
-            {
-                environment["VR_STATE_DIR"] = StateSubdirectory(state, "macvr");
-                environment["VR_TRACKING_SOCKET"] = Path.Combine(endpoints.FullName, "tracking.sock");
-            }
-            if (player.Stock)
-            {
-                environment["SteamAppId"] = "450540";
-                environment["SteamGameId"] = "450540";
-            }
+            environment["VR_STATE_DIR"] = StateSubdirectory(state, "macvr");
+            // Synthetic tracking uses no broker. A relative endpoint stays under the player's working directory.
+            environment["VR_TRACKING_SOCKET"] = "tracking-" + Path.GetRandomFileName() + ".sock";
+        }
+        if (player.Stock)
+        {
+            environment["SteamAppId"] = "450540";
+            environment["SteamGameId"] = "450540";
+        }
 
-            foreach (string output in outputs)
-            {
-                Directory.CreateDirectory(Path.GetDirectoryName(output)!);
-                if (Exists(output))
-                    throw new IOException("Run output already exists: " + output);
-            }
-            Console.WriteLine($"MacVR {runtime.Version} revision {runtime.Revision} from {runtime.Manifest}");
-            Console.Out.Flush();
-            var result = await ChildProcess.RunAsync(player.Program,
-                ["-force-metal", "-logFile", log, .. launch.PlayerArguments],
-                cancellation, workingDirectory: state, environment: environment, timeout: launch.Timeout);
-            return result.ExitCode;
-        }
-        finally
+        foreach (string output in outputs)
         {
-            endpoints.Delete(recursive: true);
+            Directory.CreateDirectory(Path.GetDirectoryName(output)!);
+            if (Exists(output))
+                throw new IOException("Run output already exists: " + output);
         }
+        Console.WriteLine($"MacVR {runtime.Version} revision {runtime.Revision} from {runtime.Manifest}");
+        Console.Out.Flush();
+        var result = await ChildProcess.RunAsync(player.Program,
+            ["-force-metal", "-logFile", log, .. launch.PlayerArguments],
+            cancellation, workingDirectory: state, environment: environment, timeout: launch.Timeout);
+        return result.ExitCode;
     }
 
     private static string? ResolveOptional(string? path) => path is null ? null : SafeFiles.Canonical(path);

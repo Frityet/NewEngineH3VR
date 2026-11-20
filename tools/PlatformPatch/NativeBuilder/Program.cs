@@ -15,7 +15,7 @@ internal static partial class NativeBuilder
           --csteamworks   Clean CSteamworks SDK 1.41 checkout.
           --steam-api     Installed Steam client libsteam_api.dylib.
           --fmod-sdk      FMOD 2.03.15 SDK directory containing api/.
-          --output        New private directory outside all input trees.
+          --output        New directory under the checkout's .local/ directory, separate from the inputs.
         """;
 
     private static readonly string[] RequiredOptions = ["--csteamworks", "--steam-api", "--fmod-sdk", "--output"];
@@ -70,7 +70,7 @@ internal static partial class NativeBuilder
             var value = argument.Length == 2 ? argument[1] : index + 1 < args.Length ? args[++index] : "";
             if (string.IsNullOrWhiteSpace(value) || value.StartsWith("--", StringComparison.Ordinal))
                 throw new ArgumentException($"Set a path for {key}. See --help.");
-            options.Add(key, SafeFiles.Canonical(value));
+            options.Add(key, key == "--output" ? Path.GetFullPath(value) : SafeFiles.Canonical(value));
         }
         var missing = RequiredOptions.Where(key => !options.ContainsKey(key)).ToArray();
         if (missing.Length != 0) throw new ArgumentException($"Required flags: {string.Join(", ", missing)}.");

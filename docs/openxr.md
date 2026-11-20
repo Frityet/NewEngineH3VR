@@ -1,6 +1,6 @@
 # How VR works
 
-The game was built for SteamVR. The converter patches it to use our own SteamVR replacement, which runs on OpenXR.
+The game calls SteamVR APIs. The converter redirects those calls to an OpenXR adapter. The managed retargeter follows the same approach for removed Unity APIs, such as collision accessors and mesh collider inflation. It routes existing calls to implementations in `runtime/Compatibility`. Use a targeted change to the local game assembly when an adapter cannot preserve the original behavior, such as handing the render loop to OpenXR.
 
 - Saved fields on game objects don't change.
 - SteamVR's render loop and the old XR loader are turned off.

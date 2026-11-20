@@ -44,8 +44,14 @@ public sealed class LinkOptions : CommandSettings
 
 public sealed class LinkCommand : Command<LinkOptions>
 {
-    public override int Execute(CommandContext context, LinkOptions settings, CancellationToken cancellationToken) =>
-        ShaderLinks.Run(settings, cancellationToken);
+    public override int Execute(CommandContext context, LinkOptions settings, CancellationToken cancellationToken)
+    {
+        string repository = Repository.Find();
+        SafeFiles.RequirePrivateOutput(repository, settings.Output);
+        if (settings.OverlayCandidate is not null)
+            SafeFiles.RequirePrivateOutput(repository, settings.OverlayCandidate);
+        return ShaderLinks.Run(settings, cancellationToken);
+    }
 }
 
 public sealed class ComputeOptions : CommandSettings
@@ -61,6 +67,7 @@ public sealed class ComputeCommand : AsyncCommand<ComputeOptions>
 {
     public override async Task<int> ExecuteAsync(CommandContext context, ComputeOptions settings, CancellationToken cancellationToken)
     {
+        SafeFiles.RequirePrivateOutput(Repository.Find(), settings.Overlay);
         await ComputeRecovery.Run(settings, cancellationToken);
         return 0;
     }

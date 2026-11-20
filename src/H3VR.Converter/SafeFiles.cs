@@ -32,21 +32,34 @@ public static partial class SafeFiles
         if (Contains(source, destination) || Contains(destination, source))
             throw new InvalidDataException($"Input/output paths overlap: {source} and {destination}");
     }
-    public static void RequirePrivateOutput(string repository, string destination)
+    public static void RequirePrivateOutput(string repository, string destination) =>
+        RequireCheckoutOutput(repository, destination, allowCache: false);
+
+    internal static void RequireToolCachePath(string repository, string destination) =>
+        RequireCheckoutOutput(repository, destination, allowCache: true);
+
+    private static void RequireCheckoutOutput(string repository, string destination, bool allowCache)
     {
-        string root = Path.GetFullPath(repository);
-        string output = Path.GetFullPath(destination);
-        string local = Path.Combine(root, ".local");
-        string relative = Path.GetRelativePath(root, output);
-        var comparison = OperatingSystem.IsLinux() ? StringComparison.Ordinal : StringComparison.OrdinalIgnoreCase;
-        if (relative.StartsWith(".local" + Path.DirectorySeparatorChar, comparison))
+        string root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(repository));
+        string output = Path.TrimEndingDirectorySeparator(Path.GetFullPath(destination));
+        string prefix = Path.EndsInDirectorySeparator(root) ? root : root + Path.DirectorySeparatorChar;
+        var comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+        string[] components = output.StartsWith(prefix, comparison)
+            ? output[prefix.Length..].Split(Path.DirectorySeparatorChar)
+            : [];
+        bool local = components.Length > 1 && components[0].Equals(".local", comparison);
+        bool cache = allowCache && components.Length > 0 && components[0].Equals("cache", comparison);
+        if (!local && !cache)
+            throw new InvalidDataException($"Choose an output inside the checkout's {(allowCache ? ".local/ or cache/ directories" : ".local/ directory")}: {output}");
+
+        string path = root;
+        foreach (string component in components)
         {
-            if (new DirectoryInfo(local).LinkTarget is not null || !Contains(root, output) || !Contains(local, output) ||
-                Canonical(local).Equals(Canonical(output), comparison))
-                throw new InvalidDataException("Checkout-local output must stay under the real .local directory: " + output);
-            return;
+            path = Path.Combine(path, component);
+            FileSystemInfo item = Directory.Exists(path) ? new DirectoryInfo(path) : new FileInfo(path);
+            if (item.LinkTarget is not null)
+                throw new InvalidDataException("Checkout output paths must not traverse symbolic links: " + path);
         }
-        RequireSeparate(root, output);
     }
     public static string Inside(string root, string relative)
     {

@@ -58,14 +58,14 @@ Then launch the game:
 
 ```sh
 dotnet run --project tools/UnityMetalCli -c Release -- run \
-  --app "/path/to/private-workspace/player/NativeH3VR.app" \
+  --app "$PWD/.local/workspace/player/NativeH3VR.app" \
   --runtime "/path/to/macvr-openxr" \
-  --state-dir "/path/to/private-state" \
-  --synthetic --log-file "/path/to/new-player.log"
+  --state-dir "$PWD/.local/player-run/state" \
+  --synthetic --log-file "$PWD/.local/player-run/player.log"
 ```
 
 - `--synthetic` uses a fake headset. Use `--headset` for a real one.
-- `--state-dir` is where Unity keeps settings and saves.
+- Put `--state-dir` and the log, trace, profile and capture outputs under the checkout's `.local/` directory. Unity keeps settings and saves in `--state-dir`.
 - The launcher checks the runtime and the app signature first. It points only this process at MacVR, through `XR_RUNTIME_JSON`.
 - Steam gets the real H3VR app ID and does its own startup and ownership checks.
 
