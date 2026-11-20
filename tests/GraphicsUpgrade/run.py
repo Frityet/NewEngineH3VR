@@ -46,6 +46,8 @@ def main():
     parser.add_argument("--scene", action="append", default=[], help="Also capture a named stock scene (repeatable)")
     parser.add_argument("--tnh", metavar="MAP", help="Profile one stock Take & Hold map from a fresh session")
     parser.add_argument("--tnh-seed", type=int, metavar="ID", help="Stock Take & Hold point sequence ID (default 0)")
+    parser.add_argument("--tnh-observer-from", type=Path, metavar="HOLD_STATE_JSON",
+                        help="Replay the stock floor marker and heading from an earlier Hold capture")
     parser.add_argument("--preset", choices=("balanced", "quality"), help="Graphics preset for a Take & Hold session")
     args = parser.parse_args()
     if (args.builtin or args.scene or args.tnh or args.preset or args.tnh_seed is not None) and not args.profile:
@@ -56,6 +58,8 @@ def main():
         parser.error("--preset requires --tnh")
     if args.tnh_seed is not None and (not args.tnh or args.tnh_seed < 0):
         parser.error("--tnh-seed requires --tnh and a nonnegative sequence ID")
+    if args.tnh_observer_from and (not args.tnh or not args.tnh_observer_from.is_file()):
+        parser.error("--tnh-observer-from requires --tnh and an existing Hold state file")
     app, runtime, launcher, out = (p.resolve() for p in (args.app, args.runtime, args.launcher, args.out))
     if out.exists():
         parser.error("--out must be a fresh directory for isolated player settings")
@@ -82,6 +86,7 @@ def main():
                    NATIVEH3VR_GRAPHICS_PROFILE_SCENE=",".join(args.scene),
                    NATIVEH3VR_GRAPHICS_PROFILE_TNH=args.tnh or "",
                    NATIVEH3VR_GRAPHICS_PROFILE_TNH_SEED=str(args.tnh_seed or 0),
+                   NATIVEH3VR_GRAPHICS_PROFILE_TNH_OBSERVER=str(args.tnh_observer_from.resolve()) if args.tnh_observer_from else "",
                    NATIVEH3VR_GRAPHICS_PROFILE_PRESET=args.preset or "")
         subprocess.run([*launch, "--log-file", str(out / "profile.log"), "--timeout", "330",
                         "--trace-file", str(out / "openxr.csv"), "--unity-profile-file", str(out / "unity.csv")],

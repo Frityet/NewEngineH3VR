@@ -9,6 +9,7 @@ using UnityEngine.Rendering;
 using UnityEngine.SceneManagement;
 using Valve.VR;
 using Valve.Newtonsoft.Json;
+using Valve.Newtonsoft.Json.Linq;
 
 namespace NativeH3VR.QA
 {
@@ -103,14 +104,20 @@ namespace NativeH3VR.QA
                 "Stock T&H Classic did not reach the seeded opening Take on " + scene);
             var hold = manager.CurHoldPoint;
             Require(hold && hold.SpawnPoints_Turrets.Count > 0, "Missing first stock objective in " + scene);
+            int markerIndex = 0;
+            Vector3 replayDirection = default;
+            string observerFile = Environment.GetEnvironmentVariable("NATIVEH3VR_GRAPHICS_PROFILE_TNH_OBSERVER");
+            bool replayObserver = !string.IsNullOrEmpty(observerFile);
+            if (replayObserver)
+                (markerIndex, replayDirection) = LoadHoldObserver(observerFile, selected, manager, hold);
             yield return Sample(scene, "take-" + variant, true, preset, TakeAndHoldPairs,
                 RecordLiveWindow(selected, manager, TNH_Phase.Take, 0f, "take-" + variant));
 
-            var marker = hold.SpawnPoints_Turrets[0];
+            var marker = hold.SpawnPoints_Turrets[markerIndex];
             var towardNode = hold.GetSystemNodeCoreTransform().position - marker.position;
             towardNode.y = 0f;
-            GM.CurrentMovementManager.TeleportToPoint(marker.position, false,
-                towardNode.sqrMagnitude > 0.01f ? towardNode.normalized : marker.forward);
+            var initialDirection = towardNode.sqrMagnitude > 0.01f ? towardNode.normalized : marker.forward;
+            GM.CurrentMovementManager.TeleportToPoint(marker.position, false, replayObserver ? replayDirection : initialDirection);
             UnityEngine.Random.InitState(SimulationSeed);
             hold.TriggerSystemNode();
 
@@ -128,17 +135,56 @@ namespace NativeH3VR.QA
                 yield return null;
             }
             // Choose the view after the active hold has installed its stock cover.
-            var observerDirection = HoldObserverDirection(GM.CurrentPlayerBody.Head.position, towardNode, marker);
+            var observerDirection = replayObserver ? replayDirection :
+                HoldObserverDirection(GM.CurrentPlayerBody.Head.position, towardNode, marker);
             GM.CurrentMovementManager.TeleportToPoint(marker.position, false, observerDirection);
             var floor = marker.position;
             var observer = new
             {
-                marker = marker.name, markerIndex = 0,
+                marker = marker.name, markerIndex,
                 floor = new { floor.x, floor.y, floor.z },
                 direction = new { observerDirection.x, observerDirection.y, observerDirection.z }
             };
             yield return Sample(scene, "hold-" + variant, true, preset, TakeAndHoldPairs,
                 RecordLiveWindow(selected, manager, TNH_Phase.Hold, holdStart, "hold-" + variant, observer));
+        }
+
+        private static (int markerIndex, Vector3 direction) LoadHoldObserver(string file,
+            TNH_UIManager.LevelData map, TNH_Manager manager, TNH_HoldPoint hold)
+        {
+            var reference = JObject.Parse(File.ReadAllText(file));
+            int holdIndex = manager.HoldPoints.IndexOf(hold);
+            foreach (string edge in new[] { "begin", "end" })
+            {
+                var state = reference[edge];
+                Require(state != null && (string)state["phase"] == "Hold" &&
+                        (string)state["mapId"] == map.LevelID && (string)state["scene"] == map.LevelSceneName &&
+                        (int?)state["sequenceSeed"] == manager.HoldSequenceSeed && (int?)state["stockHoldIndex"] == holdIndex &&
+                        (int?)state["holdLayer"] == 0,
+                    "Saved observer is for a different stock map, route, or first Hold objective");
+            }
+            var observer = reference["holdObserver"];
+            Require(observer != null && !string.IsNullOrEmpty((string)observer["marker"]), "Missing Hold observer marker");
+            var floor = ReadObserverVector(observer["floor"]);
+            var direction = ReadObserverVector(observer["direction"]);
+            Require(Mathf.Abs(direction.y) < 0.001f && Mathf.Abs(direction.sqrMagnitude - 1f) < 0.01f,
+                "Hold observer direction must be a horizontal unit vector");
+            direction.y = 0f;
+            string markerName = (string)observer["marker"];
+            int markerIndex = hold.SpawnPoints_Turrets.FindIndex(marker =>
+                marker && marker.name == markerName && (marker.position - floor).sqrMagnitude <= 0.0001f);
+            Require(markerIndex >= 0, "Saved Hold observer floor is not a stock marker in this objective");
+            return (markerIndex, direction);
+        }
+
+        private static Vector3 ReadObserverVector(JToken value)
+        {
+            Require(value is JObject && value["x"] != null && value["y"] != null && value["z"] != null,
+                "Missing Hold observer vector");
+            var vector = new Vector3((float)value["x"], (float)value["y"], (float)value["z"]);
+            Require(float.IsFinite(vector.x) && float.IsFinite(vector.y) && float.IsFinite(vector.z),
+                "Nonfinite Hold observer vector");
+            return vector;
         }
 
         private static Vector3 HoldObserverDirection(Vector3 head, Vector3 towardNode, Transform marker)
