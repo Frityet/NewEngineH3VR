@@ -84,6 +84,7 @@ internal static class ShaderKeywordTests
         var partial = ShaderVariantCatalog.CompleteGroups([original, inherited with { Domain = null }, additive]);
         Check(partial.Length == 1 && partial[0].LightMode == "FORWARDADD");
         Check(ShaderVariantCatalog.NormalizeMode(" ForwardBase ") == "FORWARDBASE");
+        Check(ShaderVariantCatalog.NormalizeMode("ShadowCollector") == "SHADOWCOLLECTOR");
         Check(ShaderVariantCatalog.NormalizeMode("CustomPipeline") is null);
     }
 

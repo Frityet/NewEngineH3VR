@@ -25,7 +25,7 @@ internal static class ShaderVariantCatalog
         return normalized switch
         {
             null or "" or "ALWAYS" => "ALWAYS",
-            "FORWARDBASE" or "FORWARDADD" or "SHADOWCASTER" or "DEFERRED" or "META" or
+            "FORWARDBASE" or "FORWARDADD" or "SHADOWCASTER" or "SHADOWCOLLECTOR" or "DEFERRED" or "META" or
                 "VERTEX" or "VERTEXLM" or "VERTEXLMRGBM" or "PREPASSBASE" or "PREPASSFINAL" or "MOTIONVECTORS" => normalized,
             _ => null
         };
