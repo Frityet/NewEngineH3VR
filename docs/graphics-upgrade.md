@@ -2,6 +2,8 @@
 
 `--graphics-upgrade` builds the game and its stock bundles with Unity 6.7 and the editor’s bundled Universal Render Pipeline 17.7.0. The converter installs the rendering code into the generated project and migrates materials from the local Steam import. The option is also available in the terminal wizard. To return to the stock rendering path, launch the player from your original workspace.
 
+The renderer, shaders and menu ship as regular source under `runtime/GraphicsUpgrade`. The converter patches the camera, shader warmup and menu hooks in the privately imported game assemblies. Those assemblies and the game assets stay in the local workspace.
+
 ```sh
 dotnet run --project src/H3VR.Converter -c Release -- --graphics-upgrade
 ```
