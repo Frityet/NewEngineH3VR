@@ -37,6 +37,7 @@ namespace NativeH3VR.QA
         private sealed class LiveWindow
         {
             public LiveState begin, end;
+            public object holdObserver;
         }
 
         private IEnumerator ProfileTakeAndHold(string mapId)
@@ -126,14 +127,59 @@ namespace NativeH3VR.QA
                     "First Hold did not reach a live encryption wave");
                 yield return null;
             }
+            // Choose the view after the active hold has installed its stock cover.
+            var observerDirection = HoldObserverDirection(GM.CurrentPlayerBody.Head.position, towardNode, marker);
+            GM.CurrentMovementManager.TeleportToPoint(marker.position, false, observerDirection);
+            var floor = marker.position;
+            var observer = new
+            {
+                marker = marker.name, markerIndex = 0,
+                floor = new { floor.x, floor.y, floor.z },
+                direction = new { observerDirection.x, observerDirection.y, observerDirection.z }
+            };
             yield return Sample(scene, "hold-" + variant, true, preset, TakeAndHoldPairs,
-                RecordLiveWindow(selected, manager, TNH_Phase.Hold, holdStart, "hold-" + variant));
+                RecordLiveWindow(selected, manager, TNH_Phase.Hold, holdStart, "hold-" + variant, observer));
+        }
+
+        private static Vector3 HoldObserverDirection(Vector3 head, Vector3 towardNode, Transform marker)
+        {
+            const float maxSight = 15f;
+            var toward = towardNode.sqrMagnitude > 0.01f ? towardNode.normalized : marker.forward;
+            var best = toward;
+            float bestScore = float.NegativeInfinity;
+            foreach (int yaw in new[] { 0, -15, 15, -30, 30, -45, 45, -60, 60 })
+            {
+                var direction = Quaternion.Euler(0f, yaw, 0f) * toward;
+                float score = -0.025f * Mathf.Abs(yaw);
+                foreach (int rayYaw in new[] { 0, -15, 15, -30, 30 })
+                {
+                    var ray = Quaternion.Euler(0f, rayYaw, 0f) * direction;
+                    float clearance = maxSight;
+                    foreach (var hit in Physics.RaycastAll(head, ray, maxSight, Physics.DefaultRaycastLayers,
+                        QueryTriggerInteraction.Ignore))
+                    {
+                        var collider = hit.collider;
+                        if (collider.attachedRigidbody || collider.GetComponentInParent<Sosig>() ||
+                            collider.GetComponentInParent<FVRPlayerBody>() || collider.GetComponentInParent<FVRViveHand>())
+                            continue;
+                        clearance = Mathf.Min(clearance, hit.distance);
+                    }
+                    // Quantize close scores, and favor a clear central ray over wide periphery.
+                    score += Mathf.Floor(clearance * 4f) * 0.25f * (rayYaw == 0 ? 3f : 1f);
+                }
+                if (score > bestScore)
+                {
+                    best = direction;
+                    bestScore = score;
+                }
+            }
+            return best;
         }
 
         private Action<string> RecordLiveWindow(TNH_UIManager.LevelData map, TNH_Manager manager,
-            TNH_Phase phase, float phaseStart, string label)
+            TNH_Phase phase, float phaseStart, string label, object holdObserver = null)
         {
-            var window = new LiveWindow();
+            var window = new LiveWindow { holdObserver = holdObserver };
             return edge =>
             {
                 Require(manager.Phase == phase && Mathf.Approximately(Time.timeScale, 1f) &&
