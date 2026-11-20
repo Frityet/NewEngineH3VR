@@ -333,16 +333,20 @@ foreach (string name in assemblyNames)
     {
         foreach (var method in MacOptionalFeatures.Apply(module))
             changes.Add(new { assembly = name, method, kind = "unavailable-on-macos" });
-        if (LegacyQuickbeltColors.Apply(module, args.Length == 6) != 0)
+    }
+    if (args.Length == 6)
+    {
+        if (LegacyQuickbeltColors.Apply(module, true) != 0)
             changes.Add(new { assembly = name, method = "System.Void FistVR.FVRQuickBeltSlot::Update()", kind = "legacy-quickbelt-rim" });
-        int tnhCalls = LegacyTnhColors.Apply(module, args.Length == 6 && args[5] == "--legacy-stock-rim");
+        bool stockColors = args[5] == "--legacy-stock-rim";
+        int tnhCalls = LegacyTnhColors.Apply(module, stockColors);
         if (tnhCalls != 0)
             changes.Add(new { assembly = name, calls = tnhCalls, kind = "legacy-tnh-rim" });
-        int materialCalls = LegacyStockMaterialColors.Apply(module, args.Length == 6 && args[5] == "--legacy-stock-rim");
+        int materialCalls = LegacyStockMaterialColors.Apply(module, stockColors);
         if (materialCalls != 0)
             changes.Add(new { assembly = name, calls = materialCalls, kind = "legacy-stock-hdr-materials" });
-        PatchMetalCameras(module, name);
     }
+    if (metal) PatchMetalCameras(module, name);
 
     // SteamVR's force-init path asks Unity to load the OpenVR XR device. That
     // would replace the project's configured OpenXR loader, so force mode is
