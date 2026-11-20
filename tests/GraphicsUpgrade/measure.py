@@ -28,6 +28,7 @@ def health(image):
     magenta = (red >= 130) & (blue >= 130) & (np.abs(red - blue) <= 0.22 * np.maximum(red, blue))
     return {"width": image.shape[1], "height": image.shape[0],
             "blackFraction": float((image.max(axis=2) <= 4).mean()),
+            "highlightSaturationFraction": float((image.max(axis=2) >= 254).mean()),
             "errorPinkFraction": float(((red >= 248) & (blue >= 248) & (green <= 8)).mean()),
             "strongMagentaFraction": float((magenta & (green <= 0.32 * np.minimum(red, blue))).mean())}
 
@@ -77,7 +78,7 @@ def inspect(root, baseline):
             noise = differences["balancedRepeat"]["meanAbsoluteRgbBytes"]
             if "quality-zero-exposure" in images:
                 differences["qualityVsZeroExposure"] = compare(images["quality"], images["quality-zero-exposure"])
-            for comparison in differences.keys() - {"balancedRepeat"}:
+            for comparison in (key for key in differences if key != "balancedRepeat"):
                 if differences[comparison]["meanAbsoluteRgbBytes"] <= noise + 0.15:
                     failures.append(f"{scene} {eye} {comparison} was indistinguishable from the repeat noise")
             if baseline and (baseline / f"{scene}-stock-{eye}.png").is_file():
