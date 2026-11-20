@@ -31,5 +31,26 @@ Shader "Hidden/NativeH3VR/StockTransientFeedback"
             }
             ENDHLSL
         }
+        Pass
+        {
+            Name "ViewFade"
+            Blend SrcAlpha OneMinusSrcAlpha
+            Cull Off ZWrite Off ZTest Always
+            HLSLPROGRAM
+            #pragma target 3.5
+            #pragma vertex Vert
+            #pragma fragment ViewFade
+            #pragma multi_compile _ STEREO_INSTANCING_ON STEREO_MULTIVIEW_ON
+            #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
+            #include "Packages/com.unity.render-pipelines.core/Runtime/Utilities/Blit.hlsl"
+
+            half4 _H3VRFadeColor;
+            half4 ViewFade(Varyings input) : SV_Target
+            {
+                UNITY_SETUP_STEREO_EYE_INDEX_POST_VERTEX(input);
+                return _H3VRFadeColor;
+            }
+            ENDHLSL
+        }
     }
 }

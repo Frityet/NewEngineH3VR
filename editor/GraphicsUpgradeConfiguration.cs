@@ -51,6 +51,8 @@ namespace H3VRConverter
                     throw new InvalidOperationException("The graphics upgrade setup launched a different Unity editor than requested.");
                 AssetDatabase.Refresh(ImportAssetOptions.ForceSynchronousImport);
                 VerifyPackage();
+                GraphicsUpgradeThermalShaders.Prepare();
+                GraphicsUpgradeThermalShaders.PrepareStockPbr();
                 ConfigurePipeline();
                 GraphicsUpgradeMaterials.Apply();
                 AssetDatabase.SaveAssets();
@@ -89,6 +91,11 @@ namespace H3VRConverter
             EditorUtility.SetDirty(feature);
 
             EnsureFeature<H3VRLegacyLighting>(renderer, "NativeH3VR Legacy Lighting");
+            var thermal = EnsureFeature<H3VRThermalScope>(renderer, "NativeH3VR Thermal Scope");
+            thermal.opaque = LoadShader(GraphicsUpgradeThermalShaders.PathFor("Opaque"));
+            thermal.cutout = LoadShader(GraphicsUpgradeThermalShaders.PathFor("TransparentCutout"));
+            thermal.transparent = LoadShader(GraphicsUpgradeThermalShaders.PathFor("Transparent"));
+            EditorUtility.SetDirty(thermal);
             var effects = EnsureFeature<H3VRStockEffects>(renderer, "NativeH3VR Stock Effects");
             effects.screenShakeShader = LoadShader(FeedbackShader);
             effects.trailShader = LoadShader(TrailShader);
@@ -209,6 +216,10 @@ namespace H3VRConverter
                 !renderer.rendererFeatures.OfType<H3VRRendererFeature>().Any(feature =>
                     feature.isActive && AssetDatabase.GetAssetPath(feature.compositionShader) == ShaderPath) ||
                 !renderer.rendererFeatures.OfType<H3VRLegacyLighting>().Any(feature => feature.isActive) ||
+                !renderer.rendererFeatures.OfType<H3VRThermalScope>().Any(feature => feature.isActive &&
+                    AssetDatabase.GetAssetPath(feature.opaque) == GraphicsUpgradeThermalShaders.PathFor("Opaque") &&
+                    AssetDatabase.GetAssetPath(feature.cutout) == GraphicsUpgradeThermalShaders.PathFor("TransparentCutout") &&
+                    AssetDatabase.GetAssetPath(feature.transparent) == GraphicsUpgradeThermalShaders.PathFor("Transparent")) ||
                 !renderer.rendererFeatures.OfType<H3VRStockEffects>().Any(feature => feature.isActive &&
                     AssetDatabase.GetAssetPath(feature.screenShakeShader) == FeedbackShader &&
                     AssetDatabase.GetAssetPath(feature.trailShader) == TrailShader) ||

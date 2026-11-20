@@ -136,7 +136,11 @@ namespace H3VRConverter
                         families.Add(shader.name, family);
                     }
 
-                    if (!Convert(material, stockPbr, terrainLit, upgraders))
+                    string stockRenderType = material.GetTag("RenderType", false);
+                    bool converted = Convert(material, stockPbr, terrainLit, upgraders);
+                    if (GraphicsUpgradeThermalShaders.ConfigureMaterial(material, stockRenderType))
+                        changed.Add(path);
+                    if (!converted)
                     {
                         family.retained++;
                         continue;
@@ -266,6 +270,7 @@ namespace H3VRConverter
                     migrated = LegacyVertexLightBridge.Apply(source, migrated, AssetDatabase.AssetPathToGUID(path), changed);
                     if (LegacyShadowReceivers.Any(name => source.StartsWith("Shader \"" + name + "\"", StringComparison.Ordinal)))
                         migrated = AddLegacyDirectionalShadows(migrated, AssetDatabase.AssetPathToGUID(path), changed);
+                    migrated = GraphicsUpgradeThermalShaders.MarkSource(migrated);
                     if (migrated == source)
                         continue;
                     // Keep original shader identity, render state, program, pass order and
@@ -419,6 +424,7 @@ namespace H3VRConverter
             else if (material.shader != urpLit)
             {
                 material.shader = urpLit;
+                GraphicsUpgradeThermalShaders.ConfigureMaterial(material, "Opaque");
                 EditorUtility.SetDirty(material);
                 changed.Add(GeneratedDefault);
             }

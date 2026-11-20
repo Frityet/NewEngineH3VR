@@ -37,11 +37,15 @@ cp "$patched" "$witness" "$clone/h3vr_Data/Managed/"
 
 Launch the copy with `NATIVEH3VR_RETAIL_HOLD` set to an absolute **Windows** path for the witness output. Under Wine this can be a `Z:\…` path pointing into the private scratch directory. Use a dedicated Wine prefix and runtime state, or a separate Windows test account, to isolate the game's profile. The macOS reference used Wine/DXMT for D3D11, OpenComposite, and a headless MacVR test runtime with fixed synthetic input and compositor capture. Inspect `hold.json` to confirm scene `TakeAndHoldClassic`, state `Hold`, sequence seed `0`, and active high and low meshes on the original Alloy/Core material. Keep the patched managed assembly, local shader inventories and captures in the private scratch directory.
 
+To compare the three benchmark maps, set `NATIVEH3VR_RETAIL_HOLD_OBSERVER` to a native profiler's first-Hold state JSON. The retail game checks the stock route and first objective, captures the opening Take from the original spawn and replays the recorded Hold observer during an active hacking wave. A capture driver can set `NATIVEH3VR_RETAIL_HOLD_CAPTURE_ACK=1` and write `take.captured` and `hold.captured` into the witness output after saving each stereo image.
+
 ## Optic blit passes
 
 The original FX manager serializes the scope postprocess shader directly and its runtime executes eight named passes by index. The converter removes the recovered shader's light-baking `Meta` tags so Unity 6.7 keeps those passes in players. It also keeps variants selected by the runtime overlay keyword. [Unity Meta pass documentation](https://docs.unity3d.com/6000.0/Manual/MetaPass.html)
 
 `OpticBlitWitness.cs` runs the same deterministic source and overlay textures through all eight passes with the overlay keyword on and off. Compile it against retail with the Roslyn references above plus `UnityEngine.VR.dll`. Bootstrap `NativeH3VR.QA.OpticBlitWitness` and set `NATIVEH3VR_OPTIC_BLIT_WITNESS` to a private Windows output directory. For a Unity 6.7 test fixture, add the authored witness to a scene and put the privately migrated shader at `Assets/Resources/Optics.shader`. Use the same environment variable with the local player output path. The witness records pipeline, graphics API, color space, indexed pass names, frame time and linear RGBA readbacks.
+
+`RetailThermalWitness.cs` loads the stock handheld thermal camera from the game item database. It captures the ordinary view, raw sensor, processed lens texture and ordinary reset using the camera's own targets. Compile it with the retail references above, bootstrap `NativeH3VR.QA.RetailThermalWitness` and set `NATIVEH3VR_THERMAL_WITNESS` to a private output directory. For a converted player, run `tests/GraphicsUpgrade/run.py --thermal` with the player, runtime, launcher and output paths. The witness exits after writing `thermal.json`.
 
 ## Whole-game material sweep
 
@@ -73,3 +77,9 @@ The pixel test checks the masked steel surface in each eye, checks the albedo co
 The room's teal painted stripes are a separate test of baked lighting. The actual wall uses a decal on Alloy/Core and a nondirectional lightmap. Unity selects the lightmap keyword per draw. During staging the converter retains the engine-controlled lightmap keyword groups and enables explicit build-time retention of the baked modes. The source shader still selects the original material's decal and mask. An exact wall-tile fixture reproduced the lost stripe with automatic stripping and restored it in a standalone player after retaining the required keyword combination. [Unity shader variant stripping](https://docs.unity3d.com/6000.0/Documentation/Manual/shader-variant-stripping.html)
 
 For the matched retail observer facing the teal wall, add `--retail-room /path/to/steam-stereo.png` to the pixel test. It checks for the visible teal band in the right-hand wall region of each eye and records the cropped sample counts. Other observer positions can face different walls or have the wall entirely occluded.
+
+## Game cameras and view fades
+
+The stock handheld thermal camera and T7 use the game's picture-in-picture camera to select a replacement shader. The URP conversion builds its opaque, cutout and transparent programs from the locally recovered Steam shader. A thermal camera draws the applicable replacement with each object's own material properties. The effective `RenderType` of the original material selects the program, including materials that override their shader's tag.
+
+The graphics interaction test also triggers the stock camera fade and reads both submitted eyes. It checks an opaque red stimulus and the return to the menu after a timed fade. The stock player uses the same component for death, teleport and ending transitions. The URP player advances the original transition on game updates and draws the selected color before grading. It skips the draw when the fade is clear. [Unity render pipeline feature comparison](https://docs.unity.com/en-us/engine/6000.0/manual/render-pipelines/choose-a-render-pipeline/feature-comparison)

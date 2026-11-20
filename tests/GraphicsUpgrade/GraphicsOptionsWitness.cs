@@ -62,11 +62,56 @@ namespace NativeH3VR.QA
                 var nativePage = manager.OPS_Quality.transform.Find("Canvas/Native Graphics Settings");
                 Require(nativePage, "Native graphics did not attach when the late-created panel initialized");
                 CheckPanel(manager, hand, graphics, nativePage);
-                Finish(null);
             }
             catch (Exception error)
             {
                 Finish(error);
+                yield break;
+            }
+            if (!verifySaved)
+            {
+                Valve.VR.SteamVR_Fade.Start(Color.red, 0f);
+                yield return new WaitForSecondsRealtime(0.25f);
+                try { VerifyViewFade(true); }
+                catch (Exception error) { Finish(error); yield break; }
+                finally { Valve.VR.SteamVR_Fade.Start(Color.clear, 0.2f); }
+                // The stock transition advances with game time, including during a slow synthetic replay.
+                yield return new WaitForSeconds(0.4f);
+                try { VerifyViewFade(false); }
+                catch (Exception error) { Finish(error); yield break; }
+            }
+            Finish(null);
+        }
+
+        private void VerifyViewFade(bool opaque)
+        {
+            var stereo = NativeStereoRenderer.Instance;
+            Require(stereo && stereo.SourceCamera && stereo.SourceCamera.GetComponent<Valve.VR.SteamVR_Fade>(),
+                "The stock fade component is missing from the tracked camera");
+            const int size = 32;
+            var image = new Texture2D(size, size, TextureFormat.RGBA32, false);
+            var previous = RenderTexture.active;
+            try
+            {
+                for (int eye = 0; eye < 2; eye++)
+                {
+                    var target = stereo.EyeTexture(eye);
+                    RenderTexture.active = target;
+                    image.ReadPixels(new Rect((target.width - size) / 2, (target.height - size) / 2, size, size), 0, 0);
+                    image.Apply(false);
+                    var pixels = image.GetPixels32();
+                    int red = pixels.Count(p => p.r > 180 && p.g < 20 && p.b < 20);
+                    int tinted = pixels.Count(p => p.r > p.g + 35 && p.r > p.b + 35);
+                    string state = opaque ? "opaque" : "cleared";
+                    File.WriteAllBytes(Path.Combine(output, $"view-fade-{state}-{eye}.png"), image.EncodeToPNG());
+                    Require(opaque ? red >= pixels.Length * 0.95f : tinted <= pixels.Length * 0.05f,
+                        $"Stock {state} fade failed in eye {eye} ({red} red and {tinted} tinted pixels of {pixels.Length})");
+                }
+            }
+            finally
+            {
+                RenderTexture.active = previous;
+                Destroy(image);
             }
         }
 

@@ -31,11 +31,13 @@ internal static class GraphicsUpgradeProject
     }
 
     internal static bool IsEditorSource(string path) => Path.GetFileName(path) is
-        "GraphicsUpgradeConfiguration.cs" or "GraphicsUpgradeMaterials.cs" or "LegacyVertexLightBridge.cs";
+        "GraphicsUpgradeConfiguration.cs" or "GraphicsUpgradeMaterials.cs" or "GraphicsUpgradeThermalShaders.cs"
+        or "LegacyVertexLightBridge.cs";
 
     internal static bool IsOptionalSource(string relativePath) =>
         relativePath.StartsWith(RuntimeSource + "/", StringComparison.Ordinal) ||
         relativePath == "src/H3VR.Converter/GraphicsOptionsHook.cs" ||
+        relativePath == "src/H3VR.Converter/StockThermalScopeHook.cs" ||
         relativePath.StartsWith("editor/", StringComparison.Ordinal) && IsEditorSource(relativePath);
 
     internal static bool IsRuntimeAsset(string path) =>

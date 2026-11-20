@@ -31,8 +31,17 @@ namespace H3VRConverter
 
             var path = AssetDatabase.GetAssetPath(shader);
             var name = (snippet.passName ?? "").Trim().ToUpperInvariant();
-            if (string.IsNullOrEmpty(path) || !Catalog.Value.TryGetValue(path, out var original)
-                || AssetDatabase.AssetPathToGUID(path) != original.Guid)
+            string originalPath = path;
+            int subshader = (int)snippet.pass.SubshaderIndex;
+#if NATIVEH3VR_GRAPHICS_UPGRADE
+            if (GraphicsUpgradeThermalShaders.TryMatchBranch(path, out string recoveredPath, out int recoveredSubshader))
+            {
+                originalPath = recoveredPath;
+                subshader = recoveredSubshader;
+            }
+#endif
+            if (string.IsNullOrEmpty(originalPath) || !Catalog.Value.TryGetValue(originalPath, out var original)
+                || AssetDatabase.AssetPathToGUID(originalPath) != original.Guid)
                 return;
             Domain[] domains;
             if (srp)
@@ -42,13 +51,13 @@ namespace H3VRConverter
                 domains = original.Passes
                     .Where(entry => entry.Key.Item2 == name && entry.Key.Item1 is "FORWARDBASE" or "ALWAYS" or "VERTEX")
                     .SelectMany(entry => entry.Value)
-                    .Where(domain => domain.Subshader == snippet.pass.SubshaderIndex && domain.Pass == snippet.pass.PassIndex)
+                    .Where(domain => domain.Subshader == subshader && domain.Pass == snippet.pass.PassIndex)
                     .ToArray();
                 if (domains.Length != 1) return;
                 mode = "URP";
             }
             else if (!original.Passes.TryGetValue((mode, name), out domains)
-                || !domains.Any(domain => domain.Subshader == snippet.pass.SubshaderIndex && domain.Pass == snippet.pass.PassIndex))
+                || !domains.Any(domain => domain.Subshader == subshader && domain.Pass == snippet.pass.PassIndex))
                 return;
 
             int removed = 0;

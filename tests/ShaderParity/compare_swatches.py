@@ -91,7 +91,12 @@ def compare_recipes(stock_index, player_index, stock_only, player_only):
             continue
         differences = {slot: [original[slot], converted[slot]] for slot in TEXTURES
                        if original[slot] != converted[slot]}
-        shaders = original["shader"], converted["shader"]
+        # The URP converter can add source-material selector passes to a local
+        # copy of a package shader. Keep both observed names in the measurement.
+        target_shader = converted["shader"]
+        if target_shader.startswith("Hidden/NativeH3VR/ThermalInput/Universal Render Pipeline/"):
+            target_shader = target_shader.removeprefix("Hidden/NativeH3VR/ThermalInput/")
+        shaders = original["shader"], target_shader
         if name != target:
             if (target in stock_names or shaders != ("Standard", "Universal Render Pipeline/Lit") or differences
                     or any(original[slot] for slot in TEXTURES)

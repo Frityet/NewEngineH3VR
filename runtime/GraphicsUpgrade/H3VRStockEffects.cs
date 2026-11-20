@@ -17,6 +17,7 @@ namespace NativeH3VR.GraphicsUpgrade
         private Material shakeMaterial;
         private TrailPass trails;
         private FeedbackPass feedback;
+        private FadePass fade;
 
         public override void Create()
         {
@@ -25,6 +26,7 @@ namespace NativeH3VR.GraphicsUpgrade
             shakeMaterial = screenShakeShader ? CoreUtils.CreateEngineMaterial(screenShakeShader) : null;
             trails = new TrailPass(trailMaterial);
             feedback = new FeedbackPass(shakeMaterial);
+            fade = new FadePass(shakeMaterial);
         }
 
         public override void AddRenderPasses(ScriptableRenderer renderer, ref RenderingData renderingData)
@@ -39,6 +41,10 @@ namespace NativeH3VR.GraphicsUpgrade
             if (shakeMaterial && camera.TryGetComponent<ScreenShakeVR>(out var effect) &&
                 effect.isActiveAndEnabled && FeedbackPass.IsShaking(effect))
                 renderer.EnqueuePass(feedback);
+
+            if (shakeMaterial && camera.TryGetComponent<Valve.VR.SteamVR_Fade>(out var viewFade) &&
+                viewFade.isActiveAndEnabled && fade.Prepare(viewFade))
+                renderer.EnqueuePass(fade);
         }
 
         protected override void Dispose(bool disposing) => ReleaseMaterials();
@@ -47,6 +53,50 @@ namespace NativeH3VR.GraphicsUpgrade
         {
             CoreUtils.Destroy(trailMaterial);
             CoreUtils.Destroy(shakeMaterial);
+        }
+
+        private sealed class FadePass : ScriptableRenderPass
+        {
+            private static readonly int FadeColor = Shader.PropertyToID("_H3VRFadeColor");
+            private readonly Material material;
+            private readonly MaterialPropertyBlock properties = new();
+            private Color color;
+
+            private sealed class Draw
+            {
+                internal Color color;
+                internal Material material;
+                internal MaterialPropertyBlock properties;
+            }
+
+            internal FadePass(Material material)
+            {
+                this.material = material;
+                // The stock fade is drawn into scene color before grading.
+                renderPassEvent = RenderPassEvent.BeforeRenderingPostProcessing - 1;
+            }
+
+            internal bool Prepare(Valve.VR.SteamVR_Fade component)
+            {
+                color = component.NativeH3VRGetFadeColor();
+                return color.a > 0f;
+            }
+
+            public override void RecordRenderGraph(RenderGraph graph, ContextContainer frameData)
+            {
+                var target = frameData.Get<UniversalResourceData>().activeColorTexture;
+                if (!target.IsValid()) return;
+                using var builder = graph.AddRasterRenderPass<Draw>("H3VR | View fade", out var data);
+                data.material = material;
+                data.properties = properties;
+                data.color = color;
+                builder.SetRenderAttachment(target, 0, AccessFlags.ReadWrite);
+                builder.SetRenderFunc(static (Draw draw, RasterGraphContext context) =>
+                {
+                    draw.properties.SetColor(FadeColor, draw.color);
+                    context.cmd.DrawProcedural(Matrix4x4.identity, draw.material, 1, MeshTopology.Triangles, 3, 1, draw.properties);
+                });
+            }
         }
 
         private sealed class TrailPass : ScriptableRenderPass
