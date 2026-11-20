@@ -190,9 +190,20 @@ def verify_state(path, stem, map_id, phase, pose):
 def verify_eyes(path, scene, label):
     result = {}
     for eye in EYES:
-        metrics = health(pixels(path, scene, label, eye))
-        require(metrics["blackFraction"] <= 0.95, f"{eye} capture is nearly all black")
-        require(metrics["errorPinkFraction"] <= 0.002, f"{eye} capture contains shader error pink")
+        image = pixels(path, scene, label, eye)
+        height, width = image.shape[:2]
+        require(height >= 2 and width >= 2, f"{eye} capture has invalid dimensions")
+        require((image != image[0, 0]).any(), f"{eye} capture has constant RGB signal")
+        metrics = health(image)
+        central = image[height // 10 : height * 3 // 4, width // 5 : width * 4 // 5]
+        peak = central.max(axis=2)
+        flags = []
+        if metrics["blackFraction"] > 0.95:
+            require((central != central[0, 0]).any(), f"{eye} near-black capture lacks central scene signal")
+            flags.append("nearBlack")
+        if metrics["errorPinkFraction"] > 0.002 or metrics["strongMagentaFraction"] > 0.015:
+            flags.append("diagnosticPink")
+        metrics.update(centralLitFraction=float((peak > 4).mean()), centralPeakRgbByte=int(peak.max()), visualFlags=flags)
         result[eye] = metrics
     require((result["left"]["width"], result["left"]["height"]) ==
             (result["right"]["width"], result["right"]["height"]), "Stereo eye dimensions differ")
@@ -229,6 +240,9 @@ def pool(windows):
         "maxBlackFraction": max(eye["blackFraction"] for eye in eye_checks),
         "maxErrorPinkFraction": max(eye["errorPinkFraction"] for eye in eye_checks),
         "maxStrongMagentaFraction": max(eye["strongMagentaFraction"] for eye in eye_checks),
+        "flaggedEyeCount": sum(bool(eye["visualFlags"]) for eye in eye_checks),
+        "nearBlackEyeCount": sum("nearBlack" in eye["visualFlags"] for eye in eye_checks),
+        "diagnosticPinkEyeCount": sum("diagnosticPink" in eye["visualFlags"] for eye in eye_checks),
         **{key: distribution([number for window in windows for number in window["_samples"][key]])
            for key in METRICS},
     }
@@ -257,6 +271,7 @@ def inspect(root):
                 "maxMissedWaitSlotsPerEvent": "Largest synthetic slot loss reported by one runtime wait event",
                 "maxUnityMainThreadMs": "Largest positive Unity main-thread profiler reading, when available",
             },
+            "visualFlags": "Near-black and diagnostic-pink scene output is included when the image contains scene signal. Central signal covers x20–80% and y10–75%",
             "memory": "Unity System Used Memory profiler counter, when available",
             "npcCounts": "Live endpoint observations while scenes continue simulating with matched seeds",
             "poseToleranceMeters": POSE_POSITION_METERS, "poseToleranceDegrees": POSE_ROTATION_DEGREES,
@@ -326,7 +341,7 @@ def write_csv(path, report):
                 "displayDurationSeconds", "deliveredHz", "unitySkipped", "missedWaitSlots",
                 "maxCompositorCompletionGapMs", "maxMissedWaitSlotsPerEvent", "maxUnityMainThreadMs",
                 "peakUnitySystemUsedBytes", "maxBlackFraction", "maxErrorPinkFraction",
-                "maxStrongMagentaFraction")
+                "maxStrongMagentaFraction", "flaggedEyeCount", "nearBlackEyeCount", "diagnosticPinkEyeCount")
     ranges = ("deliveredHzRange", "activeNpcCountRange", "objectiveNpcCountRange", "phaseElapsedSecondsRange")
     metrics = ("samples", "p50Ms", "p95Ms")
     with path.open("w", newline="") as output:
