@@ -168,8 +168,10 @@ public sealed record ConversionConfig
         through is "project" or "validate" or "build" && ShaderSources is null && RecoveredProject is null &&
         (!BuildProbe || DxbcCompiler is not null);
 
+    internal bool RestoresSteamLighting => RecoveredProject is null && !BuildProbe;
+
     internal bool NeedsClassDatabase(string through) =>
-        through == "build" && BuildTarget == "StandaloneOSX" || PreparesShaders(through);
+        through == "build" && RestoresSteamLighting || PreparesShaders(through);
 
     internal void RequireColdRecovery(string through)
     {

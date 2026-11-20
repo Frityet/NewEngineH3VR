@@ -271,8 +271,9 @@ Shader "NativeH3VR/Stock PBR"
                     // Alloy applies either straight multiplication or its linear-space MulX2 factor.
                     half multiplier = _DetailMode < 0.5 ? 1.0h : 4.594794h;
                     half3 detail = SAMPLE_TEXTURE2D(_DetailAlbedoMap, sampler_DetailAlbedoMap, input.detailUV).rgb;
-                    baseColor.rgb = saturate(baseColor.rgb * lerp(1.0h, detail * multiplier, detailWeight));
+                    baseColor.rgb *= lerp(1.0h, detail * multiplier, detailWeight);
                 }
+                baseColor.rgb = saturate(baseColor.rgb);
                 half4 packed = 1.0h;
                 if (_MainRoughnessSource > 0.5)
                     packed.a = textureAlpha;
@@ -283,8 +284,12 @@ Shader "NativeH3VR/Stock PBR"
                 half luminance = max(dot(baseColor.rgb, half3(0.2126h, 0.7152h, 0.0722h)), 0.0001h);
                 half3 dielectricTint = lerp(1.0h, baseColor.rgb / luminance, _SpecularTint);
                 SurfaceData surface = (SurfaceData)0;
-                surface.albedo = baseColor.rgb * (1.0h - metal);
-                surface.specular = saturate(lerp(dielectric * dielectricTint, baseColor.rgb, metal));
+                surface.specular = min(0.99h, saturate(lerp(dielectric * dielectricTint, baseColor.rgb, metal)));
+                // Alloy weights diffuse by the packed metallic channel. URP's specular
+                // workflow also weights diffuse by reflectivity; cancel that second
+                // factor so partly metallic surfaces keep their stock diffuse response.
+                half diffuseWeight = 1.0h - ReflectivitySpecular(surface.specular);
+                surface.albedo = baseColor.rgb * ((1.0h - metal) / diffuseWeight);
                 surface.smoothness = 1.0h - saturate(_Roughness * packed.a);
                 surface.occlusion = lerp(1.0h, packed.g, _Occlusion);
                 surface.normalTS = half3(0, 0, 1);

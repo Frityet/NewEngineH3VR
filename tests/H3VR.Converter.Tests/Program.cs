@@ -19,6 +19,55 @@ var cases = new List<(string Name, Action Run)>
         var other = $"Shader \"Custom/Particles\" {{\n{legacy}\n}}";
         Check(ProjectMigration.UpdateLegacyParticleFallback(other) == other, "custom fallback changed");
     }),
+    ("runtime optical effects keep named blit passes and runtime keyword variants", () => {
+        const string source = """
+            Shader "Hidden/PIPScope_PostProcess" {
+                Tags { "LIGHTMODE" = "META" "RenderType" = "Opaque" }
+                Name "THERMALPOSTPROCESS"
+                #pragma shader_feature __ SCOPE_PP_USE_OVERLAY
+                #pragma shader_feature __ UNITY_SINGLE_PASS_STEREO
+                #pragma shader_feature __ CUSTOM_OPTION
+                Name "IRFILTERBLUR"
+                tmp2 = tmp1;
+                tmp0.z = 0.0;
+                while (true) {}
+                Name "EXTERNALNVGCROP"
+                tmp2 = tmp1;
+                tmp0.z = 0.0;
+                while (true) {}
+            }
+            """;
+        var expected = source
+            .Replace("\"LIGHTMODE\" = \"META\" ", "", StringComparison.Ordinal)
+            .Replace("shader_feature __ SCOPE_PP_USE_OVERLAY", "multi_compile __ SCOPE_PP_USE_OVERLAY", StringComparison.Ordinal)
+            .Replace("shader_feature __ UNITY_SINGLE_PASS_STEREO", "multi_compile __ UNITY_SINGLE_PASS_STEREO", StringComparison.Ordinal)
+            .Replace("Name \"IRFILTERBLUR\"\n    tmp2 = tmp1;\n    tmp0.z = 0.0;",
+                "Name \"IRFILTERBLUR\"\n    tmp2 = tmp1;\n    tmp0.z = 1.0;", StringComparison.Ordinal);
+        var updated = ProjectMigration.KeepOpticPostProcessPasses(source);
+        Check(updated == expected, "changed original blit identity or unrelated source");
+        Check(ProjectMigration.KeepOpticPostProcessPasses(updated) == updated, "optic pass migration is not idempotent");
+        var other = source.Replace("Hidden/PIPScope_PostProcess", "Custom/Baked", StringComparison.Ordinal);
+        Check(ProjectMigration.KeepOpticPostProcessPasses(other) == other, "changed unrelated Meta logic");
+    }),
+    ("recovered night vision passes preserve Direct3D comparison and swizzle semantics", () => {
+        const string recoveredGrain = "tmp2.x = floor(-tmp2.x);\r\n\ttmp2.x = 1.0 - tmp2.x;\r\n";
+        const string originalGrain = "tmp2.x = tmp2.x ? 0.0 : 1.0;\r\n";
+        const string recoveredStreak = "tmp0.x = tmp0.y - tmp0.x;\nfloat3(_NightVisionHalo.xx, _NightVisionEdgeDarken.x)\n";
+        const string originalStreak = "tmp0.x = tmp0.x - tmp0.y;\nfloat3(_NightVisionHalo, _NightVisionEdgeDarken, _NightVisionHalo)\n";
+        const string grain = "Name \"EXTERNALNVG\"\n";
+        const string streak = "Name \"NVGSTREAKING\"\n";
+        const string unrelated = "Name \"EXTERNALNVGCROP\"\n" + recoveredGrain + recoveredStreak;
+        const string header = "Shader \"Hidden/PIPScope_PostProcess\" {\n";
+        var source = header + grain + string.Concat(Enumerable.Repeat(recoveredGrain, 4))
+            + streak + recoveredStreak + recoveredStreak + unrelated + "}";
+        var expected = header + grain + string.Concat(Enumerable.Repeat(originalGrain, 4))
+            + streak + originalStreak + originalStreak + unrelated + "}";
+        var updated = ProjectMigration.KeepOpticPostProcessPasses(source);
+        Check(updated == expected, "night vision variants or unrelated pass changed incorrectly");
+        Check(ProjectMigration.KeepOpticPostProcessPasses(updated) == updated, "night vision migration is not idempotent");
+        var custom = source.Replace("Hidden/PIPScope_PostProcess", "Custom/PIPScope_PostProcess", StringComparison.Ordinal);
+        Check(ProjectMigration.KeepOpticPostProcessPasses(custom) == custom, "changed an unrelated shader");
+    }),
     ("publication rejects recovered assets and old probe trees", () => {
         foreach (var name in new[] { "recovered/Game.cs", "src/Game.dll", "editor/Game.shader", "src/bin/Generated.cs", "probe/Assets/Editor/Test.cs" })
             Check(!Publication.Allowed(name), name);
@@ -208,6 +257,7 @@ cases.AddRange(AssetRipperIntegrationTests.Cases());
 cases.AddRange(ShaderToolCacheTests.Cases());
 cases.AddRange(ShaderRecoveryTests.Cases());
 cases.AddRange(ShaderKeywordTests.Cases());
+cases.AddRange(LegacyNormalDecodingTests.Cases());
 cases.AddRange(CliTests.Cases());
 cases.AddRange(ApplicationTests.Cases());
 cases.AddRange(PublicationTests.Cases());

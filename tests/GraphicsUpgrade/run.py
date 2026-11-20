@@ -41,21 +41,34 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     for key in ("app", "runtime", "launcher", "out"):
         parser.add_argument("--" + key, required=True, type=Path)
-    parser.add_argument("--profile", action="store_true", help="Capture and time the three URP presets")
+    modes = parser.add_mutually_exclusive_group()
+    modes.add_argument("--profile", action="store_true", help="Capture and time the three URP presets")
+    modes.add_argument("--swatches", action="store_true", help="Render stock materials with controlled lighting")
+    parser.add_argument("--swatch-bundles", nargs="?", const="1", metavar="BUNDLE,...",
+                        help="Include materials from all stock asset bundles or a comma-separated subset")
     parser.add_argument("--builtin", action="store_true", help="Profile the original Built-in renderer")
     parser.add_argument("--scene", action="append", default=[], help="Also capture a named stock scene (repeatable)")
     parser.add_argument("--tnh", metavar="MAP", help="Profile one stock Take & Hold map from a fresh session")
+    parser.add_argument("--inspect-cover", action="store_true", help="Diagnose the raised steel cover at the first Hold")
     parser.add_argument("--tnh-seed", type=int, metavar="ID", help="Stock Take & Hold point sequence ID (default 0)")
     parser.add_argument("--tnh-observer-from", type=Path, metavar="HOLD_STATE_JSON",
                         help="Replay the stock floor marker and heading from an earlier Hold capture")
     parser.add_argument("--preset", choices=("balanced", "quality"), help="Graphics preset for a Take & Hold session")
     args = parser.parse_args()
-    if (args.builtin or args.scene or args.tnh or args.preset or args.tnh_seed is not None) and not args.profile:
-        parser.error("--builtin, --scene, --tnh and --preset require --profile")
+    if (args.builtin or args.tnh or args.preset or args.tnh_seed is not None) and not args.profile:
+        parser.error("--builtin, --tnh and --preset require --profile")
+    if args.scene and not (args.profile or args.swatches):
+        parser.error("--scene requires --profile or --swatches")
+    if args.swatch_bundles and not args.swatches:
+        parser.error("--swatch-bundles requires --swatches")
+    if "*" in args.scene and (args.scene != ["*"] or not args.swatches):
+        parser.error("Use --swatches --scene '*' to render all levels")
     if args.tnh and (args.scene or args.builtin == bool(args.preset)):
         parser.error("--tnh requires either --builtin or --preset, and cannot be used with --scene")
     if args.preset and not args.tnh:
         parser.error("--preset requires --tnh")
+    if args.inspect_cover and not args.tnh:
+        parser.error("--inspect-cover requires --tnh")
     if args.tnh_seed is not None and (not args.tnh or args.tnh_seed < 0):
         parser.error("--tnh-seed requires --tnh and a nonnegative sequence ID")
     if args.tnh_observer_from and (not args.tnh or not args.tnh_observer_from.is_file()):
@@ -71,7 +84,11 @@ def main():
     subprocess.run(["dotnet", "build", str(Path(__file__).with_name("GraphicsOptionsWitness.csproj")),
                     "-c", "Release", "-p:NativeH3VRManaged=" + str(data / "Managed"), "--output", str(package),
                     "--nologo", "-v:q"], check=True)
-    witness = "GraphicsProfileWitness" if args.profile else "GraphicsOptionsWitness"
+    witness = "GraphicsOptionsWitness"
+    if args.profile:
+        witness = "GraphicsProfileWitness"
+    if args.swatches:
+        witness = "MaterialSwatches"
     manifest = {"schemaVersion": 2, "id": package.name, "unityVersion": settings["unityVersion"],
                 "buildTarget": "StandaloneOSX", "hostBuildSha256": digest(receipt),
                 "assemblies": [{"file": assembly, "sha256": digest(package / assembly)}],
@@ -80,11 +97,22 @@ def main():
 
     launch = ["dotnet", str(launcher), "run", "--app", str(app), "--runtime", str(runtime),
               "--mods-dir", str(package.parent), "--state-dir", str(out / "state"), "--synthetic"]
+    if args.swatches:
+        scenes = ["*"] if args.scene == ["*"] else list(dict.fromkeys(["MainMenu3", *args.scene]))
+        env = dict(os.environ, NATIVEH3VR_SHADER_SWATCHES=str(out), NATIVEH3VR_SWATCH_SCENES=",".join(scenes),
+                   NATIVEH3VR_SWATCH_BUNDLES=args.swatch_bundles or "")
+        timeout = 7200 if "*" in scenes or args.swatch_bundles else 240 + 90 * len(scenes)
+        subprocess.run([*launch, "--log-file", str(out / "swatches.log"), "--timeout", str(timeout)],
+                       env=env, check=True)
+        if not (out / "swatches-complete.txt").is_file():
+            raise RuntimeError(f"Material swatches did not complete. Inspect {out / 'swatches.log'}")
+        return
     if args.profile:
         env = dict(os.environ, NATIVEH3VR_GRAPHICS_PROFILE_WITNESS=str(out),
                    NATIVEH3VR_GRAPHICS_PROFILE_BUILTIN=str(int(args.builtin)),
                    NATIVEH3VR_GRAPHICS_PROFILE_SCENE=",".join(args.scene),
                    NATIVEH3VR_GRAPHICS_PROFILE_TNH=args.tnh or "",
+                   NATIVEH3VR_COVER_WITNESS=str(int(args.inspect_cover)),
                    NATIVEH3VR_GRAPHICS_PROFILE_TNH_SEED=str(args.tnh_seed or 0),
                    NATIVEH3VR_GRAPHICS_PROFILE_TNH_OBSERVER=str(args.tnh_observer_from.resolve()) if args.tnh_observer_from else "",
                    NATIVEH3VR_GRAPHICS_PROFILE_PRESET=args.preset or "")

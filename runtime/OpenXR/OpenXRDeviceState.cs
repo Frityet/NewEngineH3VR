@@ -172,6 +172,7 @@ namespace NativeH3VR
         void BindCamera(Camera camera, Transform origin);
         void RestoreProjection(Camera camera);
         bool IsEyeCamera(Camera camera);
+        bool TryGetSphereVisibility(BoundingSphere sphere, out bool visible);
         void Suspend(bool suspend);
         void FadeTo(Color color, float seconds, bool background);
         Color FadeColor(bool background);

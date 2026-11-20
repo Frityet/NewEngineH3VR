@@ -23,7 +23,12 @@ namespace NativeH3VR
 
         static Texture2D neutralNormal;
 
-        internal static void Install() => SceneManager.sceneLoaded += SceneLoaded;
+        internal static void Install()
+        {
+            // Older prepared projects still need the per-material fallback.
+            if (!Resources.Load<TextAsset>("NativeH3VR/LegacyNormalDecoding"))
+                SceneManager.sceneLoaded += SceneLoaded;
+        }
 
         static void SceneLoaded(Scene scene, LoadSceneMode mode)
         {

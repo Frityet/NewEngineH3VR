@@ -45,7 +45,8 @@ namespace NativeH3VR.GraphicsUpgrade
             // Scale, MSAA, distance, detail, lights, HDR, bloom, sharpen, tone, AO, exposure
             new[] { 1, 0, 0, 1, 1, 0, 0, 0, 0, 0, NeutralExposureIndex },
             new[] { 2, 1, 1, 2, 2, 1, 1, 1, 1, 0, 5 },
-            new[] { 2, 2, 2, 3, 3, 1, 2, 1, 2, 1, 6 }
+            // The Neutral curve preserves more low-light detail in the game's baked interiors.
+            new[] { 2, 2, 2, 3, 3, 1, 2, 1, 1, 1, 6 }
         };
 
         [Serializable]

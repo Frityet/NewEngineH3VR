@@ -71,6 +71,7 @@ public static class Publication
             "runtime/Platform/Fmod/bridge.cpp" or "runtime/Platform/Fmod/fmod-output.cpp" or
             "runtime/UnityMetal/MetalOpenXR.h" or "runtime/UnityMetal/MetalOpenXR.mm" or
             "tests/GraphicsUpgrade/run.py" or "tests/GraphicsUpgrade/measure.py" or "tests/GraphicsUpgrade/compare_tnh.py" or
+            "tests/ShaderParity/inventory.py" or "tests/ShaderParity/compare_swatches.py" or "tests/ShaderParity/cover_pixels.py" or
             "tests/StockMenuRendering/run.py" or "tests/StockMenuRendering/measure.py" or
             "tests/StockMenuRendering/verify_profiles.py" or "tests/StockMenuRendering/verify_scenes.py")
             return true;

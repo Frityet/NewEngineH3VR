@@ -147,6 +147,8 @@ namespace NativeH3VR.QA
             };
             yield return Sample(scene, "hold-" + variant, true, preset, TakeAndHoldPairs,
                 RecordLiveWindow(selected, manager, TNH_Phase.Hold, holdStart, "hold-" + variant, observer));
+            if (Environment.GetEnvironmentVariable("NATIVEH3VR_COVER_WITNESS") == "1")
+                yield return InspectHoldCover(scene + "-cover-" + variant);
         }
 
         private static (int markerIndex, Vector3 direction) LoadHoldObserver(string file,

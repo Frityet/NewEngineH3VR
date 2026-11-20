@@ -15,7 +15,7 @@ The output is a **raw export**, not something the converter can use directly. Yo
 
 The converter prepares the shader overlay after extracting the game. It builds pinned public `dxil-spirv` and `SPIRV-Cross` source and downloads a verified CMake release if it needs one. Use `--dxbc-compiler` and `--spirv-cross` to select translators you already have.
 
-Some Steam assets omit their Unity type trees. The converter uses a pinned class database to read them during shader preparation and to restore baked lighting data for the macOS player. When the database is missing, the converter downloads it and verifies its SHA-256. These dependencies stay in the checkout's ignored `cache/` or the directory passed to `--cache`. With `--offline`, use a cache already populated by an online run.
+Some Steam assets omit their Unity type trees. The converter uses a pinned class database to read them during shader preparation and to restore Steam's baked lighting and reflections to full desktop players built from a cold extraction. When the database is missing, the converter downloads it and verifies its SHA-256. These dependencies stay in the checkout's ignored `cache/` or the directory passed to `--cache`. With `--offline`, use a cache already populated by an online run.
 
 ## Recovering the shaders
 

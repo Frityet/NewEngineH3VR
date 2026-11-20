@@ -52,6 +52,9 @@ namespace NativeH3VR
         public void BindCamera(Camera camera, Transform origin) => renderer.BindCamera(camera, origin);
         public void Suspend(bool suspend) => renderer.SuspendSceneRendering = suspend;
         public bool IsEyeCamera(Camera camera) => renderer.IsRenderingEye && camera == renderer.SourceCamera;
+
+        public bool TryGetSphereVisibility(BoundingSphere sphere, out bool visible) =>
+            renderer.TryGetSphereVisibility(sphere, out visible);
         public void FadeTo(Color color, float seconds, bool background) => renderer.FadeTo(color, seconds, background);
         public Color FadeColor(bool background) => renderer.FadeColor(background);
         public void FadeGrid(float seconds, bool fadeIn) => renderer.FadeGrid(seconds, fadeIn);

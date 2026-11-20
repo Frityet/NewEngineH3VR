@@ -50,6 +50,9 @@ namespace NativeH3VR
 
         readonly RenderTexture[] targets = new RenderTexture[2];
         readonly IntPtr[] pointers = new IntPtr[2];
+        readonly Plane[] leftEyePlanes = new Plane[6];
+        readonly Plane[] rightEyePlanes = new Plane[6];
+        int cullingFrame = -1;
         MetalOpenXR.Status status;
         IntPtr renderEvent;
         bool sourceWasEnabled;
@@ -156,6 +159,41 @@ namespace NativeH3VR
             if (SourceCamera != null) SourceCamera.enabled = sourceWasEnabled;
             SourceCamera = null;
             TrackingOrigin = null;
+            cullingFrame = -1;
+        }
+
+        internal bool TryGetSphereVisibility(BoundingSphere sphere, out bool visible)
+        {
+            visible = false;
+            if (!SourceCamera || !TrackingOrigin || Sequence == 0) return false;
+
+            // The normal camera loop skips the manually submitted views, so a
+            // CullingGroup driven by Camera.main may never see either eye.
+            if (cullingFrame != Time.frameCount)
+            {
+                GetEyePlanes(LatestFrame.left, leftEyePlanes);
+                GetEyePlanes(LatestFrame.right, rightEyePlanes);
+                cullingFrame = Time.frameCount;
+            }
+            visible = IntersectsEye(sphere, leftEyePlanes) || IntersectsEye(sphere, rightEyePlanes);
+            return true;
+        }
+
+        void GetEyePlanes(MetalOpenXR.View view, Plane[] planes)
+        {
+            Vector3 position = TrackingOrigin.TransformPoint(view.pose.Position);
+            Quaternion rotation = TrackingOrigin.rotation * view.pose.Rotation;
+            // Camera space looks along -Z even though a Unity transform faces +Z.
+            Matrix4x4 cameraToWorld = Matrix4x4.TRS(position, rotation, new Vector3(1f, 1f, -1f));
+            Matrix4x4 projection = view.Projection(SourceCamera.nearClipPlane, SourceCamera.farClipPlane);
+            GeometryUtility.CalculateFrustumPlanes(projection * cameraToWorld.inverse, planes);
+        }
+
+        static bool IntersectsEye(BoundingSphere sphere, Plane[] planes)
+        {
+            foreach (var plane in planes)
+                if (plane.GetDistanceToPoint(sphere.position) < -sphere.radius) return false;
+            return true;
         }
 
         void OnApplicationQuit() => Close();

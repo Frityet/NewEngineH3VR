@@ -64,7 +64,7 @@ public sealed partial class Pipeline(string repository, ConversionConfig config)
         AddUnityInputs();
         Add(config.UnityVersion);
         Add(config.BuildTarget);
-        if (step == "build" && config.BuildTarget == "StandaloneOSX")
+        if (step == "build" && config.RestoresSteamLighting)
         {
             PlayerEnlighten.RequireClassDatabase(config.CacheDirectory(repository));
             Add(PlayerEnlighten.ClassDatabaseSha256);
@@ -321,8 +321,8 @@ public sealed partial class Pipeline(string repository, ConversionConfig config)
             SourceStaging.Install(repository, candidate, config.BuildTarget, config.BuildProbe, config.GraphicsUpgrade);
             if (config.GraphicsUpgrade) GraphicsOptionsHook.Install(candidate, config.EngineAssemblies, config.MonoReferenceAssemblies);
             if (config.IntegrationManifest is not null) Integration.Apply(config.IntegrationManifest, candidate, config.BuildTarget, config.UnityVersion);
-            if (config.GraphicsUpgrade && config.BuildTarget == "StandaloneOSX")
-                Integration.StageGraphicsUpgradeMetalRenderer(repository, candidate);
+            if (config.BuildTarget == "StandaloneOSX")
+                Integration.StageMetalCameraAdapter(repository, candidate);
             var temporaryPlan = Path.Combine(candidate, "bundle-plan.json");
             var bundleReport = BundlePlan.Create(Path.Combine(config.GameData, "StreamingAssets"), candidate, temporaryPlan);
             if (bundleReport.Issues != 0)
@@ -412,11 +412,14 @@ public sealed partial class Pipeline(string repository, ConversionConfig config)
             var evidence = new List<string> { report, logfile, shaderUpgrades };
             if (!File.Exists(output) && !Directory.Exists(output)) throw new InvalidDataException("Unity reported success without creating the player.");
             bool mac = config.BuildTarget == "StandaloneOSX";
+            string data = mac ? Path.Combine(output, "Contents", "Resources", "Data")
+                : Path.Combine(Path.GetDirectoryName(output)!, Path.GetFileNameWithoutExtension(output) + "_Data");
+            string? playerReceipt = null;
             if (mac)
             {
                 if (!OperatingSystem.IsMacOS()) throw new PlatformNotSupportedException("The macOS player must be signed and verified on macOS.");
                 Integration.PlaceMacPlayerLibraries(output);
-                var playerReceipt = PlayerReceipt.Write(output, config.GameDirectory, Path.Combine(Receipts, "extract.json"), config.UnityVersion, config.GraphicsUpgrade);
+                playerReceipt = PlayerReceipt.Write(output, config.GameDirectory, Path.Combine(Receipts, "extract.json"), config.UnityVersion, config.GraphicsUpgrade);
                 using var playerMetadata = JsonDocument.Parse(File.ReadAllText(playerReceipt));
                 var executable = playerMetadata.RootElement.GetProperty("playerExecutable").GetString()!;
                 await Processes.Run("lipo", ["-verify_arch", "arm64", Path.Combine(output, "Contents/MacOS", executable)], repository, cancellation: cancellation);
@@ -431,20 +434,21 @@ public sealed partial class Pipeline(string repository, ConversionConfig config)
                         throw new InvalidDataException("The built player is missing its native plug-in " + Path.GetFileName(expected));
                 foreach (var library in libraries)
                     await Processes.Run("lipo", ["-verify_arch", "arm64", library], repository, cancellation: cancellation);
-                evidence.AddRange(RestorePlayerEnlighten(output, run, bundleWork));
+                evidence.Add(architectureLog);
+            }
+            if (config.RestoresSteamLighting)
+            {
+                evidence.AddRange(RestorePlayerEnlighten(data, run, bundleWork));
                 string reflectionReceipt = Path.Combine(Receipts, run + "-reflection-probes.json");
-                var reflections = PlayerReflectionProbes.Restore(config.GameData, Path.Combine(output, "Contents", "Resources", "Data"),
+                var reflections = PlayerReflectionProbes.Restore(config.GameData, data,
                     PlayerEnlighten.RequireClassDatabase(config.CacheDirectory(repository)),
                     Path.Combine(bundleWork, "reflection-probes"), reflectionReceipt, config.UnityVersion);
-                PlayerReceipt.BindReflectionProbes(playerReceipt, reflectionReceipt);
+                if (playerReceipt is not null) PlayerReceipt.BindReflectionProbes(playerReceipt, reflectionReceipt);
                 Console.WriteLine($"Restored {reflections.Scenes.Sum(scene => scene.Probes.Length)} Steam baked reflection probes across {reflections.Scenes.Length} scenes.");
                 evidence.Add(reflectionReceipt);
-                evidence.Add(architectureLog);
             }
             if (config.CompactPlayerData)
             {
-                string data = mac ? Path.Combine(output, "Contents", "Resources", "Data")
-                    : Path.Combine(Path.GetDirectoryName(output)!, Path.GetFileNameWithoutExtension(output) + "_Data");
                 string archiveReceipt = Path.Combine(Receipts, run + "-archive.json");
                 await Processes.Run("dotnet", ["run", "--project", Path.Combine(repository, "tools", "PlayerDataArchive"),
                     "-c", "Release", "--", data, Path.Combine(bundleWork, "archive"), archiveReceipt],
@@ -463,9 +467,8 @@ public sealed partial class Pipeline(string repository, ConversionConfig config)
         return [report, logfile, shaderUpgrades];
     }
 
-    private string[] RestorePlayerEnlighten(string app, string run, string scratch)
+    private string[] RestorePlayerEnlighten(string playerData, string run, string scratch)
     {
-        var playerData = Path.Combine(app, "Contents", "Resources", "Data");
         var database = PlayerEnlighten.RequireClassDatabase(config.CacheDirectory(repository));
         var stage = Path.Combine(scratch, "enlighten-stage");
         var data = PlayerEnlighten.Stage(config.GameData, playerData, database, PlayerEnlighten.ClassDatabaseSha256, stage, config.UnityVersion);

@@ -44,6 +44,28 @@ namespace H3VRConverter
             ["VertexLMRGBM"] = "NativeH3VRLegacyVertexLMRGBM",
             ["PrepassBase"] = "NativeH3VRLegacyPrepassBase",
         };
+        private static readonly string[] LegacyShadowReceivers =
+        {
+            "Alloy Mods/Transition Lite",
+            "Alloy/Car Paint",
+            "Alloy/Core",
+            "Alloy/Directional Blend",
+            "Alloy/Nature/SpeedTree (Forward)",
+            "Alloy/Nature/Terrain/4Splat",
+            "Alloy/Oriented/Core",
+            "Alloy/Prototyping",
+            "Alloy/TriPlanar",
+            "Alloy/Vertex Blend",
+            "Alloy/Weighted Blend",
+            "CynCliff HeightBlend",
+            "Hidden/Alloy/Nature/Terrain/Details0",
+            "Hidden/Alloy/Nature/Terrain/Details1",
+            "Hidden/Alloy/Nature/Terrain/Details2",
+            "Hidden/Alloy/Nature/Terrain/Distant",
+            "NatureManufacture Shaders/Cross Model Shader",
+            "NatureManufacture Shaders/Tree Bark Metalic",
+            "NatureManufacture Shaders/Tree_Leaves_Specular",
+        };
         private static readonly string[] AlloyFeatures =
         {
             "_ParallaxT", "_AO2", "_TeamColor", "_Decal", "_Rim", "_Dissolve",
@@ -241,8 +263,9 @@ namespace H3VRConverter
                     string source = File.ReadAllText(path);
                     string migrated = LegacyPass.Replace(source, pass =>
                         pass.Groups["prefix"].Value + LegacyPassModes[pass.Groups["mode"].Value] + "\"");
-                    if (source.StartsWith("Shader \"Alloy/Vertex Blend\"", StringComparison.Ordinal))
-                        migrated = AddVertexBlendDirectionalShadows(migrated, AssetDatabase.AssetPathToGUID(path), changed);
+                    migrated = LegacyVertexLightBridge.Apply(source, migrated, AssetDatabase.AssetPathToGUID(path), changed);
+                    if (LegacyShadowReceivers.Any(name => source.StartsWith("Shader \"" + name + "\"", StringComparison.Ordinal)))
+                        migrated = AddLegacyDirectionalShadows(migrated, AssetDatabase.AssetPathToGUID(path), changed);
                     if (migrated == source)
                         continue;
                     // Keep original shader identity, render state, program, pass order and
@@ -260,11 +283,10 @@ namespace H3VRConverter
             return count;
         }
 
-        private static string AddVertexBlendDirectionalShadows(string source, string shaderGuid, SortedSet<string> changed)
+        private static string AddLegacyDirectionalShadows(string source, string shaderGuid, SortedSet<string> changed)
         {
-            // The split recovered forward pass contains distinct baked and realtime shader
-            // programs. Adapt the recognized realtime-only programs in place, so material
-            // keyword selection and all four stock layers keep their original implementation.
+            // The recovered forward pass contains distinct baked and realtime programs.
+            // The overlay may store its variants inline or in pass-specific includes.
             const string passStart = "#define DIRECTIONAL 1";
             int start = source.IndexOf(passStart, StringComparison.Ordinal);
             if (start < 0)
@@ -277,7 +299,8 @@ namespace H3VRConverter
                 return source;
 
             string prefix = "Assets/NativeH3VRShaderPrograms/" + shaderGuid + "/pass-0-";
-            bool adapted = false;
+            string adaptedForward = AddLegacyShadowTerms(forward);
+            bool adapted = adaptedForward != forward;
             foreach (Match include in Regex.Matches(forward, "#include \"(" + Regex.Escape(prefix) + "[0-9]+\\.cginc)\""))
             {
                 string path = include.Groups[1].Value;
@@ -289,9 +312,7 @@ namespace H3VRConverter
                     adapted = true;
                     continue;
                 }
-                string migrated = Regex.Replace(program,
-                    @"(?ms)^#(?:if|elif) defined\(DIRECTIONAL\)(?<keywords>[^\r\n]*)\r?\n(?<body>.*?)(?=^#(?:if|elif) defined\(DIRECTIONAL\)|\z)",
-                    AddVertexBlendShadowTerm);
+                string migrated = AddLegacyShadowTerms(program);
                 if (migrated == program)
                     continue;
                 File.WriteAllText(path, migrated);
@@ -304,10 +325,17 @@ namespace H3VRConverter
 
             string bridge = "\n#pragma dynamic_branch _ _MAIN_LIGHT_SHADOWS _MAIN_LIGHT_SHADOWS_CASCADE" +
                 "\n#include \"" + LegacyDirectionalShadow + "\"";
-            return source.Insert(start + passStart.Length, bridge);
+            return source.Substring(0, start) + adaptedForward.Insert(passStart.Length, bridge) + source.Substring(end);
         }
 
-        private static string AddVertexBlendShadowTerm(Match branch)
+        private static string AddLegacyShadowTerms(string program)
+        {
+            return Regex.Replace(program,
+                @"(?ms)^[ \t]*#(?:if|elif) defined\(DIRECTIONAL\)(?<keywords>[^\r\n]*)\r?\n(?<body>.*?)(?=^[ \t]*#(?:if|elif) defined\(DIRECTIONAL\)|\z)",
+                AddLegacyShadowTerm);
+        }
+
+        private static string AddLegacyShadowTerm(Match branch)
         {
             string keywords = branch.Groups["keywords"].Value;
             if (!keywords.Contains("!defined(SHADOWS_SCREEN)") || !keywords.Contains("!defined(LIGHTMAP_ON)") ||
@@ -317,10 +345,10 @@ namespace H3VRConverter
 
             string body = branch.Groups["body"].Value;
             const string light = "_LightColor0.xyz";
-            const string position = "inp.texcoord3.xyz";
-            if (!body.Contains("_WorldSpaceCameraPos - " + position))
+            string position = LegacyShadowPosition(body);
+            if (position == null)
                 return branch.Value;
-            var direct = Regex.Match(body, @"(?m)^\s*tmp\d+\.xyz = (?<color>_LightColor0\.xyz) \* tmp\d+\.xyz \+ tmp\d+\.xyz;");
+            var direct = Regex.Match(body, @"(?m)^[ \t]*tmp\d+\.xyz = (?<color>_LightColor0\.xyz) \* tmp\d+\.xyz \+ tmp\d+\.(?:xyz|yzw);");
             int index = body.IndexOf(light, StringComparison.Ordinal);
             if (!direct.Success || index != direct.Groups["color"].Index ||
                 body.LastIndexOf(light, StringComparison.Ordinal) != index)
@@ -328,6 +356,24 @@ namespace H3VRConverter
             string expression = "(" + light + " * StockShadowStrength(" + position + "))";
             int relative = branch.Groups["body"].Index - branch.Index + index;
             return branch.Value.Remove(relative, light.Length).Insert(relative, expression);
+        }
+
+        private static string LegacyShadowPosition(string body)
+        {
+            const string separatePosition = "inp.texcoord3.xyz";
+            if (body.Contains("_WorldSpaceCameraPos - " + separatePosition))
+                return separatePosition;
+
+            // The cliff and vegetation programs pack world position in the tangent
+            // frame interpolators. Verify the fragment reconstructs it for the view vector.
+            const string line = @"\r?\n[ \t]*";
+            string packedStart = @"(?m)^[ \t]*tmp(\d+)\.";
+            string packedEnd = @"tmp\d+\.(?:xyz|yzw) = _WorldSpaceCameraPos - tmp\1\.";
+            bool packed = Regex.IsMatch(body, packedStart + @"x = inp\.texcoord1\.w;" + line +
+                @"tmp\1\.y = inp\.texcoord2\.w;" + line + @"tmp\1\.z = inp\.texcoord3\.w;" + line + packedEnd + "xyz;") ||
+                Regex.IsMatch(body, packedStart + @"y = inp\.texcoord1\.w;" + line +
+                @"tmp\1\.z = inp\.texcoord2\.w;" + line + @"tmp\1\.w = inp\.texcoord3\.w;" + line + packedEnd + "yzw;");
+            return packed ? "float3(inp.texcoord1.w, inp.texcoord2.w, inp.texcoord3.w)" : null;
         }
 
         private static int ReplaceBuiltinDefaults(Shader urpLit, SortedSet<string> changed)

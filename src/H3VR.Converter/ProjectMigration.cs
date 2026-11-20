@@ -312,6 +312,46 @@ public sealed class ProjectMigration(ConversionConfig config, string candidate)
             "$1\"Legacy Shaders/Particles/Alpha Blended\"", RegexOptions.CultureInvariant);
     }
 
+    internal static string KeepOpticPostProcessPasses(string source)
+    {
+        var header = source.AsSpan().TrimStart('\uFEFF').TrimStart();
+        if (!header.StartsWith("Shader \"Hidden/PIPScope_PostProcess\"", StringComparison.Ordinal))
+            return source;
+
+        // The game uses these passes by index in Graphics.Blit. Unity uses the
+        // stock Meta tag to classify them as editor-only lightmapping passes.
+        var migrated = Regex.Replace(source,
+            """(?im)^(?<tags>[ \t]*Tags[ \t]*\{[^}\r\n]*?)"LightMode"[ \t]*=[ \t]*"Meta"[ \t]*""",
+            "${tags}", RegexOptions.CultureInvariant);
+        migrated = Regex.Replace(migrated,
+            """(?m)^(?<start>[ \t]*#pragma[ \t]+)shader_feature(?<options>[ \t]+__[ \t]+(?:SCOPE_PP_USE_OVERLAY|UNITY_SINGLE_PASS_STEREO)[ \t]*)(?=\r?$)""",
+            "${start}multi_compile${options}", RegexOptions.CultureInvariant);
+
+        return Regex.Replace(migrated,
+            """(?ms)^[ \t]*Name[ \t]+"(?<name>EXTERNALNVG|IRFILTERBLUR|NVGSTREAKING)".*?(?=^[ \t]*Name[ \t]+"|\z)""",
+            pass => pass.Groups["name"].Value switch
+            {
+                // DXBC comparisons produce signed all-ones masks. In this
+                // branch the original signed conversion yields 1 - bool.
+                "EXTERNALNVG" => Regex.Replace(pass.Value,
+                    """tmp2\.x = floor\(-tmp2\.x\);[ \t]*\r?\n[ \t]*tmp2\.x = 1\.0 - tmp2\.x;""",
+                    "tmp2.x = tmp2.x ? 0.0 : 1.0;", RegexOptions.CultureInvariant),
+                // The center is already sampled before the weighted loop.
+                "IRFILTERBLUR" => Regex.Replace(pass.Value,
+                    """(?m)(?<start>^[ \t]*tmp2 = tmp1;\r?\n[ \t]*tmp0\.z = )0\.0(?=;\r?\n[ \t]*while \(true\) \{)""",
+                    "${start}1.0", RegexOptions.CultureInvariant),
+                "NVGSTREAKING" => pass.Value
+                    // After converting the two comparison results to 0/1
+                    // instead of 0/-1, reverse their subtraction.
+                    .Replace("tmp0.x = tmp0.y - tmp0.x;", "tmp0.x = tmp0.x - tmp0.y;", StringComparison.Ordinal)
+                    // The original fragment instruction reads $Globals[2].yzy.
+                    .Replace("float3(_NightVisionHalo.xx, _NightVisionEdgeDarken.x)",
+                        "float3(_NightVisionHalo, _NightVisionEdgeDarken, _NightVisionHalo)", StringComparison.Ordinal),
+                _ => pass.Value
+            },
+            RegexOptions.CultureInvariant);
+    }
+
     private string ApplyShaderOverlay(string root, string assets, out HashSet<string> computeGuids,
         out Dictionary<string, HashSet<string>> hdrColors)
     {
@@ -329,6 +369,7 @@ public sealed class ProjectMigration(ConversionConfig config, string candidate)
             || File.Exists(Path.Combine(overlayRoot, SourceStaging.ShaderVariantCatalogName));
         var variantCatalog = verifyGraphics
             ? GraphicsShaderOverlay.Verify(config, overlayRoot, sourceAssets, shaders, includes) : null;
+        int decodedLegacyNormals = 0;
         foreach (var source in shaders)
         {
             var bytes = File.ReadAllBytes(source); var content = Encoding.UTF8.GetString(bytes);
@@ -352,7 +393,13 @@ public sealed class ProjectMigration(ConversionConfig config, string candidate)
             if (File.Exists(destination)) File.Delete(destination);
             SafeFiles.Copy(source, destination);
             if (!SafeFiles.Hash(destination).Equals(sourceHash, StringComparison.Ordinal)) throw new IOException("Shader overlay changed while copying: " + relative);
-            var migrated = UpdateLegacyParticleFallback(content);
+            var migrated = KeepOpticPostProcessPasses(UpdateLegacyParticleFallback(content));
+            if (verifyGraphics)
+            {
+                var normalized = LegacyNormalDecoding.Apply(migrated);
+                if (!ReferenceEquals(normalized, migrated)) decodedLegacyNormals++;
+                migrated = normalized;
+            }
             if (!ReferenceEquals(migrated, content)) File.WriteAllText(destination, migrated);
             // Existing recovered metadata also carries the source AssetBundle group; keep it intact when its GUID matches.
             if (!File.Exists(targetMeta)) File.Copy(sourceMeta, targetMeta);
@@ -363,7 +410,23 @@ public sealed class ProjectMigration(ConversionConfig config, string candidate)
             var destination = SafeFiles.Inside(assets, relative);
             if (File.Exists(destination)) File.Delete(destination);
             SafeFiles.Copy(source, destination);
+            if (verifyGraphics)
+            {
+                var program = File.ReadAllText(destination);
+                var normalized = LegacyNormalDecoding.Apply(program);
+                if (!ReferenceEquals(normalized, program))
+                {
+                    File.WriteAllText(destination, normalized);
+                    decodedLegacyNormals++;
+                }
+            }
             if (!File.Exists(destination + ".meta") && File.Exists(source + ".meta")) File.Copy(source + ".meta", destination + ".meta");
+        }
+        if (decodedLegacyNormals != 0 && config.BuildTarget == "StandaloneOSX")
+        {
+            var marker = SafeFiles.Inside(root, LegacyNormalDecoding.MarkerPath);
+            Directory.CreateDirectory(Path.GetDirectoryName(marker)!);
+            File.WriteAllText(marker, "Recovered normal decoding supports Unity RG and AG textures.\n");
         }
         foreach (var source in shaders.Concat(includes))
         {

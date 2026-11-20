@@ -80,6 +80,7 @@ namespace NativeH3VR.QA
             var renderScale = nativePage.Find("RenderScale Value").GetComponent<Text>();
             var preset = nativePage.Find("Preset Value").GetComponent<Text>();
             var exposure = nativePage.Find("Exposure Value").GetComponent<Text>();
+            var tonemapping = nativePage.Find("Tonemapping Value").GetComponent<Text>();
             var expectedExposure = Path.Combine(output, "exposure.txt");
             var expectedPath = Path.Combine(output, "render-scale.txt");
             var stateDirectory = Environment.GetEnvironmentVariable("NATIVEH3VR_STATE_DIR");
@@ -91,6 +92,7 @@ namespace NativeH3VR.QA
                 Require(renderScale.text == File.ReadAllText(expectedPath), "Render scale was not restored after restart");
                 Require(preset.text == "Custom", "Custom preset state was not restored after restart");
                 Require(exposure.text == File.ReadAllText(expectedExposure), "Exposure was not restored after restart");
+                Require(tonemapping.text == "ACES", "The selected tone curve was not restored after restart");
                 return;
             }
 
@@ -99,8 +101,8 @@ namespace NativeH3VR.QA
                 "A fresh state directory did not start at Balanced, 100% and +0.25 EV");
             Physics.SyncTransforms();
             TriggerArrow(nativePage, hand, "Preset", "Next");
-            Require(preset.text == "Quality" && exposure.text == "+0.5 EV",
-                "The preset arrow did not select Quality and apply its exposure");
+            Require(preset.text == "Quality" && exposure.text == "+0.5 EV" && tonemapping.text == "Neutral",
+                "The preset arrow did not select Quality with Neutral tone mapping and +0.5 EV");
             TriggerArrow(nativePage, hand, "RenderScale", "Next");
             Require(renderScale.text == "115%" && preset.text == "Custom",
                 "The render-scale arrow did not select Custom at 115%");
@@ -120,6 +122,8 @@ namespace NativeH3VR.QA
                 TriggerArrow(nativePage, hand, setting, "Previous");
                 Require(value.text == original, $"The {setting} previous arrow did not restore {original}");
             }
+            TriggerArrow(nativePage, hand, "Tonemapping", "Next");
+            Require(tonemapping.text == "ACES", "The tone mapping arrow did not select ACES");
 
             var back = quality.Find("Canvas/Button_Back (3)").GetComponent<Button>();
             var panelForward = back.transform.forward;

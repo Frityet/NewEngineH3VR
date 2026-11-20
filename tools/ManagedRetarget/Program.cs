@@ -90,6 +90,9 @@ foreach (var filename in keep)
     if (filename == "Assembly-CSharp")
     {
         StockCameraAllocations.Apply(module, shim.MainModule.GetType("NativeH3VR.CameraRenderScratch"), log);
+        int targetCalls = StockTargetRendering.Apply(module, shim.MainModule.GetType("NativeH3VR.LegacyTargetRendering"));
+        if (targetCalls != 0)
+            log.Add(new { caller = "PTarget", calls = targetCalls, target = "Render target stamps under the active pipeline" });
         int reverbCalls = LegacyReverbCalls.Apply(module, shim.MainModule.GetType("NativeH3VR.LegacyReverbParameters"));
         if (reverbCalls != 0)
             log.Add(new { caller = "FistVR.SM.ReverbSettings.UpdateMixerParams", calls = reverbCalls, target = "Cache stock mixer parameter availability" });

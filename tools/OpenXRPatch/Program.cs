@@ -533,6 +533,12 @@ void PatchMetalCameras(ModuleDefinition module, string assembly)
 {
     MethodReference Helper(string name) => ImportMethod(bootstrap.Methods.Single(m => m.Name == name), module);
 
+    if (module.GetType("ProbeCullManager") is { } probeCull)
+    {
+        var lateUpdate = ReflectionProbeCullPatch.Apply(probeCull, Helper("IsReflectionProbeVisible"));
+        changes.Add(new { assembly, method = lateUpdate.FullName, kind = "manual-stereo-reflection-probe-culling" });
+    }
+
     var camera = module.GetType("Valve.VR.SteamVR_Camera");
     if (camera != null)
     {

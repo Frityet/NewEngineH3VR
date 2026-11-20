@@ -4,8 +4,10 @@
     <ImplicitUsings>disable</ImplicitUsings>
     <Nullable>disable</Nullable>
     <AssemblyName>NativeH3VR.GraphicsOptionsWitness</AssemblyName>
+    <DefineConstants>$(DefineConstants);UNITY_6000_0_OR_NEWER</DefineConstants>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Include="../ShaderParity/*Swatches.cs" Link="%(Filename)%(Extension)" />
     <Reference Include="$(NativeH3VRManaged)/UnityEngine*.dll" Private="false" />
     <Reference Include="$(NativeH3VRManaged)/NativeH3VR.*.dll" Private="false" />
     <Reference Include="$(NativeH3VRManaged)/Assembly-CSharp.dll" Private="false" />

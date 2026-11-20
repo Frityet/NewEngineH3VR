@@ -54,6 +54,7 @@ internal static class GraphicsOptionsHook
         il.Append(call);
         il.Append(il.Create(OpCodes.Callvirt, invoke));
         il.Append(il.Create(OpCodes.Ret));
+        UsePipelineShadowAtlas(module);
 
         string staged = path + ".native-graphics";
         try
@@ -64,6 +65,27 @@ internal static class GraphicsOptionsHook
         finally
         {
             File.Delete(staged);
+        }
+    }
+
+    private static void UsePipelineShadowAtlas(ModuleDefinition module)
+    {
+        var stock = module.GetType("DirectLightVertexShadows");
+        if (stock is null) return;
+        foreach (var (name, originalCall) in new[] { ("InitCBuffer", "SetGlobalTexture"),
+                     ("ApplyCBuffer", "AddCommandBuffer"), ("RemoveCBuffer", "RemoveCommandBuffer") })
+        {
+            var method = stock.Methods.Single(m => m.Name == name && !m.HasParameters && m.HasBody &&
+                m.ReturnType.MetadataType == MetadataType.Void);
+            if (method.Body.HasExceptionHandlers || !method.Body.Instructions.Any(i =>
+                i.Operand is MethodReference call && call.Name == originalCall &&
+                call.DeclaringType.FullName is "UnityEngine.Rendering.CommandBuffer" or "UnityEngine.Light"))
+                throw new InvalidDataException("Unrecognized stock vertex shadow hook: " + method.FullName);
+            // URP supplies the main-light atlas to these shaders per camera. Keep the component's
+            // environment-probe setup, and skip creating or attaching the Built-in-only buffer.
+            method.Body.Instructions.Clear();
+            method.Body.Variables.Clear();
+            method.Body.GetILProcessor().Emit(OpCodes.Ret);
         }
     }
 }

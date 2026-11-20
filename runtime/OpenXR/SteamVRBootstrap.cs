@@ -114,6 +114,13 @@ namespace NativeH3VR
         }
 
         public static bool IsEyeCamera(Camera camera) => XRBridge.Metal?.IsEyeCamera(camera) == true;
+
+        public static bool IsReflectionProbeVisible(CullingGroup group, int index, BoundingSphere[] bounds)
+        {
+            if (XRBridge.Metal != null && XRBridge.Metal.TryGetSphereVisibility(bounds[index], out bool visible))
+                return visible;
+            return group.IsVisible(index);
+        }
 #endif
 
         static string ResolveActionManifest()

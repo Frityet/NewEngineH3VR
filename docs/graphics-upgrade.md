@@ -27,22 +27,26 @@ The launcher saves the graphics choices in `graphics-options.json` inside its `-
 | Bloom | Off | Subtle | Full |
 | Sharpening | Off | Low | Low |
 | Exposure | 0 EV | +0.25 EV | +0.5 EV |
-| Tone mapping | Off | Neutral | ACES |
+| Tone mapping | Off | Neutral | Neutral |
 | Ambient occlusion | Off | Off | On |
 
-Render scale ranges from 70% to 130% of the output dimensions. On MacVR the compositor continues to receive the headset’s requested eye size and projection. HDR controls the scene color buffer. Bloom, tone mapping and ambient occlusion can each be disabled independently. Exposure ranges from −1 to +1 EV in quarter-stop steps. Existing saves keep 0 EV until exposure changes or a preset is reapplied.
+Render scale ranges from 70% to 130% of the output dimensions. On MacVR the compositor continues to receive the headset’s requested eye size and projection. HDR controls the scene color buffer. Bloom, tone mapping and ambient occlusion can each be disabled independently. Exposure ranges from −1 to +1 EV in quarter-stop steps. Saves from before the exposure setting use 0 EV until you change exposure or select a preset.
+
+ACES is available under Tone mapping. Saved ACES settings are kept, including former Quality settings that now appear as Custom. Select Quality again to apply the current preset.
 
 ## Rendering
 
-The renderer uses URP Forward with SRP batching. The material conversion preserves the stock asset identities used by scenes, prefabs and stock bundle addresses. Common Alloy surfaces use an authored URP PBR shader for their original packed metal, occlusion, specularity and roughness channels. Specialized effects retain recovered shader programs. Friendly45’s ground keeps all four stock vertex-blended layers and samples the URP directional shadow atlas in its surface shader. The generated project records material-family counts and changed assets in `ProjectSettings/NativeH3VRGraphicsMaterials.json`.
+The renderer uses URP Forward with SRP batching. The material conversion preserves the stock asset identities used by scenes, prefabs and stock bundle addresses. Common Alloy surfaces use an authored URP PBR shader for their original packed metal, occlusion, specularity and roughness channels. Specialized effects retain recovered shader programs. Friendly45's ground and Northest Dakota's snow keep their original vertex-blended surface layers and receive the URP main light's shadows. The generated project records material-family counts and changed assets in `ProjectSettings/NativeH3VRGraphicsMaterials.json`.
 
 Supported Alloy detail layers retain their original textures, mask, normal strength and UV set. In Warehouse this lets the floor and the building use URP lighting while keeping their different detail mappings. The original window cutouts cast the skylight pattern onto the floor.
 
 The optional bloom pass extracts highlights at quarter width and height. One full-resolution pass combines bloom, bounded sharpening, exposure and tone mapping. At 0 EV with the other three effects off, the renderer skips both passes and their intermediate textures. The near-field ambient occlusion option reconstructs normals from depth and runs at half resolution. These effects operate on player views and bypass offscreen scope, reflection and preview renders.
 
-macOS renders both tracked views through URP render requests. When HDR or MSAA needs a separate scene texture, the bridge reuses one allocation for consecutive eyes and resolves into two persistent compositor textures. Windows uses Unity’s OpenXR rendering path.
+macOS renders both tracked views through URP render requests. When HDR or MSAA needs a separate scene texture, the bridge reuses one allocation for consecutive eyes and resolves into two persistent compositor textures. The stock reflection-probe culler checks each authored probe sphere against both tracked eye views in the macOS built-in and URP players. Windows uses Unity’s OpenXR rendering path.
 
 Stock scope and spectator cameras keep their per-camera culling and cleanup callbacks under URP, including nested renders. The player’s stereo camera dispatches stock controller input once per frame. The game’s procedural trails and temporary view feedback have their own render passes. The renderer skips those passes when no effect is active.
+
+The paper targets keep their original paint, hit and tear commands in an offscreen texture. Vertex-lit surfaces and smoke receive the scene lights and main-light shadows. Both renderers decode legacy normal maps in either red/green or alpha/green packing and retain the eight runtime scope postprocess passes. The retail comparison includes material charts, offscreen pass readbacks and stereo captures from a live Hold. [Shader parity checks](shader-parity.md)
 
 The stock game requests the same shader collection during engine startup and when its game manager awakens. Both converted renderers queue that collection and warm at most one variant per frame while the game has paused rendering for a level transition. Work carries forward to the next transition. The URP build also filters legacy vertex-lit, forward and lightmapping-only entries from the warmup collection. On the tested Steam import this reduces it from 842 serialized entries to 155. A complete copy retains the original variants for build inclusion.
 
@@ -105,9 +109,9 @@ When the two phases come from different sessions, create both a `take` and a `ho
 
 The analysis checks the active renderer, gameplay phase, objective, both submitted eyes and headset pose. It pools the original timing samples for each map, phase and renderer into CSV and JSON. The live NPC counts, individual route timings and scene poses stay available in the JSON. Delivered frequency measures completed synthetic stereo pairs over scheduled display time.
 
-On the tested Steam build, Northest Dakota’s `SnowGround` material still uses the original `Alloy/Weighted Blend` shader. The cast shadows from a supply container, upright cover and a tree lose most of their contrast under both URP presets. Matched stereo captures on two stock routes reproduced the difference. The performance figures for this map include that rendering difference.
+The earlier comparison below used a version in which Northest Dakota's original `Alloy/Weighted Blend` snow lost the shadows from a supply container, cover and a tree under URP. The shader migration now applies the URP main-light shadow to the recovered direct-light term. An isolated Metal test used the level's original snow material, textures and terrain mesh. In the same caster test, the corrected shader darkened 1,979 pixels and the previous shader darkened zero. The table retains its original measurements.
 
-The third tested Institution route has an unlit corridor at the first Hold. In a fixed-pose check at Quality, changing only tone mapping from ACES to Neutral reduced the near-black area from 96% to 49% of each submitted eye. The ACES repeat reproduced both eye images byte for byte. Selecting Neutral in Graphics Options retains 4× MSAA, high shadows, ambient occlusion and +0.5 EV.
+The third tested Institution route has a dark corridor at the first Hold. In a fixed-pose check using the former Quality preset, changing only tone mapping from ACES to Neutral reduced the near-black area from 96% to 49% of each submitted eye. The ACES repeat reproduced both eye images byte for byte. Quality now selects Neutral with 4× MSAA, high shadows, ambient occlusion and +0.5 EV. The measurements below use the former preset.
 
 ### Measured Take & Hold results
 

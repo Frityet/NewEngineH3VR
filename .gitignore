@@ -48,6 +48,7 @@
 !/tests/**/*.csproj
 !/tests/StockMenuRendering/*.py
 !/tests/GraphicsUpgrade/*.py
+!/tests/ShaderParity/*.py
 !/docs/**/*.md
 !/runtime/UnityMetal/MetalOpenXR.h
 !/runtime/UnityMetal/MetalOpenXR.mm

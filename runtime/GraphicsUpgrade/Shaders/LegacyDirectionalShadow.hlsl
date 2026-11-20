@@ -30,7 +30,7 @@ float StockShadowCompare(float2 uv, float depth)
     return _MainLightShadowmapTexture.SampleCmpLevelZero(sampler_LinearClampCompare, uv, depth);
 }
 
-float StockShadowStrength(float3 positionWS)
+float StockShadowStrength(float3 positionWS, bool singleTap)
 {
     if (!(_MAIN_LIGHT_SHADOWS || _MAIN_LIGHT_SHADOWS_CASCADE))
         return 1.0;
@@ -59,7 +59,7 @@ float StockShadowStrength(float3 positionWS)
         return 1.0;
 
     float filtered = 0.0;
-    float quality = _MainLightShadowParams.y;
+    float quality = singleTap ? 0.0 : _MainLightShadowParams.y;
     if (quality >= 3.0)
     {
         float weights[16];
@@ -89,5 +89,10 @@ float StockShadowStrength(float3 positionWS)
     }
 
     return lerp(1.0, filtered, _MainLightShadowParams.x * (1.0 - fade));
+}
+
+float StockShadowStrength(float3 positionWS)
+{
+    return StockShadowStrength(positionWS, false);
 }
 #endif

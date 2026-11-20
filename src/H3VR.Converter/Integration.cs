@@ -129,16 +129,19 @@ public static class Integration
         }
     }
 
-    internal static void StageGraphicsUpgradeMetalRenderer(string repository, string candidate)
+    internal static void StageMetalCameraAdapter(string repository, string candidate)
     {
-        // Apply validates the integration hashes first. Only the private candidate
-        // gets the render-pipeline compatibility code from this converter checkout.
-        var destination = SafeFiles.Inside(candidate, MetalRendererSource);
-        RejectLinks(candidate, destination);
-        if (!File.Exists(destination))
-            throw new FileNotFoundException("The macOS integration did not stage its stereo renderer.", destination);
-        var source = Path.Combine(repository, "runtime/UnityMetal/NativeStereoRenderer.cs");
-        File.Copy(source, destination, overwrite: true);
+        // These authored camera and material adapters are built against the OpenXR
+        // assembly in this checkout. Also upgrade previously built native manifests.
+        foreach (var asset in new[] { MetalRendererSource, "Assets/OpenXRProvider/H3VRMetalBinding.cs",
+                     "Assets/OpenXRProvider/StockGearNormals.cs" })
+        {
+            var destination = SafeFiles.Inside(candidate, asset);
+            RejectLinks(candidate, destination);
+            if (!File.Exists(destination))
+                throw new FileNotFoundException("The macOS integration did not stage its camera adapter.", destination);
+            File.Copy(Path.Combine(repository, "runtime", "UnityMetal", Path.GetFileName(asset)), destination, overwrite: true);
+        }
     }
 
     private static void RejectLinks(string root, string path)
