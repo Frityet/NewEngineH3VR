@@ -11,7 +11,7 @@ using Valve.VR;
 
 namespace NativeH3VR.QA
 {
-    public sealed class GraphicsProfileWitness : MonoBehaviour
+    public sealed partial class GraphicsProfileWitness : MonoBehaviour
     {
         private NativeStereoRenderer stereo;
         private string output;
@@ -67,16 +67,22 @@ namespace NativeH3VR.QA
         private IEnumerator Run()
         {
             yield return WaitForScene("MainMenu3");
-            yield return ProfileScene("MainMenu3");
-            string extraScenes = Environment.GetEnvironmentVariable("NATIVEH3VR_GRAPHICS_PROFILE_SCENE") ?? "";
-            foreach (string extraScene in extraScenes.Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries))
+            string map = Environment.GetEnvironmentVariable("NATIVEH3VR_GRAPHICS_PROFILE_TNH");
+            if (string.IsNullOrEmpty(map))
             {
-                if (extraScene == "MainMenu3") continue;
-                Require(Application.CanStreamedLevelBeLoaded(extraScene), "Unavailable stock scene " + extraScene);
-                SteamVR_LoadLevel.Begin(extraScene);
-                yield return WaitForScene(extraScene);
-                yield return ProfileScene(extraScene);
+                yield return ProfileScene("MainMenu3");
+                string extraScenes = Environment.GetEnvironmentVariable("NATIVEH3VR_GRAPHICS_PROFILE_SCENE") ?? "";
+                foreach (string extraScene in extraScenes.Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries))
+                {
+                    if (extraScene == "MainMenu3") continue;
+                    Require(Application.CanStreamedLevelBeLoaded(extraScene), "Unavailable stock scene " + extraScene);
+                    SteamVR_LoadLevel.Begin(extraScene);
+                    yield return WaitForScene(extraScene);
+                    yield return ProfileScene(extraScene);
+                }
             }
+            else
+                yield return ProfileTakeAndHold(map);
             File.WriteAllText(Path.Combine(output, "profile-complete.txt"), "Graphics profile witness passed");
             Application.Quit();
         }
@@ -151,23 +157,26 @@ namespace NativeH3VR.QA
             }
         }
 
-        private IEnumerator Sample(string scene, string label, bool profile, int preset = -1)
+        private IEnumerator Sample(string scene, string label, bool profile, int preset = -1,
+            int profilePairs = 100, Action<string> recordState = null)
         {
             string name = scene + "-" + label;
             yield return new WaitForSecondsRealtime(profile ? 2f : 0.7f);
             if (preset >= 0)
                 SavePipeline(name, preset);
 
+            recordState?.Invoke("begin");
             int firstFrame = Time.frameCount + 1;
             ulong start = stereo.CompletedFrames;
             float deadline = Time.realtimeSinceStartup + 25f;
-            int count = profile ? 100 : 10;
+            int count = profile ? profilePairs : 10;
             while (stereo.CompletedFrames < start + (ulong)count)
             {
                 Require(Time.realtimeSinceStartup < deadline, "No submitted stereo interval for " + name);
                 yield return null;
             }
             int lastFrame = Time.frameCount - 1;
+            recordState?.Invoke("end");
             if (profile)
                 File.WriteAllText(Path.Combine(output, name + "-frames.txt"), firstFrame + " " + lastFrame);
 
