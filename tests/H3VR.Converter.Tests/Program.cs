@@ -192,6 +192,7 @@ cases.Add(("macOS project and player stages reject external recovery", () =>
 }
 ));
 cases.AddRange(StockShaderWarmupTests.Cases());
+cases.AddRange(LegacyReverbTests.Cases());
 cases.AddRange(ProjectMigrationTests.Cases());
 cases.Add(GraphicsOptionsHookTests.Case());
 

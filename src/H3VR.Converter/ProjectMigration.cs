@@ -126,6 +126,8 @@ public sealed class ProjectMigration(ConversionConfig config, string candidate)
         var openXrPackage = ConfigureOpenXr(root);
         if (dlls.TryGetValue("NativeH3VR.Game.dll", out var game) && StockShaderWarmupProject.Apply(root, game.Path))
             Console.WriteLine("Deferred the verified stock shader collection to paused loading frames.");
+        int recoveredReverb = LegacyReverbMixer.Repair(root);
+        if (recoveredReverb != 0) Console.WriteLine($"Restored {recoveredReverb} stock mixer reverb bindings.");
         PinProjectVersion(root);
         LegacySceneMigration.Apply(root);
         int obsoleteResources = LegacyCgProgramResources.Archive(root, Path.Combine(archive, "LegacyCgPrograms"));

@@ -88,7 +88,12 @@ foreach (var filename in keep)
     if (filename == "UnityEngine.UI")
         log.Add(new { caller = LegacyTextMesh.Retarget(module), target = "Unity TextGenerator vertex count" });
     if (filename == "Assembly-CSharp")
+    {
         StockCameraAllocations.Apply(module, shim.MainModule.GetType("NativeH3VR.CameraRenderScratch"), log);
+        int reverbCalls = LegacyReverbCalls.Apply(module, shim.MainModule.GetType("NativeH3VR.LegacyReverbParameters"));
+        if (reverbCalls != 0)
+            log.Add(new { caller = "FistVR.SM.ReverbSettings.UpdateMixerParams", calls = reverbCalls, target = "Cache stock mixer parameter availability" });
+    }
     // Rewrite narrow method boundaries before mutating old declaring type metadata.
     foreach (var m in module.Types.SelectMany(Types)
                  .SelectMany(t => t.Methods)
