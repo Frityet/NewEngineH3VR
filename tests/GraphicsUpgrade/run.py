@@ -43,7 +43,7 @@ def main():
         parser.add_argument("--" + key, required=True, type=Path)
     parser.add_argument("--profile", action="store_true", help="Capture and time the three URP presets")
     parser.add_argument("--builtin", action="store_true", help="Profile the original Built-in renderer")
-    parser.add_argument("--scene", help="Also capture a named stock scene")
+    parser.add_argument("--scene", action="append", default=[], help="Also capture a named stock scene (repeatable)")
     args = parser.parse_args()
     if (args.builtin or args.scene) and not args.profile:
         parser.error("--builtin and --scene require --profile")
@@ -70,7 +70,7 @@ def main():
     if args.profile:
         env = dict(os.environ, NATIVEH3VR_GRAPHICS_PROFILE_WITNESS=str(out),
                    NATIVEH3VR_GRAPHICS_PROFILE_BUILTIN=str(int(args.builtin)),
-                   NATIVEH3VR_GRAPHICS_PROFILE_SCENE=args.scene or "")
+                   NATIVEH3VR_GRAPHICS_PROFILE_SCENE=",".join(args.scene))
         subprocess.run([*launch, "--log-file", str(out / "profile.log"), "--timeout", "330",
                         "--trace-file", str(out / "openxr.csv"), "--unity-profile-file", str(out / "unity.csv")],
                        env=env, check=True)

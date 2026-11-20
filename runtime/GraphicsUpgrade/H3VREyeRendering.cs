@@ -17,6 +17,10 @@ namespace NativeH3VR.GraphicsUpgrade
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]
         static void Install() => XRBridge.RenderEye = Render;
 
+        internal static bool IsPlayerStereoEye(Camera camera) =>
+            camera && camera.cameraType == CameraType.Game &&
+            (camera == currentEye || (!camera.orthographic && camera.stereoEnabled));
+
         internal static bool IsPlayerView(Camera camera) =>
             camera && camera.cameraType == CameraType.Game &&
             (camera == currentEye || (!camera.orthographic && (camera.stereoEnabled || !camera.targetTexture)));

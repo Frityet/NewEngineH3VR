@@ -7,6 +7,7 @@ using FistVR;
 using UnityEngine;
 using UnityEngine.Rendering;
 using UnityEngine.SceneManagement;
+using Valve.VR;
 
 namespace NativeH3VR.QA
 {
@@ -67,9 +68,10 @@ namespace NativeH3VR.QA
         {
             yield return WaitForScene("MainMenu3");
             yield return ProfileScene("MainMenu3");
-            string extraScene = Environment.GetEnvironmentVariable("NATIVEH3VR_GRAPHICS_PROFILE_SCENE");
-            if (!string.IsNullOrEmpty(extraScene) && extraScene != "MainMenu3")
+            string extraScenes = Environment.GetEnvironmentVariable("NATIVEH3VR_GRAPHICS_PROFILE_SCENE") ?? "";
+            foreach (string extraScene in extraScenes.Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries))
             {
+                if (extraScene == "MainMenu3") continue;
                 Require(Application.CanStreamedLevelBeLoaded(extraScene), "Unavailable stock scene " + extraScene);
                 SteamVR_LoadLevel.Begin(extraScene);
                 yield return WaitForScene(extraScene);
@@ -151,6 +153,7 @@ namespace NativeH3VR.QA
             if (profile)
                 File.WriteAllText(Path.Combine(output, name + "-frames.txt"), firstFrame + " " + lastFrame);
 
+            VerifyControllers(name);
             yield return new WaitForEndOfFrame();
             Require(!stereo.SuspendSceneRendering, "Scene rendering is suspended for " + name);
             var position = stereo.TrackingOrigin.TransformPoint(stereo.LatestFrame.head.Position);
@@ -186,6 +189,30 @@ namespace NativeH3VR.QA
             finally
             {
                 RenderTexture.active = previous;
+            }
+        }
+
+        private void VerifyControllers(string sample)
+        {
+            Require(NativeTracking.Read(out var tracking) == 0, "Missing MacVR tracking for " + sample);
+            var hands = FindObjectsByType<FVRViveHand>();
+            foreach (var source in new[] { SteamVR_Input_Sources.LeftHand, SteamVR_Input_Sources.RightHand })
+            {
+                bool isLeft = source == SteamVR_Input_Sources.LeftHand;
+                var device = tracking.Role(isLeft ? 2u : 3u);
+                const uint flags = NativeTracking.Connected | NativeTracking.PoseValid |
+                    NativeTracking.PoseTracked | NativeTracking.InputCurrent;
+                Require(device.name == "Valve Index Controller" && (device.flags & flags) == flags,
+                    $"Missing simulated Index tracking for {source} in {sample} (flags {device.flags})");
+                var hand = Array.Find(hands, item => item.HandSource == source && item.Pose != null);
+                Require(hand, $"Missing stock {source} hand in {sample}");
+                var pose = hand.Pose[source];
+                Require(pose.active && pose.poseIsValid && pose.trackedDeviceIndex == (isLeft ? 1u : 2u) &&
+                        hand.CMode.ToString() == "Index" && hand.DMode.ToString() == "Index",
+                    $"Inactive stock Index control for {source} in {sample} " +
+                    $"(active={pose.active}, valid={pose.poseIsValid}, index={pose.trackedDeviceIndex}, mode={hand.CMode}/{hand.DMode})");
+                File.AppendAllText(Path.Combine(output, "controller-poses.csv"),
+                    $"{sample},{source},{device.flags},{pose.trackedDeviceIndex},{hand.CMode},{hand.DMode}\n");
             }
         }
 

@@ -76,7 +76,7 @@ def inspect(root, baseline):
             for comparison in ("qualityVsPerformance", "qualityVsEffectsOff"):
                 if differences[comparison]["meanAbsoluteRgbBytes"] <= noise + 0.15:
                     failures.append(f"{scene} {eye} {comparison} was indistinguishable from the repeat noise")
-            if baseline:
+            if baseline and (baseline / f"{scene}-stock-{eye}.png").is_file():
                 stock = pixels(baseline, scene, "stock", eye)
                 if np.allclose(pose(baseline, scene, "stock"), reference_pose, atol=1e-4, rtol=0) and stock.shape == images["quality"].shape:
                     differences["qualityVsStock"] = compare(images["quality"], stock)

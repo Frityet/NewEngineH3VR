@@ -2,6 +2,7 @@ using System;
 using UnityEngine;
 using UnityEngine.Rendering;
 using UnityEngine.Rendering.Universal;
+using Valve.VR;
 
 namespace NativeH3VR.GraphicsUpgrade
 {
@@ -47,6 +48,7 @@ namespace NativeH3VR.GraphicsUpgrade
         sealed class SavedOptions { public int[] values; }
         static int[] values;
         static UniversalRenderPipelineAsset source, active;
+        static int lastInputFrame = -1;
         public static event Action Changed;
 
         public static string Label(GraphicsSetting key) => Labels[(int)key];
@@ -102,6 +104,7 @@ namespace NativeH3VR.GraphicsUpgrade
         {
             values = null;
             Changed = null;
+            lastInputFrame = -1;
             source = active = null;
             RenderPipelineManager.beginCameraRendering -= PrepareCamera;
             Application.quitting -= Release;
@@ -137,6 +140,12 @@ namespace NativeH3VR.GraphicsUpgrade
 
         static void PrepareCamera(ScriptableRenderContext context, Camera camera)
         {
+            // The stock pose dispatcher uses Camera.onPreCull, which SRP eyes do not raise.
+            if (H3VREyeRendering.IsPlayerStereoEye(camera) && lastInputFrame != Time.frameCount)
+            {
+                lastInputFrame = Time.frameCount;
+                SteamVR_Input.OnPreCull();
+            }
             if (!H3VREyeRendering.IsPlayerView(camera)) return;
             camera.allowHDR = Hdr;
             camera.allowMSAA = Samples > 1;
