@@ -193,9 +193,10 @@ class EngineValidationTests(unittest.TestCase):
         with (patch.object(engine, "find_editor", return_value=editor),
               patch.object(engine, "run_fixture", side_effect=[passed, OSError("missing module"), passed]) as run,
               redirect_stdout(StringIO()), redirect_stderr(StringIO())):
-            code = engine.main(["--platform", "all", "--build-only", "--output", str(build_dir)])
+            code = engine.main(["--platform", "all", "--build-only", "--coreclr", "--output", str(build_dir)])
         self.assertEqual(code, 1)
         self.assertEqual([call.args[1] for call in run.call_args_list], ["macos", "windows", "linux"])
+        self.assertTrue(all(call.kwargs["coreclr"] for call in run.call_args_list))
         report = json.loads((build_dir / "summary.json").read_text(encoding="utf-8"))
         self.assertFalse(report["passed"])
         self.assertEqual(report["platforms"]["windows"]["error"], "missing module")

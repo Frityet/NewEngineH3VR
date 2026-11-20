@@ -47,7 +47,10 @@ namespace EngineValidation
             PlayerSettings.productName = "EngineProbe";
             PlayerSettings.SetUseDefaultGraphicsAPIs(target, false);
             PlayerSettings.SetGraphicsAPIs(target, new[] { graphics });
-            PlayerSettings.SetScriptingBackend(NamedBuildTarget.Standalone, ScriptingImplementation.Mono2x);
+            var backend = Environment.GetEnvironmentVariable("UNITY_PROBE_CORECLR") == "1"
+                ? ScriptingImplementation.CoreCLR
+                : ScriptingImplementation.Mono2x;
+            PlayerSettings.SetScriptingBackend(NamedBuildTarget.Standalone, backend);
             PlayerSettings.colorSpace = ColorSpace.Linear;
             PlayerSettings.fullScreenMode = FullScreenMode.Windowed;
             PlayerSettings.defaultScreenWidth = 640;

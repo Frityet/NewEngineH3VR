@@ -13,6 +13,8 @@ python3 -B tools/engine_validation.py --platform all --build-only --output resul
 
 Each command takes a new output directory. Use `--unity` with the editor executable or macOS app when Unity is installed outside the default Unity Hub location. Reports, captures and logs go in the output directory. Temporary projects and players are removed automatically. `--keep-player` retains the player for transfer or standalone runs.
 
+The fixture uses Unity's default Mono backend. `--coreclr` selects the [experimental CoreCLR player](https://docs.unity.com/en-us/engine/6000.7/manual/programming-environment/scripting-backends/coreclr) for the same test scene. The Linux software Vulkan run in OrbStack passed on CoreCLR. It used Mesa lavapipe and selected the software adapter explicitly with `-force-device-index 0`.
+
 The fixture checks depth occlusion, blending, face culling, point sampling, camera clipping and layers, synthetic stereo parallax, transforms and physics. `--reference` compares the rendered frames against an existing fixture capture directory. It allows a mean difference of one level per RGB channel and at most 0.5% of pixels with a difference above eight levels in any channel. H3VR gameplay, rendering and headset parity remain unverified.
 
 ## Record the installed Steam release

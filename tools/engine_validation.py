@@ -189,10 +189,11 @@ def check_player(player, target):
     return executable
 
 
-def run_fixture(editor, target, output, *, build_only, keep_player, reference):
+def run_fixture(editor, target, output, *, build_only, keep_player, reference, coreclr):
     profile = TARGETS[target]
     output.mkdir()
     summary = {"version": editor.version, "architecture": profile.architecture,
+               "scripting_backend": "CoreCLR" if coreclr else "Mono",
                "graphics_api": profile.graphics, "status": "built", "passed": True}
     with tempfile.TemporaryDirectory(prefix="unity-engine-probe-") as temporary:
         scratch = Path(temporary)
@@ -211,6 +212,7 @@ def run_fixture(editor, target, output, *, build_only, keep_player, reference):
         env = os.environ.copy()
         env["UNITY_PROBE_PLAYER"] = str(player)
         env["UNITY_PROBE_TARGET"] = target
+        env["UNITY_PROBE_CORECLR"] = "1" if coreclr else "0"
         run_process([
             editor.executable, "-batchmode", "-nographics", "-quit", "-projectPath", project,
             "-buildTarget", profile.unity_target,
@@ -242,6 +244,7 @@ def main(argv=None):
     parser.add_argument("--platform", choices=(*TARGETS, "all"), help="player platform (default: host)")
     parser.add_argument("--build-only", action="store_true", help="build and check packaging without launching")
     parser.add_argument("--keep-player", action="store_true", help="retain the built player in the output directory")
+    parser.add_argument("--coreclr", action="store_true", help="exercise Unity 6.7's experimental CoreCLR player")
     parser.add_argument("--reference", type=Path, help="compare pixels with an existing fixture capture directory")
     parser.add_argument("--output", type=Path, required=True,
                         help="new directory for local reports, captures and logs")
@@ -270,7 +273,8 @@ def main(argv=None):
             print(f"Building Unity {editor.version} for {target}. Logs: {folder}", flush=True)
             try:
                 results[target] = run_fixture(editor, target, folder, build_only=args.build_only,
-                                              keep_player=args.keep_player, reference=args.reference)
+                                              keep_player=args.keep_player, reference=args.reference,
+                                              coreclr=args.coreclr)
             except (OSError, ValueError, ValidationError, KeyError, plistlib.InvalidFileException) as error:
                 results[target] = {"status": "failed", "error": str(error), "passed": False}
                 print(f"{target}: {error}", file=sys.stderr)
