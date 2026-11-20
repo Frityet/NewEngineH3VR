@@ -122,6 +122,8 @@ public sealed class ProjectMigration(ConversionConfig config, string candidate)
         var openXrPackage = ConfigureOpenXr(root);
         PinProjectVersion(root);
         LegacySceneMigration.Apply(root);
+        int obsoleteResources = LegacyCgProgramResources.Archive(root, Path.Combine(archive, "LegacyCgPrograms"));
+        if (obsoleteResources > 0) Console.WriteLine($"Archived {obsoleteResources} empty legacy CGProgram resources.");
         var bundleMembership = CaptureBundleMembership(root, assets, archive);
         return new ProjectMigrationReport(root, config.UnityVersion,
             dlls.ToDictionary(p => p.Key, p => Path.GetRelativePath(root, p.Value.Path)), bindingRows.Count,

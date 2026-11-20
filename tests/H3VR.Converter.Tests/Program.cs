@@ -58,6 +58,43 @@ var cases = new List<(string Name, Action Run)>
     }),
     ("converter defaults to the pinned Unity 6.7 beta", () => Check(new ConversionConfig().UnityVersion == "6000.7.0b10", "wrong target"))
 };
+cases.Add(("Unity 6.7 archives empty unreferenced legacy shader resources", () =>
+{
+    var root = Directory.CreateTempSubdirectory("h3vr-cg-program-");
+    try
+    {
+        var resources = Directory.CreateDirectory(Path.Combine(root.FullName, "Assets", "Resources")).FullName;
+        var source = Path.Combine(resources, "SyntheticInclude.asset");
+        var archive = Path.Combine(root.FullName, "RecoveredSources");
+        const string guid = "4ab7834af39047519fd553402a592318";
+        const string emptyProgram = """
+            %YAML 1.1
+            %TAG !u! tag:unity3d.com,2011:
+            --- !u!109 &10900000
+            CGProgram:
+              m_ObjectHideFlags: 0
+              m_PrefabParentObject: {fileID: 0}
+              m_PrefabInternal: {fileID: 0}
+              m_Name: SyntheticInclude
+              m_Script:
+              m_PathName:
+            """;
+        File.WriteAllText(source + ".meta", $"fileFormatVersion: 2\nguid: {guid}\n  assetBundleName:\n");
+        File.WriteAllText(source, emptyProgram.Replace("m_Script:", "m_Script: payload", StringComparison.Ordinal));
+        Throws(() => LegacyCgProgramResources.Archive(root.FullName, archive));
+        File.WriteAllText(source, emptyProgram);
+        var referringAsset = Path.Combine(resources, "UsesInclude.mat");
+        File.WriteAllText(referringAsset, "m_Include: {fileID: 10900000, guid: " + guid + ", type: 2}\n");
+        Throws(() => LegacyCgProgramResources.Archive(root.FullName, archive));
+        Check(File.Exists(source) && File.Exists(source + ".meta"), "rejected resource was moved");
+        File.Delete(referringAsset);
+        Check(LegacyCgProgramResources.Archive(root.FullName, archive) == 1, "empty include was not archived");
+        var moved = Path.Combine(archive, "Resources", Path.GetFileName(source));
+        Check(File.ReadAllText(moved) == emptyProgram && File.Exists(moved + ".meta"), "archive lost original input");
+    }
+    finally { root.Delete(recursive: true); }
+}
+));
 cases.Add(("player receipt records manifest build and managed hashes without account data", () =>
 {
     var root = Path.Combine(Path.GetTempPath(), "h3vr-receipt-" + Guid.NewGuid().ToString("N"));
