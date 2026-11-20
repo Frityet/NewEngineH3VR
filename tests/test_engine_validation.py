@@ -1,3 +1,5 @@
+from contextlib import redirect_stderr, redirect_stdout
+from io import StringIO
 import json
 from pathlib import Path
 import plistlib
@@ -183,6 +185,21 @@ class EngineValidationTests(unittest.TestCase):
         with self.assertRaisesRegex(engine.ValidationError, "exceeded"):
             engine.run_process([sys.executable, "-c", "import time; time.sleep(10)"],
                                log, None, 0.1)
+
+    def test_matrix_records_failed_target_and_continues(self):
+        build_dir = self.output / "builds"
+        editor = engine.Editor(self.output / "Unity", engine.TARGET_VERSION)
+        passed = {"status": "built", "passed": True}
+        with (patch.object(engine, "find_editor", return_value=editor),
+              patch.object(engine, "run_fixture", side_effect=[passed, OSError("missing module"), passed]) as run,
+              redirect_stdout(StringIO()), redirect_stderr(StringIO())):
+            code = engine.main(["--platform", "all", "--build-only", "--output", str(build_dir)])
+        self.assertEqual(code, 1)
+        self.assertEqual([call.args[1] for call in run.call_args_list], ["macos", "windows", "linux"])
+        report = json.loads((build_dir / "summary.json").read_text(encoding="utf-8"))
+        self.assertFalse(report["passed"])
+        self.assertEqual(report["platforms"]["windows"]["error"], "missing module")
+        self.assertEqual(report["platforms"]["linux"], passed)
 
 
 if __name__ == "__main__":

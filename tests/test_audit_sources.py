@@ -86,10 +86,11 @@ class PublicationAuditTests(unittest.TestCase):
             "fixture/Assets/Scenes/Level.unity",
             "fixture/Library/Cache.txt",
             "fixture/ProjectSettings/ProjectSettings.asset",
-            "tools/line\nbreak.py",
-            "tools/field\tseparator.py",
+            "tools/has spaces.py",
             "dist/player.zip",
         )
+        if sys.platform != "win32":
+            paths += ("tools/line\nbreak.py", "tools/field\tseparator.py")
         for path in paths:
             self.write(path)
         self.git("add", ".")
