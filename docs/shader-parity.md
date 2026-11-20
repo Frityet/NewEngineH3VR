@@ -69,3 +69,7 @@ uv run tests/ShaderParity/cover_pixels.py "$HOLD_CAPTURE" --verify --out "$COVER
 ```
 
 The pixel test checks the masked steel surface in each eye, checks the albedo control, compares normal rendering with the same room's probes forced on, and records the number of raised meshes that selected a room reflection.
+
+The room's teal painted stripes are a separate test of baked lighting. The actual wall uses a decal on Alloy/Core and a nondirectional lightmap. Unity selects the lightmap keyword per draw. During staging the converter retains the engine-controlled lightmap keyword groups and enables explicit build-time retention of the baked modes. The source shader still selects the original material's decal and mask. An exact wall-tile fixture reproduced the lost stripe with automatic stripping and restored it in a standalone player after retaining the required keyword combination. [Unity shader variant stripping](https://docs.unity3d.com/6000.0/Documentation/Manual/shader-variant-stripping.html)
+
+For the matched retail observer facing the teal wall, add `--retail-room /path/to/steam-stereo.png` to the pixel test. It checks for the visible teal band in the right-hand wall region of each eye and records the cropped sample counts. Other observer positions can face different walls or have the wall entirely occluded.

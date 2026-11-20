@@ -148,6 +148,12 @@ def coordinates(row):
 def compare(stock, player, scene):
     stock_index, stock_samples = samples(stock, scene)
     player_index, player_samples = samples(player, scene)
+    empty = {tuple(unquote(part) for part in slot.split("/")) for slot in player_index.get("emptyMeshSlots", [])}
+    lost_bindings = [
+        {"slot": slot, "material": entry["material"], "shader": entry["shader"]}
+        for entry in stock_index["materials"] for slot in entry.get("drawSlots") or []
+        if tuple(unquote(part) for part in slot.split("/")) in empty
+    ]
     matched, ambiguous, stock_only, player_only = [], [], [], []
     stock_peers, player_peers, slot_counts = draw_slot_peers(stock_index, player_index)
     for key in sorted(stock_samples.keys() | player_samples.keys()):
@@ -187,6 +193,7 @@ def compare(stock, player, scene):
         "matched": matched, "ambiguous": ambiguous, "stockOnly": stock_only, "playerOnly": player_only,
         "recipeComparisons": recipes,
         "drawSlotComparisons": draw_slots,
+        "lostMaterialBindings": lost_bindings,
     }
 
 

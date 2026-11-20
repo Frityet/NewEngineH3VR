@@ -46,11 +46,29 @@ def measure_eye(folder, stem, eye):
             "fractionDifferingOver8": round(float((difference > 8).mean()), 5)}
 
 
+def teal_stripe(image):
+    # The retail observer faces the right-hand wall of Classic's first Hold on route 0.
+    rgb = np.asarray(image.convert("RGB"), dtype=np.int16)
+    height, width = rgb.shape[:2]
+    wall = rgb[int(height * .45):int(height * .72), int(width * .75):int(width * .99)]
+    r, g, b = wall.transpose(2, 0, 1)
+    painted = (g > r + 12) & (g > b + 3) & (b > r) & (g < 196)
+    longest = 0
+    for row in painted:
+        edges = np.diff(np.r_[False, row, False].astype(np.int8))
+        runs = np.flatnonzero(edges == -1) - np.flatnonzero(edges == 1)
+        if runs.size:
+            longest = max(longest, int(runs.max()))
+    return {"tealPixels": int(painted.sum()), "regionFraction": round(float(painted.mean()), 5),
+            "longestRunFractionOfEyeWidth": round(longest / width, 5)}
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("capture", type=Path)
     parser.add_argument("--verify", action="store_true", help="Fail on dark steel or missing room reflections")
     parser.add_argument("--out", type=Path)
+    parser.add_argument("--retail-room", type=Path, help="Stereo retail reference at the same Classic route 0 observer")
     args = parser.parse_args()
     files = list(args.capture.glob("*-cover-*-materials.json"))
     if len(files) != 1:
@@ -74,6 +92,22 @@ def main():
             failed.append(f"{eye} steel differs materially from the enabled-probes control")
     if probes and state["scene"] == "TakeAndHoldClassic" and assigned == 0:
         failed.append("No raised steel mesh has an assigned room probe")
+    if args.retail_room:
+        if state["scene"] != "TakeAndHoldClassic":
+            parser.error("--retail-room requires the matching Classic Hallways Hold")
+        walls = result["bakedWallStripe"] = {}
+        with Image.open(args.retail_room) as retail:
+            width = retail.width // 2
+            for i, eye in enumerate(("left", "right")):
+                reference = teal_stripe(retail.crop((i * width, 0, (i + 1) * width, retail.height)))
+                with Image.open(args.capture / f"{stem}-original-{eye}.png") as actual:
+                    sample = teal_stripe(actual)
+                walls[eye] = {"steam": reference, "converted": sample}
+                for key, minimum in (("regionFraction", .006), ("longestRunFractionOfEyeWidth", .035)):
+                    if reference[key] < minimum:
+                        parser.error(f"Retail reference lacks the visible baked wall stripe in the {eye} eye")
+                    if sample[key] < minimum:
+                        failed.append(f"{eye} baked wall stripe absent or occluded ({key})")
     result["failures"] = failed
     encoded = json.dumps(result, indent=2)
     if args.out:

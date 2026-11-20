@@ -49,6 +49,31 @@ var cases = new List<(string Name, Action Run)>
         var other = source.Replace("Hidden/PIPScope_PostProcess", "Custom/Baked", StringComparison.Ordinal);
         Check(ProjectMigration.KeepOpticPostProcessPasses(other) == other, "changed unrelated Meta logic");
     }),
+    ("staged overlays keep engine-selected baked lightmap keyword groups", () => {
+        const string source = "#pragma shader_feature __ _DECAL_ON\r\n" +
+            "  #pragma shader_feature __ LIGHTMAP_ON // renderer selects the bake mode\r\n" +
+            "#pragma shader_feature __ DIRLIGHTMAP_COMBINED\n" +
+            "#pragma shader_feature __ DYNAMICLIGHTMAP_ON\n" +
+            "#pragma shader_feature __ LIGHTMAP_SHADOW_MIXING SHADOWS_SHADOWMASK\n" +
+            "#pragma shader_feature __ CUSTOM_LIGHTMAP_ON\n" +
+            "// #pragma shader_feature __ LIGHTMAP_ON\n";
+        const string expected = "#pragma shader_feature __ _DECAL_ON\r\n" +
+            "  #pragma multi_compile __ LIGHTMAP_ON // renderer selects the bake mode\r\n" +
+            "#pragma multi_compile __ DIRLIGHTMAP_COMBINED\n" +
+            "#pragma multi_compile __ DYNAMICLIGHTMAP_ON\n" +
+            "#pragma multi_compile __ LIGHTMAP_SHADOW_MIXING SHADOWS_SHADOWMASK\n" +
+            "#pragma shader_feature __ CUSTOM_LIGHTMAP_ON\n" +
+            "// #pragma shader_feature __ LIGHTMAP_ON\n";
+        var adapted = ProjectMigration.KeepEngineLightmapVariants(source);
+        Check(adapted == expected, "engine bake lanes were stripped or unrelated declarations changed");
+        Check(ProjectMigration.KeepEngineLightmapVariants(adapted) == adapted, "lightmap variant repair is not idempotent");
+        const string settings = "GraphicsSettings:\r\n  m_LightmapStripping: 0\r\n  m_LightmapKeepPlain: 0\r\n" +
+            "  m_LightmapKeepDirCombined: 1\r\n  m_LightmapKeepShadowMask: 0\r\n  m_FogStripping: 0\r\n";
+        const string retained = "GraphicsSettings:\r\n  m_LightmapStripping: 1\r\n  m_LightmapKeepPlain: 1\r\n" +
+            "  m_LightmapKeepDirCombined: 1\r\n  m_LightmapKeepShadowMask: 1\r\n  m_FogStripping: 0\r\n";
+        Check(ProjectMigration.KeepBakedLightmapSettings(settings) == retained, "Unity Auto policy would remove rebuilt lighting");
+        Check(ProjectMigration.KeepBakedLightmapSettings(retained) == retained, "lightmap settings repair is not idempotent");
+    }),
     ("recovered night vision passes preserve Direct3D comparison and swizzle semantics", () => {
         const string recoveredGrain = "tmp2.x = floor(-tmp2.x);\r\n\ttmp2.x = 1.0 - tmp2.x;\r\n";
         const string originalGrain = "tmp2.x = tmp2.x ? 0.0 : 1.0;\r\n";

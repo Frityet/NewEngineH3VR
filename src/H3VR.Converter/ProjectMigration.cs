@@ -352,6 +352,29 @@ public sealed class ProjectMigration(ConversionConfig config, string candidate)
             RegexOptions.CultureInvariant);
     }
 
+    internal static string KeepEngineLightmapVariants(string source)
+    {
+        // Recovered optional groups may be shader_feature even when Unity
+        // activates the keyword per draw instead of saving it on a Material.
+        return Regex.Replace(source,
+            """(?m)^(?<directive>[ \t]*#pragma[ \t]+)shader_feature(?<options>[ \t]+[^/\r\n]*)(?=//|\r?$)""",
+            pragma => Regex.IsMatch(pragma.Groups["options"].Value,
+                """(?:^|[ \t])(?:LIGHTMAP_ON|DIRLIGHTMAP_COMBINED|DYNAMICLIGHTMAP_ON|LIGHTMAP_SHADOW_MIXING|SHADOWS_SHADOWMASK)(?=[ \t]|$)""",
+                RegexOptions.CultureInvariant)
+                ? pragma.Groups["directive"].Value + "multi_compile" + pragma.Groups["options"].Value
+                : pragma.Value,
+            RegexOptions.CultureInvariant);
+    }
+
+    internal static string KeepBakedLightmapSettings(string source)
+    {
+        // The stock player lighting data is restored after Unity builds. Auto
+        // stripping cannot infer its required baked and mixed lightmap modes.
+        return Regex.Replace(source,
+            """(?m)^(?<field>  m_Lightmap(?:Stripping|KeepPlain|KeepDirCombined|KeepDynamicPlain|KeepDynamicDirCombined|KeepShadowMask|KeepSubtractive):[ \t]*)0(?=[ \t]*\r?$)""",
+            "${field}1", RegexOptions.CultureInvariant);
+    }
+
     private string ApplyShaderOverlay(string root, string assets, out HashSet<string> computeGuids,
         out Dictionary<string, HashSet<string>> hdrColors)
     {
@@ -393,7 +416,7 @@ public sealed class ProjectMigration(ConversionConfig config, string candidate)
             if (File.Exists(destination)) File.Delete(destination);
             SafeFiles.Copy(source, destination);
             if (!SafeFiles.Hash(destination).Equals(sourceHash, StringComparison.Ordinal)) throw new IOException("Shader overlay changed while copying: " + relative);
-            var migrated = KeepOpticPostProcessPasses(UpdateLegacyParticleFallback(content));
+            var migrated = KeepEngineLightmapVariants(KeepOpticPostProcessPasses(UpdateLegacyParticleFallback(content)));
             if (verifyGraphics)
             {
                 var normalized = LegacyNormalDecoding.Apply(migrated);
@@ -442,6 +465,13 @@ public sealed class ProjectMigration(ConversionConfig config, string candidate)
             SafeFiles.Copy(catalog.Path, destination);
             if (SafeFiles.Hash(destination) != catalog.Sha256)
                 throw new IOException("Shader variant catalog changed while copying.");
+        }
+        var graphics = Path.Combine(root, "ProjectSettings", "GraphicsSettings.asset");
+        if (File.Exists(graphics))
+        {
+            string settings = File.ReadAllText(graphics);
+            string retained = KeepBakedLightmapSettings(settings);
+            if (retained != settings) File.WriteAllText(graphics, retained);
         }
         return $"{shaders.Length} source shaders, {includes.Length} includes and {computeGuids.Count} translated compute shaders";
     }

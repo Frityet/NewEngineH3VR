@@ -36,6 +36,7 @@ namespace NativeH3VR.QA
             public int assetAddresses, prefabAssets, rendererCount, boundSlots, missingSlots;
             public string status;
             public Entry[] materials;
+            public string[] emptyMeshSlots;
         }
 
         public static void Initialize()
@@ -163,6 +164,7 @@ namespace NativeH3VR.QA
             internal readonly HashSet<Material> Meshes = new HashSet<Material>();
             private readonly Dictionary<string, int> roots = new Dictionary<string, int>(StringComparer.Ordinal);
             private readonly Dictionary<Material, List<string>> slots = new Dictionary<Material, List<string>>();
+            internal readonly List<string> EmptySlots = new List<string>();
             internal int AssetAddresses, PrefabAssets, RendererCount, BoundSlots, MissingSlots;
             internal string status = "ok";
 
@@ -200,6 +202,11 @@ namespace NativeH3VR.QA
             {
                 List<string> paths;
                 if (!slots.TryGetValue(material, out paths)) return null;
+                return UniqueSlots(paths);
+            }
+
+            internal string[] UniqueSlots(List<string> paths)
+            {
                 var unique = new List<string>();
                 foreach (var path in paths)
                     if (roots[path.Substring(0, path.IndexOf('/'))] == 1) unique.Add(path);
@@ -220,6 +227,8 @@ namespace NativeH3VR.QA
                     if (!material)
                     {
                         MissingSlots++;
+                        if (path != null && mesh)
+                            EmptySlots.Add(path + "/" + slot.ToString(System.Globalization.CultureInfo.InvariantCulture));
                         continue;
                     }
                     BoundSlots++;
@@ -307,7 +316,8 @@ namespace NativeH3VR.QA
                 unity = Application.unityVersion, colorSpace = QualitySettings.activeColorSpace.ToString(),
                 pages = pages, materials = entries.ToArray(), status = bindings.status,
                 assetAddresses = bindings.AssetAddresses, prefabAssets = bindings.PrefabAssets,
-                rendererCount = bindings.RendererCount, boundSlots = bindings.BoundSlots, missingSlots = bindings.MissingSlots };
+                rendererCount = bindings.RendererCount, boundSlots = bindings.BoundSlots, missingSlots = bindings.MissingSlots,
+                emptyMeshSlots = bindings.UniqueSlots(bindings.EmptySlots) };
             File.WriteAllText(Path.Combine(output, scene + ".json"), JsonConvert.SerializeObject(index));
             if (pages == 0) yield break;
 

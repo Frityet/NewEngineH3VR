@@ -154,18 +154,24 @@ def graphics(data):
         "name": form.m_Name or data.m_Name,
         "fallback": form.m_FallbackName,
         "platforms": data.platforms,
+        "programBlobBytes": len(data.compressedBlob or data.m_SubProgramBlob or []),
         "subshaders": subshaders,
         "properties": sorted(prop.m_Name for prop in form.m_PropInfo.m_Props),
     }
 
 
 def compute(data):
+    def kernel_programs(kernel):
+        variants = getattr(kernel, "uniqueVariants", None) or [kernel]
+        return sorted(len(variant.code or []) for variant in variants)
+
     return {
         "name": data.m_Name,
         "kernels": sorted({kernel.name for kernel in data.kernels or []} |
                           {kernel.name for variant in data.variants or [] for kernel in variant.kernels}),
         "renderers": [
-            {"renderer": variant.targetRenderer, "level": variant.targetLevel}
+            {"renderer": variant.targetRenderer, "level": variant.targetLevel,
+             "kernels": {kernel.name: kernel_programs(kernel) for kernel in variant.kernels}}
             for variant in data.variants or []
         ],
     }
@@ -313,20 +319,26 @@ def compare(stock, converted):
 
 def main():
     parser = ArgumentParser(description=__doc__)
-    for key in ("stock", "builtin", "urp", "out"):
-        parser.add_argument("--" + key, type=Path, required=True)
+    for key in ("stock", "builtin", "urp"):
+        parser.add_argument("--" + key, type=Path)
+    parser.add_argument("--out", type=Path, required=True)
+    parser.add_argument("--only", choices=("stock", "builtin", "urp"), help="Scan one player without comparing")
     args = parser.parse_args()
-    args.out.mkdir(parents=True, exist_ok=True)
-    inventories = {}
-    for name in ("stock", "builtin", "urp"):
+    selection = (args.only,) if args.only else ("stock", "builtin", "urp")
+    for name in selection:
         path = getattr(args, name)
-        if not path.is_dir():
-            parser.error(f"{name} Data directory does not exist: {path}")
+        if path is None or not path.is_dir():
+            parser.error(f"--{name} must point to a Unity player Data directory")
         if args.out.resolve().is_relative_to(path.resolve()):
             parser.error("Output must be outside every player Data directory")
-        data = inventories[name] = inventory(path)
+    args.out.mkdir(parents=True, exist_ok=True)
+    inventories = {}
+    for name in selection:
+        data = inventories[name] = inventory(getattr(args, name))
         (args.out / f"{name}.json").write_text(json.dumps(data, indent=2) + "\n")
         print(name, {kind: len(rows) for kind, rows in data["rows"].items()}, "errors", len(data["errors"]), flush=True)
+    if args.only:
+        return
     for name in ("builtin", "urp"):
         report = compare(inventories["stock"], inventories[name])
         (args.out / f"stock-vs-{name}.json").write_text(json.dumps(report, indent=2) + "\n")
