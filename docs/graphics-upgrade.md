@@ -77,3 +77,34 @@ uv run tests/GraphicsUpgrade/measure.py "$PWD/.local/graphics-profile"
 ```
 
 The interaction check exercises the stock panel, controller ray, preset and preference restore. The profile run captures each submitted eye, switches presets at a fixed pose and records renderer settings, stereo CPU submission and compositor frame intervals. The Metal GPU counter times the Unity command buffer that owns the OpenXR submission event. Earlier command buffers can contribute additional GPU work.
+
+## Take & Hold comparison
+
+The profiler can enter Classic Hallways (`Classic`), Northest Dakota (`NorthestDakota`) and Institution (`Institution`) through the stock lobby. Each session measures the opening Take in the starting supply area and the first Hold during an active hacking wave. Stock route sequences 0, 1 and 3 give three different starting areas and first objectives on each map.
+
+Use one renderer per fresh session. The first session records the chosen stock Hold marker and headset heading. Pass that state to the other two sessions for the same map and sequence. For example, to measure Classic Hallways on sequence 0, set `BUILTIN` and `URP` to the two generated apps, and `CAPTURES` to the output root.
+
+```sh
+python3 tests/GraphicsUpgrade/run.py --profile --tnh Classic --tnh-seed 0 --builtin \
+  --app "$BUILTIN" --launcher "$LAUNCHER" --runtime "$MACVR" --out "$CAPTURES/r01/Classic-stock"
+observer="$CAPTURES/r01/Classic-stock/TakeAndHoldClassic-hold-stock-state.json"
+for preset in balanced quality; do
+  python3 tests/GraphicsUpgrade/run.py --profile --tnh Classic --tnh-seed 0 --preset "$preset" \
+    --tnh-observer-from "$observer" --app "$URP" --launcher "$LAUNCHER" --runtime "$MACVR" \
+    --out "$CAPTURES/r01/Classic-$preset"
+done
+```
+
+Store sequences 1 and 3 in `r02` and `r03`. Name the session directories `<map ID>-stock`, `<map ID>-balanced` and `<map ID>-quality`. The scene names used in the state filenames are `TakeAndHoldClassic`, `TakeAndHold_WinterWasteland` and `Institution`.
+
+```sh
+uv run tests/GraphicsUpgrade/compare_tnh.py "$CAPTURES" "$CAPTURES/report"
+```
+
+When the two phases come from different sessions, create both a `take` and a `hold` subdirectory or symlink inside the map and renderer directory. Point each one at the full original session. The analyzer keeps each phase on its own Unity and compositor clocks.
+
+The analysis checks the active renderer, gameplay phase, objective, both submitted eyes and headset pose. It pools the original timing samples for each map, phase and renderer into CSV and JSON. The live NPC counts, individual route timings and scene poses stay available in the JSON. Delivered frequency measures completed synthetic stereo pairs over scheduled display time.
+
+On the tested Steam build, Northest Dakota’s `SnowGround` material still uses the original `Alloy/Weighted Blend` shader. The cast shadows from a supply container, upright cover and a tree lose most of their contrast under both URP presets. Matched stereo captures on two stock routes reproduced the difference. The performance figures for this map include that rendering difference.
+
+The third tested Institution route has an unlit corridor at the first Hold. In a fixed-pose check at Quality, changing only tone mapping from ACES to Neutral reduced the near-black area from 96% to 49% of each submitted eye. The ACES repeat reproduced both eye images byte for byte. Selecting Neutral in Graphics Options retains 4× MSAA, high shadows, ambient occlusion and +0.5 EV.
