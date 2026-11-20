@@ -44,6 +44,7 @@ def main():
     modes = parser.add_mutually_exclusive_group()
     modes.add_argument("--profile", action="store_true", help="Capture and time the three URP presets")
     modes.add_argument("--swatches", action="store_true", help="Render stock materials with controlled lighting")
+    modes.add_argument("--thermal", action="store_true", help="Capture a stocked handheld thermal sensor and display")
     parser.add_argument("--swatch-bundles", nargs="?", const="1", metavar="BUNDLE,...",
                         help="Include materials from all stock asset bundles or a comma-separated subset")
     parser.add_argument("--builtin", action="store_true", help="Profile the original Built-in renderer")
@@ -89,6 +90,8 @@ def main():
         witness = "GraphicsProfileWitness"
     if args.swatches:
         witness = "MaterialSwatches"
+    if args.thermal:
+        witness = "RetailThermalWitness"
     manifest = {"schemaVersion": 2, "id": package.name, "unityVersion": settings["unityVersion"],
                 "buildTarget": "StandaloneOSX", "hostBuildSha256": digest(receipt),
                 "assemblies": [{"file": assembly, "sha256": digest(package / assembly)}],
@@ -97,6 +100,13 @@ def main():
 
     launch = ["dotnet", str(launcher), "run", "--app", str(app), "--runtime", str(runtime),
               "--mods-dir", str(package.parent), "--state-dir", str(out / "state"), "--synthetic"]
+    if args.thermal:
+        env = dict(os.environ, NATIVEH3VR_THERMAL_WITNESS=str(out))
+        subprocess.run([*launch, "--log-file", str(out / "thermal.log"), "--timeout", "180"],
+                       env=env, check=True)
+        if not (out / "thermal.json").is_file():
+            raise RuntimeError(f"Thermal witness did not complete. Inspect {out / 'thermal.log'}")
+        return
     if args.swatches:
         scenes = ["*"] if args.scene == ["*"] else list(dict.fromkeys(["MainMenu3", *args.scene]))
         env = dict(os.environ, NATIVEH3VR_SHADER_SWATCHES=str(out), NATIVEH3VR_SWATCH_SCENES=",".join(scenes),
