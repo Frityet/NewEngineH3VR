@@ -66,6 +66,7 @@ internal static class LegacyHdrMaterials
         string originals = Path.Combine(config.Export, "Assets") + Path.DirectorySeparatorChar;
         var receipts = new List<MaterialChange>();
         var dynamicTags = new List<DynamicTagChange>();
+        LegacyDynamicHdrMaterials.ExtractionVerification? stockVerification = null;
         foreach (var (source, hash) in extraction.Files.OrderBy(pair => pair.Key, StringComparer.Ordinal))
         {
             if (!source.StartsWith(originals, StringComparison.Ordinal) ||
@@ -90,7 +91,8 @@ internal static class LegacyHdrMaterials
             string migrated = colorMigration;
             if (binding is not null)
             {
-                LegacyDynamicHdrMaterials.Verify(binding, relative, hash, shaderGuid, hdrColors);
+                stockVerification ??= new LegacyDynamicHdrMaterials.ExtractionVerification(config, extraction);
+                stockVerification.VerifyMaterial(binding, relative, authored, shaderGuid, hdrColors);
                 migrated = LegacyDynamicHdrMaterials.AddTag(colorMigration, binding);
             }
             var migratedBytes = Encoding.UTF8.GetBytes(migrated);

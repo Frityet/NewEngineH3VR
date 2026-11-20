@@ -13,6 +13,15 @@ The output is a **raw export**, not something the converter can use directly. Yo
 
 .NET 10 SDK, Git, internet access and your platform's native build tools. Nothing prebuilt, and no game files or shaders, is stored in this repo.
 
+For an end-to-end conversion, pass `--dxbc-compiler` and `--spirv-cross` to the converter. It runs shader recovery and overlay preparation after extracting the game. Put the pinned Unity class database in the checkout's ignored `cache/` or the directory passed to `--cache`. On macOS, you can fetch and verify it with:
+
+```sh
+mkdir -p cache
+curl -fL https://raw.githubusercontent.com/nesrak1/UABEA/057e2f6ae67ebc94a38faca9f946f8577162fa99/ReleaseFiles/classdata.tpk \
+  -o cache/legacy-unity-classdata.tpk
+printf '129e1f80f930415db6779fe6089afa75280cb51462bcee812beab6cd81a764c6  cache/legacy-unity-classdata.tpk\n' | shasum -a 256 -c -
+```
+
 ## Recovering the shaders
 
 ```sh

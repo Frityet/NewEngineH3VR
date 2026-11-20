@@ -7,6 +7,7 @@ internal static class LegacyDynamicHdrMaterialsTests
     internal static (string Name, Action Run)[] Cases() =>
     [
         ("stock dynamic HDR tags require the exact source and verified property", MatchProvenance),
+        ("stock material hashes identify the same references across independent extractions", MatchStableReferences),
         ("stock dynamic HDR tags preserve other tags and reimport idempotently", AddToTagMap)
     ];
 
@@ -16,10 +17,31 @@ internal static class LegacyDynamicHdrMaterialsTests
         var stock = LegacyDynamicHdrMaterials.Lookup(path) ?? throw new Exception("Missing stock identity");
         Require(stock.Property == "_TintColor");
         Require(LegacyDynamicHdrMaterials.Lookup("Other/Snowbluster.mat") is null);
-        LegacyDynamicHdrMaterials.Verify(stock, path, stock.MaterialSha256, stock.ShaderGuid, ["_TintColor"]);
-        Reject(() => LegacyDynamicHdrMaterials.Verify(stock, path, new string('0', 64), stock.ShaderGuid, ["_TintColor"]));
-        Reject(() => LegacyDynamicHdrMaterials.Verify(stock, path, stock.MaterialSha256, new string('0', 32), ["_TintColor"]));
-        Reject(() => LegacyDynamicHdrMaterials.Verify(stock, path, stock.MaterialSha256, stock.ShaderGuid, ["_Color"]));
+        var source = stock.Shader;
+        var shader = new LegacyDynamicHdrMaterials.ExtractedShader(new string('a', 32), source.AssetPath,
+            source.SerializedName, ["GameBundle"], source.PathId);
+        LegacyDynamicHdrMaterials.Verify(stock, path, stock.MaterialSha256, shader, source.SourceSha256, ["_TintColor"]);
+        LegacyDynamicHdrMaterials.Verify(stock, path, stock.MaterialSha256, shader with { Guid = new string('b', 32) },
+            source.SourceSha256, ["_TintColor"]);
+        Reject(() => LegacyDynamicHdrMaterials.Verify(stock, path, new string('0', 64), shader, source.SourceSha256, ["_TintColor"]));
+        Reject(() => LegacyDynamicHdrMaterials.Verify(stock, path, stock.MaterialSha256, shader with { PathId = 0 },
+            source.SourceSha256, ["_TintColor"]));
+        Reject(() => LegacyDynamicHdrMaterials.Verify(stock, path, stock.MaterialSha256, shader, new string('0', 64), ["_TintColor"]));
+        Reject(() => LegacyDynamicHdrMaterials.Verify(stock, path, stock.MaterialSha256, shader, source.SourceSha256, ["_Color"]));
+    }
+
+    private static void MatchStableReferences()
+    {
+        string first = new('a', 32);
+        string second = new('b', 32);
+        const string asset = "Shader/Stock.shader";
+        string Material(string guid) => "  m_Shader: {fileID: 4800000, guid: " + guid + ", type: 3}\n";
+        var original = LegacyDynamicHdrMaterials.MaterialHash(Material(first), new Dictionary<string, string> { [first] = asset });
+        var reexport = LegacyDynamicHdrMaterials.MaterialHash(Material(second), new Dictionary<string, string> { [second] = asset });
+        var wrongAsset = LegacyDynamicHdrMaterials.MaterialHash(Material(second),
+            new Dictionary<string, string> { [second] = "Shader/Unrelated.shader" });
+        Require(original == reexport && original != wrongAsset);
+        Reject(() => LegacyDynamicHdrMaterials.MaterialHash(Material(second), new Dictionary<string, string>()));
     }
 
     private static void AddToTagMap()
