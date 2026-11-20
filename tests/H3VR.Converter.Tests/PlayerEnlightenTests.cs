@@ -8,9 +8,64 @@ public static class PlayerEnlightenTests
     public static IEnumerable<(string Name, Action Run)> Cases()
     {
         yield return ("Enlighten validates scene identities and probe mapping layout", Mapping);
+        yield return ("class database provisioning respects offline mode and rejects unverified bytes", VerifyDatabaseProvisioning);
         yield return ("Enlighten rejects an unpinned database before creating staging", RejectUnpinned);
         yield return ("Enlighten installs and safely cleans a verified staged delta", InstallAndCleanup);
     }
+
+    private static void VerifyDatabaseProvisioning()
+    {
+        var repository = Path.Combine(Path.GetTempPath(), "class-database-test-" + Guid.NewGuid().ToString("N"));
+        var cache = Path.Combine(repository, "cache");
+        var path = Path.Combine(cache, PlayerEnlighten.ClassDatabaseName);
+        using var handler = new InvalidDatabaseDownload();
+        using var client = new HttpClient(handler);
+        void Ensure(bool offline) => PlayerEnlighten.EnsureClassDatabaseAsync(repository, cache, offline, CancellationToken.None, client)
+            .GetAwaiter().GetResult();
+        void Reject(bool offline, string expected)
+        {
+            try { Ensure(offline); }
+            catch (InvalidDataException error) when (error.Message.Contains(expected, StringComparison.Ordinal)) { return; }
+            throw new InvalidOperationException("Unverified class database was accepted.");
+        }
+
+        try
+        {
+            if (PlayerEnlighten.CheckClassDatabase(cache, required: false) is not null)
+                throw new InvalidOperationException("Read-only validation found a missing cache entry.");
+            Reject(true, "missing");
+            if (Directory.Exists(cache) || handler.Requests != 0)
+                throw new InvalidOperationException("Offline cache miss caused writes or a download.");
+
+            Directory.CreateDirectory(cache);
+            File.WriteAllText(path, "invalid existing bytes");
+            Reject(false, "Cached Unity class database failed SHA-256 verification");
+            Reject(true, "Cached Unity class database failed SHA-256 verification");
+            if (File.ReadAllText(path) != "invalid existing bytes" || handler.Requests != 0)
+                throw new InvalidOperationException("Corrupt cache attempted repair.");
+            File.Delete(path);
+            Directory.Delete(cache);
+
+            Reject(false, "Downloaded Unity class database failed SHA-256 verification");
+            if (handler.Requests != 1 || Directory.Exists(cache))
+                throw new InvalidOperationException("Corrupt download created cache artifacts.");
+        }
+        finally { if (Directory.Exists(repository)) Directory.Delete(repository, recursive: true); }
+    }
+
+    private sealed class InvalidDatabaseDownload : HttpMessageHandler
+    {
+        public int Requests { get; private set; }
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            if (request.Method != HttpMethod.Get || request.RequestUri?.AbsoluteUri != PlayerEnlighten.ClassDatabaseUrl)
+                throw new InvalidOperationException("Class database request did not use the pinned source.");
+            Requests++;
+            return Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.OK) { Content = new StringContent("wrong bytes") });
+        }
+    }
+
     private static void Mapping()
     {
         string[] hashes = ["00112233445566778899aabbccddeeff", "ffeeddccbbaa99887766554433221100"];

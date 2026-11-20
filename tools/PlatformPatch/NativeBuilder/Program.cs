@@ -12,10 +12,11 @@ internal static partial class NativeBuilder
         dotnet run --project tools/PlatformPatch/NativeBuilder -c Release -- \
           --csteamworks PATH --steam-api PATH --fmod-sdk PATH --output PATH
 
-          --csteamworks   Clean CSteamworks SDK 1.41 checkout.
-          --steam-api     Installed Steam client libsteam_api.dylib.
-          --fmod-sdk      FMOD 2.03.15 SDK directory containing api/.
-          --output        New directory under the checkout's .local/ directory, separate from the inputs.
+          --csteamworks        Clean checkout of the pinned CSteamworks wrapper.
+          --steamworks-headers Steamworks SDK 1.41 public/steam directory (defaults to <csteamworks>/steam).
+          --steam-api          Installed Steam client libsteam_api.dylib.
+          --fmod-sdk           FMOD 2.03.15 SDK directory containing api/.
+          --output             New directory under the checkout's .local/ directory, separate from the inputs.
         """;
 
     private static readonly string[] RequiredOptions = ["--csteamworks", "--steam-api", "--fmod-sdk", "--output"];
@@ -65,7 +66,7 @@ internal static partial class NativeBuilder
         {
             var argument = args[index].Split('=', 2);
             var key = argument[0];
-            if (!RequiredOptions.Contains(key) || options.ContainsKey(key))
+            if (!(RequiredOptions.Contains(key) || key == "--steamworks-headers") || options.ContainsKey(key))
                 throw new ArgumentException($"Unknown or repeated flag {key}. See --help.");
             var value = argument.Length == 2 ? argument[1] : index + 1 < args.Length ? args[++index] : "";
             if (string.IsNullOrWhiteSpace(value) || value.StartsWith("--", StringComparison.Ordinal))
@@ -82,13 +83,16 @@ internal static partial class NativeBuilder
         var repository = Repository.Find();
         var output = options["--output"];
         var wrapper = options["--csteamworks"];
+        var steamHeaders = options.GetValueOrDefault("--steamworks-headers") ?? Path.Combine(wrapper, "steam");
         var steamApi = options["--steam-api"];
         var sdk = Path.Combine(options["--fmod-sdk"], "api");
         if (Directory.Exists(output) || File.Exists(output))
             throw new IOException("Output already exists. Choose a new directory.");
         SafeFiles.RequirePrivateOutput(repository, output);
-        foreach (var input in new[] { wrapper, options["--fmod-sdk"], Path.GetDirectoryName(steamApi)! })
+        foreach (var input in new[] { wrapper, steamHeaders, options["--fmod-sdk"], Path.GetDirectoryName(steamApi)! })
             SafeFiles.RequireSeparate(input, output);
+        if (!File.Exists(Path.Combine(steamHeaders, "steam_api.h")))
+            throw new InvalidDataException("Supply --steamworks-headers with the Steamworks SDK 1.41 public/steam directory.");
 
         if (await Git(wrapper, ["rev-parse", "HEAD"], cancellation) != CSteamworksRevision)
             throw new InvalidDataException("CSteamworks revision differs from the verified SDK 1.41 wrapper.");
@@ -118,7 +122,12 @@ internal static partial class NativeBuilder
                 SafeFiles.Copy(source, destination);
                 await Execute("install_name_tool", "-id", "@rpath/" + name, destination);
             }
-            await Compile(repository, wrapper, sdk, stage, cancellation);
+            var bindings = Path.Combine(wrapper, "wrapper");
+            var generation = Path.Combine(stage, "bindings");
+            if (!File.Exists(Path.Combine(bindings, "unitybuild.cpp")))
+                bindings = await GenerateBindings(wrapper, steamHeaders, generation, cancellation);
+            await Compile(repository, wrapper, steamHeaders, bindings, sdk, stage, cancellation);
+            if (Directory.Exists(generation)) Directory.Delete(generation, recursive: true);
             var entries = new List<PlatformFile>();
             foreach (var name in libraries.Keys.Append("libCSteamworks.dylib").Append("libNativeH3VRFMOD.dylib"))
             {
@@ -147,14 +156,36 @@ internal static partial class NativeBuilder
             Processes.Run(program, arguments, repository, cancellation: cancellation);
     }
 
-    private static async Task Compile(string repository, string wrapper, string sdk, string stage, CancellationToken cancellation)
+    private static async Task<string> GenerateBindings(string source, string headers, string directory, CancellationToken cancellation)
+    {
+        string generator = Path.Combine(source, "CSteamworks2.py");
+        if (!File.Exists(generator) || !File.Exists(Path.Combine(source, "SteamworksParser/steamworksparser.py")))
+            throw new InvalidDataException("Initialize the pinned CSteamworks SteamworksParser submodule to generate the bindings.");
+        SafeFiles.CopyTree(SafeFiles.Canonical(headers), Path.Combine(directory, "steam"));
+        // Upstream enumerates headers with os.listdir. Sort that input so the same SDK produces identical bindings.
+        const string run = """
+            import os, runpy, sys
+            listdir = os.listdir
+            os.listdir = lambda path: sorted(listdir(path))
+            sys.path.insert(0, os.path.dirname(sys.argv[1]))
+            runpy.run_path(sys.argv[1], run_name='__main__')
+            """;
+        await Processes.Run("/usr/bin/python3", ["-I", "-B", "-c", run, generator], directory, cancellation: cancellation);
+        var result = Path.Combine(directory, "wrapper");
+        if (!File.Exists(Path.Combine(result, "unitybuild.cpp")))
+            throw new InvalidDataException("CSteamworks did not generate its Steamworks SDK bindings.");
+        return result;
+    }
+
+    private static async Task Compile(string repository, string wrapper, string steamHeaders, string bindings, string sdk, string stage,
+        CancellationToken cancellation)
     {
         string[] common = ["-arch", "arm64", "-O2", "-dynamiclib", "-mmacosx-version-min=12.0"];
         var platform = Path.Combine(repository, "runtime/Platform");
         string[] steam =
         [
             .. common, "-std=c++11", "-DPOSIX", "-DOSX", "-DCSTEAMWORKS_DLLEXPORT", "-DUSE_BREAKPAD_HANDLER",
-            "-I" + Path.Combine(wrapper, "steam"), "-I" + Path.Combine(wrapper, "src"), "-I" + Path.Combine(wrapper, "wrapper"),
+            "-I" + steamHeaders, "-I" + Path.Combine(wrapper, "src"), "-I" + bindings,
             Path.Combine(wrapper, "src/steam_api.cpp"), Path.Combine(platform, "Steam/legacy_api.cpp"),
             "-L" + stage, "-lsteam_api", "-Wl,-rpath,@loader_path",
             "-Wl,-install_name,@rpath/libCSteamworks.dylib", "-o", Path.Combine(stage, "libCSteamworks.dylib"),

@@ -43,7 +43,7 @@ internal static class LocalShaderPreparation
             Directory.Move(staging, raw);
         }
         await Processes.Run("dotnet", ["run", "--project", Path.Combine(repository, "tools", "ShaderOverlay"),
-            "-c", "Release", "--", "prepare", "--workspace", config.Workspace, "--recovery", raw,
+            "-c", "Release", "--", "prepare", "--workspace", config.ExtractionWorkspace ?? config.Workspace, "--recovery", raw,
             "--steam-install", config.GameDirectory, "--output", overlay, "--class-database", database,
             "--dxbc-compiler", config.DxbcCompiler!, "--spirv-cross", config.SpirvCross!], repository, cancellation: cancellation);
         return overlay;

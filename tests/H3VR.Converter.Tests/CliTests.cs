@@ -30,6 +30,9 @@ public static class CliTests
                 "--unity-version", "6000.7.0b9",
                 "--workspace", "/tmp/workspace", "--shaders", "/tmp/shaders", "--recovered", "/tmp/recovered",
                 "--target", "macos", "--integration", "/tmp/integration.json", "--cache", "/tmp/cache",
+                "--openxr-headers", "/tmp/openxr/include", "--csteamworks", "/tmp/csteamworks",
+                "--steamworks-headers", "/tmp/steamworks/public/steam", "--steam-api", "/tmp/libsteam_api.dylib",
+                "--fmod-sdk", "/tmp/fmod",
                 "--offline", "--through", "project", "--verbose", "--no-color", "--output", "/tmp/output" },
             (request, _) => { requests.Add(request); return Task.FromResult(23); }, console).GetAwaiter().GetResult();
 
@@ -40,6 +43,9 @@ public static class CliTests
               request.Options.Workspace == "/tmp/workspace" && request.Options.Shaders == "/tmp/shaders" &&
               request.Options.Recovered == "/tmp/recovered" && request.Options.Target == "macos" &&
               request.Options.Integration == "/tmp/integration.json" && request.Options.Cache == "/tmp/cache" &&
+              request.Options.OpenXrHeaders == "/tmp/openxr/include" && request.Options.CSteamworks == "/tmp/csteamworks" &&
+              request.Options.SteamworksHeaders == "/tmp/steamworks/public/steam" &&
+              request.Options.SteamApi == "/tmp/libsteam_api.dylib" && request.Options.FmodSdk == "/tmp/fmod" &&
               request.Options.Offline == true && request.Options.Through == "project" &&
               request.Options.Verbose && request.Options.NoColor && request.Options.Output == "/tmp/output",
               "one or more conversion flags were not bound to ConversionOptions");
@@ -63,6 +69,8 @@ public static class CliTests
             int result = Cli.RunAsync(arguments, (request, _) =>
             {
                 actual.Add((request.Command, request.Options.ConfigFile, request.Options.Output));
+                Check(request.Through == (request.Command == ConverterCommand.Convert ? "build" : "validate"),
+                    "conversion should default to producing a player");
                 return Task.FromResult(0);
             }, console).GetAwaiter().GetResult();
             Check(result == 0 && actual[^1].Command == expected, "explicit command did not dispatch: " + arguments[0]);

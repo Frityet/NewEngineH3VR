@@ -46,7 +46,7 @@ public static class TerminalWizard
                     TargetName(draft.BuildTarget), cancellationToken);
                 draft = draft with { BuildTarget = BuildTargetName(target) };
                 string selectedStage = await Select(ui, "Stop after", Stages,
-                    Stages.Contains(through, StringComparer.OrdinalIgnoreCase) ? through.ToLowerInvariant() : "validate",
+                    Stages.Contains(through, StringComparer.OrdinalIgnoreCase) ? through.ToLowerInvariant() : "build",
                     cancellationToken);
 
                 bool advanced = await Select(ui, "Edit advanced recovery and runtime settings?",
@@ -63,6 +63,16 @@ public static class TerminalWizard
                         ToolCacheDirectory = await OptionalPath(ui, "Optional tool cache directory", draft.ToolCacheDirectory,
                             IsValidPath, "Enter a valid cache directory path, or leave blank.", cancellationToken)
                     };
+                    if (target == "macos" && draft.IntegrationManifest is null && selectedStage is not ("extract" or "managed"))
+                    {
+                        draft = draft with
+                        {
+                            SteamworksHeaders = await OptionalPath(ui, "Steamworks SDK 1.41 public/steam directory", draft.SteamworksHeaders,
+                                Directory.Exists, "Choose the SDK header directory, or leave blank to use its default location.", cancellationToken),
+                            FmodSdk = await OptionalPath(ui, "FMOD Engine SDK 2.03.15 directory", draft.FmodSdk,
+                                Directory.Exists, "Choose the SDK directory, or leave blank to use its default location.", cancellationToken)
+                        };
+                    }
                     bool offline = await Select(ui, "Offline mode", new[] { "Off", "On" },
                         draft.Offline ? "On" : "Off", cancellationToken) == "On";
                     draft = draft with { Offline = offline };

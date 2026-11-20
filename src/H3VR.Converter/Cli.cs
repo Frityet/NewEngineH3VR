@@ -16,7 +16,7 @@ public enum ConverterCommand
 
 public sealed record CommandRequest(ConverterCommand Command, ConversionOptions Options)
 {
-    public string Through => Options.Through ?? "validate";
+    public string Through => Options.Through ?? (Command == ConverterCommand.Convert ? "build" : "validate");
 }
 
 public sealed class ConversionOptions : CommandSettings
@@ -50,11 +50,11 @@ public sealed class ConversionOptions : CommandSettings
     public string? Shaders { get; init; }
 
     [CommandOption("--dxbc-compiler <PATH>")]
-    [Description("Built dxil-spirv executable for automatic shader preparation.")]
+    [Description("Optional local dxil-spirv executable. Supply with --spirv-cross to override automatic provisioning.")]
     public string? DxbcCompiler { get; init; }
 
     [CommandOption("--spirv-cross <PATH>")]
-    [Description("SPIRV-Cross executable for automatic shader preparation.")]
+    [Description("Optional local SPIRV-Cross executable. Supply with --dxbc-compiler.")]
     public string? SpirvCross { get; init; }
 
     [CommandOption("--recovered <PATH>")]
@@ -73,6 +73,26 @@ public sealed class ConversionOptions : CommandSettings
     [Description("Hash-pinned native integration manifest for non-Windows targets.")]
     public string? Integration { get; init; }
 
+    [CommandOption("--openxr-headers <PATH>")]
+    [Description("Optional local OpenXR SDK include directory for the macOS integration.")]
+    public string? OpenXrHeaders { get; init; }
+
+    [CommandOption("--csteamworks <PATH>")]
+    [Description("Optional local checkout of the pinned CSteamworks source for macOS.")]
+    public string? CSteamworks { get; init; }
+
+    [CommandOption("--steamworks-headers <PATH>")]
+    [Description("Steamworks 1.41 SDK public/steam headers for the macOS integration.")]
+    public string? SteamworksHeaders { get; init; }
+
+    [CommandOption("--steam-api <PATH>")]
+    [Description("Optional path to libsteam_api.dylib from an installed macOS Steam client.")]
+    public string? SteamApi { get; init; }
+
+    [CommandOption("--fmod-sdk <PATH>")]
+    [Description("FMOD Engine 2.03.15 SDK directory for the macOS integration.")]
+    public string? FmodSdk { get; init; }
+
     [CommandOption("--build-probe")]
     [Description("Cross-build Linux scenes and bundles without a Linux XR provider. The probe is not a playable build.")]
     public bool? BuildProbe { get; init; }
@@ -86,7 +106,7 @@ public sealed class ConversionOptions : CommandSettings
     public string? Cache { get; init; }
 
     [CommandOption("--offline")]
-    [Description("Use cached AssetRipper tools without downloading or building them.")]
+    [Description("Use cached public tools and metadata without downloading them.")]
     public bool? Offline { get; init; }
 
     [CommandOption("--tui")]
@@ -94,7 +114,7 @@ public sealed class ConversionOptions : CommandSettings
     public bool Tui { get; init; }
 
     [CommandOption("--through <STEP>")]
-    [Description("Stop after extract, managed, project, validate, or build. Defaults to validate.")]
+    [Description("Stop after extract, managed, project, validate, or build. Conversion defaults to build.")]
     public string? Through { get; init; }
 
     [CommandOption("--verbose")]

@@ -12,8 +12,10 @@ public sealed class ConverterApplication(string repository, IAnsiConsole console
             throw new ArgumentException("Use --tui with convert (the default command). Other commands use flags directly.");
         if (options.Output is not null && request.Command != ConverterCommand.RecoverShaders)
             throw new ArgumentException("--output is for recover-shaders. Conversion writes into --workspace.");
-        var loaded = request.Command != ConverterCommand.Init && options.ConfigFile is not null
-            ? ConversionConfig.Load(Path.GetFullPath(options.ConfigFile)) : new ConversionConfig();
+        var defaultConfig = Path.Combine(repository, ".local", "h3vr-conversion.json");
+        var configFile = options.ConfigFile ?? (File.Exists(defaultConfig) ? defaultConfig : null);
+        var loaded = request.Command != ConverterCommand.Init && configFile is not null
+            ? ConversionConfig.Load(Path.GetFullPath(configFile)) : new ConversionConfig();
         var config = ApplyOptions(loaded, options, Environment.CurrentDirectory);
         var through = request.Through.ToLowerInvariant();
         if (!Pipeline.Steps.Contains(through)) throw new ArgumentException("--through must be extract, managed, project, validate, or build.");
@@ -40,7 +42,7 @@ public sealed class ConverterApplication(string repository, IAnsiConsole console
         switch (request.Command)
         {
             case ConverterCommand.Init:
-                var file = Path.GetFullPath(options.ConfigFile ?? Path.Combine(repository, ".local", "h3vr-conversion.json"));
+                var file = Path.GetFullPath(options.ConfigFile ?? defaultConfig);
                 SafeFiles.RequirePrivateOutput(repository, file);
                 if (File.Exists(file)) throw new IOException("Configuration already exists; refusing to overwrite it: " + file);
                 SafeFiles.AtomicJson(file, config);
@@ -58,7 +60,7 @@ public sealed class ConverterApplication(string repository, IAnsiConsole console
                 config.Validate(repository, through);
                 if (through != "extract") config.VerifyEditorVersion();
                 ShowConfiguration(config, through);
-                if (config.ShaderSources is null && config.DxbcCompiler is null && through is not ("extract" or "managed"))
+                if (config.ShaderSources is null && !config.PreparesShaders(through) && through is not ("extract" or "managed"))
                     console.WriteLine("Shader overlay is unset. Project preparation will stop if the recovery contains dummy shaders. See docs/shader-recovery.md.");
                 await new Pipeline(repository, config).Run(through, cancellation);
                 console.Write(new Text("Completed through " + through + ". Workspace: " + config.Workspace + "\n", new Style(Color.Green)));
@@ -83,6 +85,11 @@ public sealed class ConverterApplication(string repository, IAnsiConsole console
             RecoveredProject = options.Recovered ?? config.RecoveredProject,
             ExtractionWorkspace = options.ExtractionWorkspace ?? config.ExtractionWorkspace,
             IntegrationManifest = options.Integration ?? config.IntegrationManifest,
+            OpenXrHeaders = options.OpenXrHeaders ?? config.OpenXrHeaders,
+            CSteamworks = options.CSteamworks ?? config.CSteamworks,
+            SteamworksHeaders = options.SteamworksHeaders ?? config.SteamworksHeaders,
+            SteamApi = options.SteamApi ?? config.SteamApi,
+            FmodSdk = options.FmodSdk ?? config.FmodSdk,
             BuildProbe = options.BuildProbe ?? config.BuildProbe,
             CompactPlayerData = options.CompactPlayerData ?? config.CompactPlayerData,
             ToolCacheDirectory = options.Cache ?? config.ToolCacheDirectory,
@@ -128,7 +135,8 @@ public sealed class ConverterApplication(string repository, IAnsiConsole console
             if (!available) problems.Add("AssetRipper is not ready for extraction; resolve the tool issue above.");
         }
         console.WriteLine("Doctor is read-only; it does not download tools, import Unity projects, or verify gameplay.");
-        if (config.ShaderSources is null) console.WriteLine("Shader overlay: unset. Dummy exports require locally validated sources before project preparation.");
+        if (config.ShaderSources is null && !config.PreparesShaders(through) && through is not ("extract" or "managed"))
+            console.WriteLine("Shader overlay: unset. Dummy exports require locally validated sources before project preparation.");
         foreach (var problem in problems) console.Write(new Text(problem + "\n", new Style(Color.Red)));
         if (problems.Count == 0) console.WriteLine("Input paths and boundaries passed. Unity also verifies its version during project validation.");
         return problems.Count == 0 ? 0 : 1;
@@ -156,7 +164,9 @@ public sealed class ConverterApplication(string repository, IAnsiConsole console
         if (config.BuildProbe) Add("Build profile", "Linux cross-build probe (no XR or native game plug-ins)");
         if (config.CompactPlayerData) Add("Player data", "Chunked LZ4");
         Add("Recovery", config.ExtractionWorkspace ?? config.RecoveredProject ?? "AssetRipper 2.0.0 (automatic)");
-        Add("Shaders", config.ShaderSources ?? (config.DxbcCompiler is null ? "Not set" : "Generate from the installed copy"));
+        Add("Shaders", config.ShaderSources ?? (config.PreparesShaders(through) ? "Generate from the installed copy" : "Not set"));
+        if (config.BuildTarget == "StandaloneOSX" && through is not ("extract" or "managed"))
+            Add("Integration", config.IntegrationManifest ?? "Build from local SDKs");
         Add("Cache", config.CacheDirectory(repository));
         Add("Tool provisioning", config.Offline ? "Cached tools only" : "Download and build when needed");
         Add("Through", through);

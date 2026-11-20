@@ -4,21 +4,29 @@ On Apple Silicon, the converter targets Unity **6.7**, Mono and Metal. The ARM64
 
 The Windows build uses Unity's OpenXR 1.19 package. [Unity OpenXR](https://docs.unity3d.com/Packages/com.unity.xr.openxr@1.19/manual/index.html) · [OpenXR Metal spec](https://registry.khronos.org/OpenXR/specs/1.1/html/xrspec.html#XR_KHR_metal_enable)
 
-## What you need
+## Build the integration automatically
 
-- .NET 10 SDK
-- Xcode command line tools
-- Unity 6.7 for Apple Silicon, with Mac Standalone Support
-- MacVR, plus the OpenXR headers from the same MacVR version
-- CSteamworks and the FMOD SDK (see [platform adapters](../runtime/Platform/README.md))
+`integration.json` lists the native Steam, audio and OpenXR components that the converter installs into the Unity project. Each entry records a destination and a SHA-256 hash. The converter can build it with Unity 6.7 and the Apple Command Line Tools.
 
-## 1. Build the integration
+Get the vendor SDKs through their download pages and place them in these checkout-local directories. You can also point to SDKs installed elsewhere.
+
+| Input | Default path | Optional flag |
+| --- | --- | --- |
+| Steamworks SDK 1.41 headers | `.local/sdk/steamworks-1.41/public/steam` | `--steamworks-headers` |
+| FMOD Engine SDK 2.03.15 root containing `api/` | `.local/sdk/fmod-2.03.15` | `--fmod-sdk` |
+
+The vendor download pages require sign-in. [Steamworks downloads](https://partner.steamgames.com/downloads/list) · [FMOD downloads](https://www.fmod.com/download)
+
+The converter finds the Steam API library in the installed macOS Steam client and prepares the pinned public CSteamworks source and OpenXR headers. It builds the native adapters and generates the manifest when you run conversion. Use `--csteamworks`, `--steam-api`, or `--openxr-headers` to select local overrides. Use `--integration` to supply an integration you already built. Keep all generated components in the checkout's ignored local directories.
+
+## Build the integration separately
 
 Run these from this repo. Use new, empty output folders.
 
 ```sh
 dotnet run --project tools/PlatformPatch/NativeBuilder -c Release -- \
   --csteamworks "/path/to/CSteamworks" \
+  --steamworks-headers "/path/to/steamworks-1.41/public/steam" \
   --steam-api "/path/to/Steam Helper.app/Contents/MacOS/libsteam_api.dylib" \
   --fmod-sdk "/path/to/fmod-sdk-2.03.15" \
   --output "$PWD/.local/platform"
@@ -30,15 +38,11 @@ dotnet run --project tools/UnityMetalCli -c Release -- build \
   --output "$PWD/.local/integration"
 ```
 
-## 2. Convert the game
-
-Pass the integration to the converter:
+To reuse that integration, pass it to the converter:
 
 ```sh
 --integration "$PWD/.local/integration/integration.json"
 ```
-
-That file pins every source file and plug-in to the target with a SHA-256 hash.
 
 Things to know:
 - Use the same exact Unity version for integration and conversion. Both commands accept `--unity-version` and default to `6000.7.0b10`.
@@ -46,7 +50,7 @@ Things to know:
 - The finished app is signed ad-hoc on your machine.
 - Its receipt records the Steam build, extraction, Unity version, architecture, executable, DLL hashes and the mod manifest version it supports.
 
-## 3. Run it
+## Run the player
 
 First build a MacVR export:
 

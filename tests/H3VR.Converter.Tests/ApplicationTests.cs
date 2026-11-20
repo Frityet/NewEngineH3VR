@@ -15,6 +15,7 @@ public static class ApplicationTests
         yield return ("init writes only below checkout .local and status accepts an external configuration", ConfigurationOutputBoundary);
         yield return ("shader recovery refuses an external output before provisioning", ShaderOutputBoundary);
         yield return ("offline doctor checks extraction without probing or creating Unity and cache paths", DoctorExtractIsReadOnly);
+        yield return ("doctor checks the class database without downloading it or modifying the cache", DoctorClassDatabaseIsReadOnly);
         yield return ("extract validation does not require a Unity editor", ExtractNeedsNoEditor);
         yield return ("checkout workspace must be isolated inside .local and cannot escape through a link", LocalWorkspaceBoundary);
         yield return ("tool cache defaults to the checkout and excludes other input paths", CheckoutCache);
@@ -119,15 +120,22 @@ public static class ApplicationTests
     {
         using var temp = new Temp();
         var checkout = Directory.CreateDirectory(Path.Combine(temp.Root, "checkout")).FullName;
-        var app = new ConverterApplication(checkout, new TestConsole());
+        var console = new TestConsole();
+        console.Profile.Width = 240;
+        var app = new ConverterApplication(checkout, console);
         var outside = Path.Combine(temp.Root, "outside.json");
-        int Run(ConverterCommand command, string? path = null) => app.RunAsync(
-            new(command, new ConversionOptions { ConfigOption = path }), CancellationToken.None).GetAwaiter().GetResult();
+        var workspace = Path.Combine(checkout, ".local", "workspace-from-config");
+        int Run(ConverterCommand command, string? path = null, string? workspaceFlag = null) => app.RunAsync(
+            new(command, new ConversionOptions { ConfigOption = path, Workspace = workspaceFlag }), CancellationToken.None)
+            .GetAwaiter().GetResult();
 
         Check(Capture(() => Run(ConverterCommand.Init, outside)) is InvalidDataException && !File.Exists(outside),
             "init wrote a configuration outside the checkout");
-        Check(Run(ConverterCommand.Init) == 0 && File.Exists(Path.Combine(checkout, ".local", "h3vr-conversion.json")),
+        Check(Run(ConverterCommand.Init, workspaceFlag: workspace) == 0 &&
+              File.Exists(Path.Combine(checkout, ".local", "h3vr-conversion.json")),
             "init did not write its default configuration inside .local");
+        Check(Run(ConverterCommand.Status) == 0 && console.Output.Contains(workspace, StringComparison.Ordinal),
+            "later runs did not pick up the saved checkout defaults");
         File.WriteAllText(outside, "{}");
         Check(Run(ConverterCommand.Status, outside) == 0 && File.ReadAllText(outside) == "{}",
             "an external configuration could not be read without modifying it");
@@ -180,6 +188,47 @@ public static class ApplicationTests
                 "offline doctor created a workspace or tool cache while checking availability");
         }
         finally { Environment.SetEnvironmentVariable("UNITY_EDITOR", previousUnity); }
+    }
+
+    private static void DoctorClassDatabaseIsReadOnly()
+    {
+        using var temp = new Temp();
+        var checkout = Path.Combine(temp.Root, "checkout");
+        var game = Path.Combine(temp.Root, "game");
+        var unity = Path.Combine(temp.Root, "Editor", "Unity");
+        var cache = Path.Combine(checkout, ".local", "cache");
+        Write(Path.Combine(game, "h3vr_Data/Managed/Assembly-CSharp.dll"), "synthetic game");
+        Write(unity, "synthetic editor");
+        Write(Path.Combine(temp.Root, "Editor/Data/Resources/Scripting/Managed/UnityEngine/UnityEngine.CoreModule.dll"), "synthetic Unity assembly");
+        Write(Path.Combine(checkout, ".gitmodules"),
+            $"[submodule \"{AssetRipperIntegration.SubmodulePath}\"]\n\tpath = {AssetRipperIntegration.SubmodulePath}\n\turl = {AssetRipperIntegration.UpstreamUrl}\n");
+
+        (int Code, string Output) Run(bool offline)
+        {
+            var console = new TestConsole();
+            var app = new ConverterApplication(checkout, console);
+            var options = new ConversionOptions
+            {
+                Game = game,
+                Unity = unity,
+                Target = "windows",
+                Through = "project",
+                Cache = cache,
+                Offline = offline
+            };
+            int code = app.RunAsync(new(ConverterCommand.Doctor, options), CancellationToken.None).GetAwaiter().GetResult();
+            return (code, console.Output);
+        }
+
+        Check(Run(false).Code == 0 && !Directory.Exists(cache), "online doctor failed or populated an empty cache");
+        var offline = Run(true);
+        Check(offline.Code == 1 && offline.Output.Contains("class database is missing", StringComparison.Ordinal) && !Directory.Exists(cache),
+            "offline doctor accepted an absent database or modified the cache");
+        string database = Path.Combine(cache, PlayerEnlighten.ClassDatabaseName);
+        Write(database, "corrupt database");
+        var corrupt = Run(false);
+        Check(corrupt.Code == 1 && corrupt.Output.Contains("failed SHA-256 verification", StringComparison.Ordinal) &&
+              File.ReadAllText(database) == "corrupt database", "doctor accepted or replaced the corrupt database");
     }
 
     private static void ExtractNeedsNoEditor()

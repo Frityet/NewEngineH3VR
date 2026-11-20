@@ -14,6 +14,7 @@ public static class PlayerEnlighten
 {
     internal const string ClassDatabaseName = "legacy-unity-classdata.tpk";
     internal const string ClassDatabaseSha256 = "129e1f80f930415db6779fe6089afa75280cb51462bcee812beab6cd81a764c6";
+    internal const string ClassDatabaseUrl = "https://raw.githubusercontent.com/nesrak1/UABEA/057e2f6ae67ebc94a38faca9f946f8577162fa99/ReleaseFiles/classdata.tpk";
     private const uint SharedSubtreeFormat = 26;
     private const int SerializedFileHeaderSize = 48;
     private const string UnitySixLightmapSettingsHash = "2f93a6ca3848c1af1d1062d35b580284";
@@ -25,13 +26,65 @@ public static class PlayerEnlighten
     private sealed record SourceScene(string Scene, string Level, string[] Hashes, byte[] Mapping, string SourceLevelSha256, Dictionary<string, string> Files);
     private static readonly string[] MappingFields = ["m_Renderers", "m_Systems", "m_Probesets", "m_SystemAtlases", "m_TerrainChunks"];
 
-    internal static string RequireClassDatabase(string cacheDirectory)
+    internal static string RequireClassDatabase(string cacheDirectory) =>
+        CheckClassDatabase(cacheDirectory, required: true)!;
+
+    internal static string? CheckClassDatabase(string cacheDirectory, bool required)
     {
         string database = Path.Combine(cacheDirectory, ClassDatabaseName);
-        if (!File.Exists(database) || new FileInfo(database).LinkTarget is not null ||
-            SafeFiles.Hash(database) != ClassDatabaseSha256)
-            throw new InvalidDataException($"The macOS build requires the pinned Unity class database at {database} (SHA-256 {ClassDatabaseSha256}). See docs/shader-recovery.md.");
-        return database;
+        var file = new FileInfo(database);
+        if (file.LinkTarget is not null || Directory.Exists(database))
+            throw new InvalidDataException("The Unity class database cache path must be a regular file: " + database);
+        if (file.Exists)
+        {
+            if (file.Length == 0 || SafeFiles.Hash(database) != ClassDatabaseSha256)
+                throw new InvalidDataException($"Cached Unity class database failed SHA-256 verification at {database}. Expected {ClassDatabaseSha256}. Choose a different --cache or move the invalid file aside.");
+            return database;
+        }
+        if (required)
+            throw new InvalidDataException($"The pinned Unity class database is missing at {database}. Run once online to populate this cache, or choose a cache with the verified database.");
+        return null;
+    }
+
+    internal static async Task EnsureClassDatabaseAsync(string repository, string cacheDirectory, bool offline,
+        CancellationToken cancellation, HttpClient? downloader = null)
+    {
+        string path = Path.Combine(cacheDirectory, ClassDatabaseName);
+        SafeFiles.RequireToolCachePath(repository, path);
+        if (CheckClassDatabase(cacheDirectory, required: offline) is not null) return;
+
+        Console.WriteLine("Downloading the pinned Unity class database into " + cacheDirectory);
+        using var defaultClient = downloader is null ? new HttpClient
+        {
+            Timeout = TimeSpan.FromMinutes(1),
+            MaxResponseContentBufferSize = 1024 * 1024
+        } : null;
+        byte[] bytes;
+        try { bytes = await (downloader ?? defaultClient!).GetByteArrayAsync(ClassDatabaseUrl, cancellation); }
+        catch (OperationCanceledException error) when (!cancellation.IsCancellationRequested)
+        {
+            throw new IOException("The pinned Unity class database download timed out.", error);
+        }
+        if (Convert.ToHexStringLower(SHA256.HashData(bytes)) != ClassDatabaseSha256)
+            throw new InvalidDataException("Downloaded Unity class database failed SHA-256 verification. Expected " + ClassDatabaseSha256 + ".");
+
+        SafeFiles.RequireToolCachePath(repository, path);
+        Directory.CreateDirectory(cacheDirectory);
+        string temporary = Path.Combine(cacheDirectory, ".classdata-" + Guid.NewGuid().ToString("N") + ".tmp");
+        var file = new FileStream(temporary, FileMode.CreateNew, FileAccess.Write, FileShare.None, 4096, useAsync: true);
+        try
+        {
+            await using (file)
+                await file.WriteAsync(bytes, cancellation);
+            cancellation.ThrowIfCancellationRequested();
+            try { File.Move(temporary, path); }
+            catch (IOException) when (File.Exists(path) || Directory.Exists(path) || new FileInfo(path).LinkTarget is not null)
+            {
+                // A concurrent installer may have published the same pinned file.
+                RequireClassDatabase(cacheDirectory);
+            }
+        }
+        finally { File.Delete(temporary); }
     }
 
     public static Receipt Stage(string sourceData, string targetData, string classDatabase, string expectedDatabaseSha256, string output, string targetVersion)

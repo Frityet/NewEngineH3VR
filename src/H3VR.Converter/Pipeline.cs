@@ -125,6 +125,12 @@ public sealed partial class Pipeline(string repository, ConversionConfig config)
         foreach (var path in new[] { config.Workspace, marker, lockPath, config.ManagedOutput, config.Project,
             Path.Combine(config.Workspace, "recovery"), Path.Combine(config.Workspace, "player") })
             SafeFiles.RequirePrivateOutput(repository, path);
+        if (config.NeedsClassDatabase(through))
+        {
+            config.ValidateToolCache(repository, config.GameDirectory, string.IsNullOrEmpty(config.UnityEditor) ? null : config.UnityData,
+                config.Workspace, config.RecoveredProject, config.ExtractionWorkspace, config.ShaderSources);
+            await PlayerEnlighten.EnsureClassDatabaseAsync(repository, config.CacheDirectory(repository), config.Offline, cancellation);
+        }
         Directory.CreateDirectory(config.Workspace);
         if (!File.Exists(marker))
         {
@@ -140,10 +146,19 @@ public sealed partial class Pipeline(string repository, ConversionConfig config)
         foreach (var step in Steps)
         {
             cancellation.ThrowIfCancellationRequested();
-            if (step == "project" && config.DxbcCompiler is not null)
+            if (step == "project")
             {
-                var overlay = await LocalShaderPreparation.PrepareAsync(repository, config, cancellation);
-                config = config with { ShaderSources = overlay };
+                if (config.BuildTarget == "StandaloneOSX" && config.IntegrationManifest is null)
+                {
+                    var integration = await LocalPlatformPreparation.PrepareAsync(repository, config, cancellation);
+                    config = config with { IntegrationManifest = integration };
+                }
+                if (config.PreparesShaders(through))
+                {
+                    config = await ShaderTranslatorProvisioning.PrepareAsync(repository, config, cancellation);
+                    var overlay = await LocalShaderPreparation.PrepareAsync(repository, config, cancellation);
+                    config = config with { ShaderSources = overlay };
+                }
             }
             var fingerprint = Fingerprint(step, gameFingerprint);
             var receiptFile = Path.Combine(Receipts, step + ".json");

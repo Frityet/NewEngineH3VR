@@ -6,33 +6,26 @@ On Apple Silicon, the native player uses Mono, Metal and a caller-selected MacVR
 
 The Steam game directory is read-only throughout conversion.
 
-## What you need
+## Build from your Steam copy
 
 - H3VR installed through Steam
 - [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0)
 - Unity 6.7 (`6000.7.0b10` by default), with the standalone build module for your target
 - Git, and an internet connection the first time you run it
-- A local `dxil-spirv` and `spirv-cross` build and the pinned Unity class database to generate shaders. You can also pass a previously verified overlay from your own Steam copy. See [shader recovery](docs/shader-recovery.md).
-- On a Mac: the platform integration file, which you build first (see [platform integrations](docs/platform-integrations.md))
+- A native C++ toolchain and Python 3 for building the shader translators. On macOS, the Apple Command Line Tools supply these.
+- On macOS, keep your Steamworks 1.41 and FMOD Engine 2.03.15 SDKs in the documented local folders. The converter builds the integration from those SDKs. [macOS setup](docs/platform-integrations.md)
 
-## How to use it
-
-Run from the converter checkout once the prerequisites are available:
+Run this from the checkout and select your Steam installation. The conversion defaults to producing a Unity 6.7 player.
 
 ```sh
-dotnet run --project src/H3VR.Converter -c Release -- \
-  --target macos \
-  --integration "$PWD/.local/integration/integration.json" \
-  --dxbc-compiler "/path/to/dxil-spirv" \
-  --spirv-cross "/path/to/spirv-cross" \
-  --through build
+dotnet run --project src/H3VR.Converter -c Release -- --tui
 ```
 
-For Windows, use `--target windows` and omit `--integration`. The converter looks for Steam and the Unity Hub editor automatically. Use `--game`, `--unity`, or `--unity-version` when your installation differs. To reuse an existing overlay, use `--shaders` in place of the two translator flags.
+For an unattended build, pass `--game "/path/to/H3VR"`. The converter can detect a single Steam installation and the matching Unity Hub editor. Use `--unity` or `--unity-version` when your installation differs. Select `--target windows` for a Windows build. The converter prepares the Unity class database, shader tools and shader overlay automatically. Use `--shaders` to supply a previously verified overlay from your copy, or `--dxbc-compiler` and `--spirv-cross` to use local translator builds. [Shader recovery](docs/shader-recovery.md)
 
 The default workspace is `.local/workspace`. Unity files go into `project/` and the player into `player/` under that workspace. The shader recovery and overlay directories sit beside the workspace. Use `--workspace` to choose another directory under the checkout's ignored `.local/` directory. The tool cache defaults to `cache/`. You can override it with a directory under `.local/` or `cache/` using `--cache`.
 
-If a run stops partway, run the same command again. It picks up where it left off.
+If a run stops partway, run the same command again. It verifies completed stages and picks up where it left off. `init` saves optional defaults to `.local/h3vr-conversion.json`, which later runs load automatically. Flags override those defaults.
 
 ## Other commands
 

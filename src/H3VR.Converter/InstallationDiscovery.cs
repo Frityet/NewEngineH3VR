@@ -33,6 +33,26 @@ public static class InstallationDiscovery
         return results.Distinct(PathComparer()).Order(PathComparer()).ToArray();
     }
 
+    internal static string? DiscoverMacSteamApi(string? homeDirectory = null)
+    {
+        if (!OperatingSystem.IsMacOS()) return null;
+        string home = ResolveHome(homeDirectory);
+        var bundles = StandardSteamRoots(home).Select(root => Path.Combine(root, "Steam.AppBundle", "Steam"))
+            .Concat([Path.Combine(home, "Applications", "Steam.app"), "/Applications/Steam.app"]);
+        foreach (string bundle in bundles)
+            foreach (string relative in new[]
+            {
+                "Contents/MacOS/Frameworks/Steam Helper.app/Contents/MacOS/libsteam_api.dylib",
+                "Contents/Frameworks/Steam Helper.app/Contents/MacOS/libsteam_api.dylib",
+                "Contents/MacOS/libsteam_api.dylib"
+            })
+            {
+                string library = Path.Combine(bundle, relative);
+                if (File.Exists(library)) return library;
+            }
+        return null;
+    }
+
     /// <summary>Returns only matching target editors found in Unity Hub roots or UNITY_EDITOR.</summary>
     public static IReadOnlyList<string> DiscoverUnityEditors(string? homeDirectory = null,
         IEnumerable<string>? hubEditorRoots = null, string? unityEditorEnvironment = null, string version = TargetUnityVersion)

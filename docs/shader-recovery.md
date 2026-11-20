@@ -13,14 +13,9 @@ The output is a **raw export**, not something the converter can use directly. Yo
 
 .NET 10 SDK, Git, internet access and your platform's native build tools. Nothing prebuilt, and no game files or shaders, is stored in this repo.
 
-For an end-to-end conversion, pass `--dxbc-compiler` and `--spirv-cross` to the converter. It runs shader recovery and overlay preparation after extracting the game. Put the pinned Unity class database in the checkout's ignored `cache/` or the directory passed to `--cache`. On macOS, you can fetch and verify it with:
+The converter prepares the shader overlay after extracting the game. It builds pinned public `dxil-spirv` and `SPIRV-Cross` source and downloads a verified CMake release if it needs one. Use `--dxbc-compiler` and `--spirv-cross` to select translators you already have.
 
-```sh
-mkdir -p cache
-curl -fL https://raw.githubusercontent.com/nesrak1/UABEA/057e2f6ae67ebc94a38faca9f946f8577162fa99/ReleaseFiles/classdata.tpk \
-  -o cache/legacy-unity-classdata.tpk
-printf '129e1f80f930415db6779fe6089afa75280cb51462bcee812beab6cd81a764c6  cache/legacy-unity-classdata.tpk\n' | shasum -a 256 -c -
-```
+Some Steam assets omit their Unity type trees. The converter uses a pinned class database to read them during shader preparation and to restore baked lighting data for the macOS player. When the database is missing, the converter downloads it and verifies its SHA-256. These dependencies stay in the checkout's ignored `cache/` or the directory passed to `--cache`. With `--offline`, use a cache already populated by an online run.
 
 ## Recovering the shaders
 
@@ -122,7 +117,7 @@ Also add `--repair-exclusive-keywords`. This rebuilds keyword groups from the or
 - It recovers required choices, optional choices and constants.
 - If the groups can't describe every variant, it keeps the verified lighting and geometry modes and leaves explicit guards on the rest. The compiler may still reject some of those.
 
-This needs Unity's class database. Save it at `cache/legacy-unity-classdata.tpk`, or pass `--class-database`. The tested file is [this one](https://github.com/nesrak1/UABEA/blob/057e2f6ae67ebc94a38faca9f946f8577162fa99/ReleaseFiles/classdata.tpk), SHA-256 `129e1f80f930415db6779fe6089afa75280cb51462bcee812beab6cd81a764c6`.
+The standalone `ShaderOverlay` tool reads the database from `cache/legacy-unity-classdata.tpk` by default. Use `--class-database` to point it to a different cache. The [pinned UABEA file](https://github.com/nesrak1/UABEA/blob/057e2f6ae67ebc94a38faca9f946f8577162fa99/ReleaseFiles/classdata.tpk) has SHA-256 `129e1f80f930415db6779fe6089afa75280cb51462bcee812beab6cd81a764c6`.
 
 The output is `shader-overlay-candidate.json`. It records:
 - the database hash
@@ -160,7 +155,9 @@ You need:
 - [dxil-spirv](https://github.com/HansKristian-Work/dxil-spirv/tree/a781dce9b5f2dd076f419d7f98dcc2dcf5f011d5) at `a781dce9b5f2dd076f419d7f98dcc2dcf5f011d5`, built locally
 - [SPIRV-Cross](https://github.com/KhronosGroup/SPIRV-Cross) from Vulkan SDK `1.4.357.0`
 
-To build the pinned DXIL translator, check out that commit, run `git submodule update --init` and build the CLI with CMake.
+When the converter builds the translators, it uses CMake 3.22.1 or newer from `PATH`. If none is available, it caches CMake 3.31.12 in the checkout's tool cache after verifying the download against Kitware's published SHA-256. Offline builds can reuse that cache. [Kitware release and checksums](https://github.com/Kitware/CMake/releases/tag/v3.31.12)
+
+For a manual DXIL translator build, check out the pinned commit, run `git submodule update --init` and build the CLI with CMake.
 
 ```sh
 cmake -S "/path/to/dxil-spirv-source" -B "/path/to/translator-build" \

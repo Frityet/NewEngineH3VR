@@ -19,6 +19,11 @@ public sealed record ConversionConfig
     public string? ToolCacheDirectory { get; init; }
     public bool Offline { get; init; }
     public string? IntegrationManifest { get; init; }
+    public string? OpenXrHeaders { get; init; }
+    public string? CSteamworks { get; init; }
+    public string? SteamworksHeaders { get; init; }
+    public string? SteamApi { get; init; }
+    public string? FmodSdk { get; init; }
     public bool BuildProbe { get; init; }
     public bool CompactPlayerData { get; init; }
     public string BuildTarget { get; init; } = OperatingSystem.IsMacOS() && System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture == System.Runtime.InteropServices.Architecture.Arm64 ? "StandaloneOSX" : "StandaloneWindows64";
@@ -53,6 +58,11 @@ public sealed record ConversionConfig
             DxbcCompiler = Optional(DxbcCompiler),
             SpirvCross = Optional(SpirvCross),
             IntegrationManifest = Optional(IntegrationManifest),
+            OpenXrHeaders = Optional(OpenXrHeaders),
+            CSteamworks = Optional(CSteamworks),
+            SteamworksHeaders = Optional(SteamworksHeaders),
+            SteamApi = Optional(SteamApi),
+            FmodSdk = Optional(FmodSdk),
             ToolCacheDirectory = Optional(ToolCacheDirectory)
         };
     }
@@ -126,24 +136,34 @@ public sealed record ConversionConfig
             throw new InvalidDataException("BuildTarget must be StandaloneWindows64, StandaloneOSX or StandaloneLinux64.");
         if (BuildProbe && (BuildTarget != "StandaloneLinux64" || IntegrationManifest is not null))
             throw new InvalidDataException("--build-probe requires --target linux without a platform integration.");
-        if (through is not ("extract" or "managed") && BuildTarget != "StandaloneWindows64" && IntegrationManifest is null && !BuildProbe)
-            throw new InvalidDataException("Non-Windows builds require a compatible platform integration manifest; Windows native plugins cannot run on other platforms.");
+        if (through is not ("extract" or "managed") && IntegrationManifest is null && !BuildProbe)
+        {
+            if (BuildTarget == "StandaloneOSX") LocalPlatformPreparation.Validate(repository, this);
+            if (BuildTarget == "StandaloneLinux64")
+                throw new InvalidDataException("Linux builds require a compatible platform integration manifest.");
+        }
         if ((DxbcCompiler is null) != (SpirvCross is null))
             throw new InvalidDataException("Use --dxbc-compiler and --spirv-cross together to generate a local shader overlay.");
         if (DxbcCompiler is not null)
         {
-            if (ShaderSources is not null || RecoveredProject is not null || ExtractionWorkspace is not null)
-                throw new InvalidDataException("Automatic shader generation needs a cold extraction in this workspace. Omit --shaders, --recovered and --reuse-extraction.");
+            if (ShaderSources is not null || RecoveredProject is not null)
+                throw new InvalidDataException("Automatic shader generation requires converter extraction data. Omit --shaders and --recovered when supplying translators.");
             if (!File.Exists(DxbcCompiler) || !File.Exists(SpirvCross))
                 throw new InvalidDataException("Set --dxbc-compiler and --spirv-cross to the installed translator executables.");
         }
         ValidateToolCache(repository, GameDirectory, string.IsNullOrEmpty(UnityEditor) ? null : UnityData, Workspace, RecoveredProject, ExtractionWorkspace, ShaderSources);
-        if ((through == "build" && BuildTarget == "StandaloneOSX") ||
-            (DxbcCompiler is not null && through is "project" or "validate" or "build"))
-            PlayerEnlighten.RequireClassDatabase(CacheDirectory(repository));
+        if (NeedsClassDatabase(through))
+            PlayerEnlighten.CheckClassDatabase(CacheDirectory(repository), required: Offline);
         if (RecoveredProject is not null && !Directory.Exists(Path.Combine(RecoveredProject, "Assets")))
             throw new InvalidDataException("RecoveredProject must contain Assets. Recovery input is never modified.");
     }
+
+    internal bool PreparesShaders(string through) =>
+        through is "project" or "validate" or "build" && ShaderSources is null && RecoveredProject is null &&
+        (!BuildProbe || DxbcCompiler is not null);
+
+    internal bool NeedsClassDatabase(string through) =>
+        through == "build" && BuildTarget == "StandaloneOSX" || PreparesShaders(through);
 
     internal void RequireColdRecovery(string through)
     {
