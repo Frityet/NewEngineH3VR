@@ -87,6 +87,8 @@ foreach (var filename in keep)
     var log = new List<object>();
     if (filename == "UnityEngine.UI")
         log.Add(new { caller = LegacyTextMesh.Retarget(module), target = "Unity TextGenerator vertex count" });
+    if (filename == "Assembly-CSharp")
+        StockCameraAllocations.Apply(module, shim.MainModule.GetType("NativeH3VR.CameraRenderScratch"), log);
     // Rewrite narrow method boundaries before mutating old declaring type metadata.
     foreach (var m in module.Types.SelectMany(Types)
                  .SelectMany(t => t.Methods)
