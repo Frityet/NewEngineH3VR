@@ -108,3 +108,20 @@ The analysis checks the active renderer, gameplay phase, objective, both submitt
 On the tested Steam build, Northest Dakota’s `SnowGround` material still uses the original `Alloy/Weighted Blend` shader. The cast shadows from a supply container, upright cover and a tree lose most of their contrast under both URP presets. Matched stereo captures on two stock routes reproduced the difference. The performance figures for this map include that rendering difference.
 
 The third tested Institution route has an unlit corridor at the first Hold. In a fixed-pose check at Quality, changing only tone mapping from ACES to Neutral reduced the near-black area from 96% to 49% of each submitted eye. The ACES repeat reproduced both eye images byte for byte. Selecting Neutral in Graphics Options retains 4× MSAA, high shadows, ambient occlusion and +0.5 EV.
+
+### Measured Take & Hold results
+
+The M5 Max ran both signed players with synthetic MacVR at 1440 × 1600 per eye and a 90 Hz target. Each entry gives delivered stereo frames per second followed by p95 CPU milliseconds for both eye renders and submission. Each map and phase pools three stock route sequences.
+
+| Map | Phase | Optimized built-in | URP Balanced | URP Quality |
+| --- | --- | ---: | ---: | ---: |
+| Classic Hallways | Opening Take | 90.0 / 0.97 | 90.0 / 0.97 | 90.0 / 1.08 |
+| Classic Hallways | First Hold | 90.0 / 1.24 | 90.0 / 1.60 | 90.0 / 1.29 |
+| Northest Dakota | Opening Take | 90.0 / 1.89 | 90.0 / 1.58 | 90.0 / 1.86 |
+| Northest Dakota | First Hold | 90.0 / 1.48 | 90.0 / 1.50 | 90.0 / 1.97 |
+| Institution | Opening Take | 90.0 / 0.97 | 85.1 / 0.96 | 90.0 / 1.07 |
+| Institution | First Hold | 90.0 / 1.33 | 81.3 / 1.28 | 90.0 / 1.62 |
+
+The analysis includes 14,573 completed stereo pairs across 54 short gameplay windows. The process monitor observed no second H3VR player during any selected window. The timings cover the opening Take and the first live hacking wave on a simulated headset.
+
+All three renderers delivered 90 FPS on Classic Hallways and Northest Dakota. On Institution, Balanced recorded a 502.6 ms gap between compositor completions during the opening Take on sequence 0. During the first Hold on sequence 3 it delivered 68.2 FPS, with a longest gap of 41.3 ms. The other two Balanced Hold sequences delivered 90 FPS. The captures identify the stalls but do not establish their cause.
