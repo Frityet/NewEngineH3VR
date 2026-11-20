@@ -79,6 +79,8 @@ namespace NativeH3VR.QA
             var canvas = nativePage.GetComponentInParent<Canvas>(true);
             var renderScale = nativePage.Find("RenderScale Value").GetComponent<Text>();
             var preset = nativePage.Find("Preset Value").GetComponent<Text>();
+            var exposure = nativePage.Find("Exposure Value").GetComponent<Text>();
+            var expectedExposure = Path.Combine(output, "exposure.txt");
             var expectedPath = Path.Combine(output, "render-scale.txt");
             var stateDirectory = Environment.GetEnvironmentVariable("NATIVEH3VR_STATE_DIR");
             Require(!string.IsNullOrEmpty(stateDirectory), "Graphics Options witness requires isolated launcher state");
@@ -88,11 +90,13 @@ namespace NativeH3VR.QA
                 Require(File.Exists(settingsPath), "No isolated graphics preferences after restart");
                 Require(renderScale.text == File.ReadAllText(expectedPath), "Render scale was not restored after restart");
                 Require(preset.text == "Custom", "Custom preset state was not restored after restart");
+                Require(exposure.text == File.ReadAllText(expectedExposure), "Exposure was not restored after restart");
                 return;
             }
 
-            Require(!File.Exists(settingsPath) && preset.text == "Balanced" && renderScale.text == "100%",
-                "A fresh state directory did not start at Balanced and 100% without a graphics preferences file");
+            Require(!File.Exists(settingsPath) && preset.text == "Balanced" && renderScale.text == "100%" &&
+                    exposure.text == "+0.25 EV",
+                "A fresh state directory did not start at Balanced, 100% and +0.25 EV");
             string initialPreset = preset.text;
             nativePage.Find("Preset Next").GetComponent<Button>().onClick.Invoke();
             Require(preset.text != initialPreset && preset.text != "Custom", "Selecting a named preset did not update the panel");
@@ -118,6 +122,9 @@ namespace NativeH3VR.QA
             }
             Require(renderScale.text != initialScale, "Pointing at and triggering the render-scale control did not change it");
             Require(preset.text == "Custom", "Changing render scale did not select Custom");
+            Require(exposure.text == "+0.5 EV", "The Quality preset did not apply its exposure");
+            nativePage.Find("Exposure Next").GetComponent<Button>().onClick.Invoke();
+            Require(exposure.text == "+0.75 EV", "The exposure arrow did not change the compensation");
 
             var back = quality.Find("Canvas/Button_Back (3)").GetComponent<Button>();
             var panelForward = back.transform.forward;
@@ -140,6 +147,7 @@ namespace NativeH3VR.QA
                 "Reopening Graphics Options lost the selected settings");
             Require(File.Exists(settingsPath), "Graphics controls did not write to isolated launcher state");
             File.WriteAllText(expectedPath, renderScale.text);
+            File.WriteAllText(expectedExposure, exposure.text);
         }
 
         private void CapturePage(Canvas canvas, Vector3 pointingDirection, string filename)

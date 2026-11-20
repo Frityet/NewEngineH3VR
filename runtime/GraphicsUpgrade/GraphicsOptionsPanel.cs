@@ -32,7 +32,8 @@ namespace NativeH3VR.GraphicsUpgrade
             GraphicsSetting.RenderScale,
             GraphicsSetting.Msaa,
             GraphicsSetting.ShadowQuality,
-            GraphicsSetting.ShadowDistance
+            GraphicsSetting.ShadowDistance,
+            GraphicsSetting.Exposure
         };
 
         private static readonly GraphicsSetting[] ImageSettings =

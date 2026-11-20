@@ -1,5 +1,10 @@
 Shader "Hidden/NativeH3VR/PlayerView"
 {
+    Properties
+    {
+        [HideInInspector] _H3VRExposure ("Linear exposure multiplier", Float) = 1
+    }
+
     SubShader
     {
         Tags { "RenderPipeline" = "UniversalPipeline" }
@@ -11,6 +16,7 @@ Shader "Hidden/NativeH3VR/PlayerView"
 
         TEXTURE2D_X(_H3VRGlowTexture);
         float4 _H3VRLook; // bloom strength, sharpening strength, tone curve, bloom threshold
+        float _H3VRExposure;
 
         half4 SceneColor(float2 uv)
         {
@@ -61,6 +67,8 @@ Shader "Hidden/NativeH3VR/PlayerView"
                            + SAMPLE_TEXTURE2D_X(_H3VRGlowTexture, sampler_LinearClamp, uv - r).rgb;
                 color += glow * (0.25 * _H3VRLook.x);
             }
+            // Apply exposure to the composed linear color without moving the bloom threshold.
+            color *= _H3VRExposure;
             if (_H3VRLook.z > 1.5) color = AcesTonemap(unity_to_ACES(color));
             else if (_H3VRLook.z > 0.5) color = NeutralTonemap(color);
             return half4(color, center.a);

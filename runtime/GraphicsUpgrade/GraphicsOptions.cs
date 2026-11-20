@@ -11,17 +11,18 @@ namespace NativeH3VR.GraphicsUpgrade
     public enum GraphicsSetting
     {
         Preset, RenderScale, Msaa, ShadowDistance, ShadowQuality, AdditionalLights,
-        Hdr, Bloom, Sharpening, Tonemapping, AmbientOcclusion
+        Hdr, Bloom, Sharpening, Tonemapping, AmbientOcclusion, Exposure
     }
 
     public static class GraphicsOptions
     {
         const string Preference = "NativeH3VR.URP.Graphics.v1";
         const string PreferenceFile = "graphics-options.json";
+        const int NeutralExposureIndex = 4;
         static readonly string[] Labels =
         {
             "Preset", "Render scale", "Anti-aliasing", "Shadow distance", "Shadow detail",
-            "Lights per object", "HDR rendering", "Bloom", "Sharpening", "Tone mapping", "Ambient occlusion"
+            "Lights per object", "HDR rendering", "Bloom", "Sharpening", "Tone mapping", "Ambient occlusion", "Exposure"
         };
         static readonly string[][] Choices =
         {
@@ -33,17 +34,18 @@ namespace NativeH3VR.GraphicsUpgrade
             new[] { "0", "2", "4", "8" },
             new[] { "Off", "On" }, new[] { "Off", "Subtle", "Full" },
             new[] { "Off", "Low", "Medium", "High" }, new[] { "Off", "Neutral", "ACES" },
-            new[] { "Off", "On" }
+            new[] { "Off", "On" },
+            new[] { "-1 EV", "-0.75 EV", "-0.5 EV", "-0.25 EV", "0 EV", "+0.25 EV", "+0.5 EV", "+0.75 EV", "+1 EV" }
         };
         static readonly float[] RenderScales = { 0.70f, 0.85f, 1f, 1.15f, 1.30f };
         static readonly int[] Distances = { 15, 30, 60, 100 };
         static readonly int[] LightCounts = { 0, 2, 4, 8 };
         static readonly int[][] Presets =
         {
-            // Scale, MSAA, distance, detail, lights, HDR, bloom, sharpen, tone, AO
-            new[] { 1, 0, 0, 1, 1, 0, 0, 0, 0, 0 },
-            new[] { 2, 1, 1, 2, 2, 1, 1, 1, 1, 0 },
-            new[] { 2, 2, 2, 3, 3, 1, 2, 1, 2, 1 }
+            // Scale, MSAA, distance, detail, lights, HDR, bloom, sharpen, tone, AO, exposure
+            new[] { 1, 0, 0, 1, 1, 0, 0, 0, 0, 0, NeutralExposureIndex },
+            new[] { 2, 1, 1, 2, 2, 1, 1, 1, 1, 0, 5 },
+            new[] { 2, 2, 2, 3, 3, 1, 2, 1, 2, 1, 6 }
         };
 
         [Serializable]
@@ -100,6 +102,8 @@ namespace NativeH3VR.GraphicsUpgrade
 
                 var saved = JsonUtility.FromJson<SavedOptions>(json);
                 if (saved?.values == null) return;
+                // Existing saves used zero compensation, including with their tone curve enabled.
+                values[(int)GraphicsSetting.Exposure - 1] = NeutralExposureIndex;
                 for (int i = 0; i < Math.Min(values.Length, saved.values.Length); i++)
                     if ((uint)saved.values[i] < Choices[i + 1].Length) values[i] = saved.values[i];
             }
@@ -164,6 +168,7 @@ namespace NativeH3VR.GraphicsUpgrade
         internal static float Sharpness => GetIndex(GraphicsSetting.Sharpening) * 0.18f;
         internal static int Tone => GetIndex(GraphicsSetting.Tonemapping);
         internal static bool Occlusion => GetIndex(GraphicsSetting.AmbientOcclusion) != 0;
+        internal static float ExposureStops => (GetIndex(GraphicsSetting.Exposure) - NeutralExposureIndex) * 0.25f;
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
         static void Reset()

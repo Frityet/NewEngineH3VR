@@ -14,6 +14,8 @@ The default graphics-upgrade workspace is `.local/workspace-graphics-upgrade`. S
 
 Open **Graphics Options** from the game’s options panel. **Balanced** is the initial preset. Changing a value applies it immediately, updates the displayed preset and saves your choices across launches. **Game Settings** opens the stock controls for game quality, texture filtering, particle collisions and scope MSAA.
 
+The launcher saves the graphics choices in `graphics-options.json` inside its `--state-dir`. Each new state directory starts with Balanced. Direct player launches use Unity’s player preferences.
+
 | Setting | Performance | Balanced | Quality |
 | --- | --- | --- | --- |
 | Render scale | 85% | 100% | 100% |
@@ -24,10 +26,11 @@ Open **Graphics Options** from the game’s options panel. **Balanced** is the i
 | HDR rendering | Off | On | On |
 | Bloom | Off | Subtle | Full |
 | Sharpening | Off | Low | Low |
+| Exposure | 0 EV | +0.25 EV | +0.5 EV |
 | Tone mapping | Off | Neutral | ACES |
 | Ambient occlusion | Off | Off | On |
 
-Render scale ranges from 70% to 130% of the output dimensions. On MacVR the compositor continues to receive the headset’s requested eye size and projection. HDR controls the scene color buffer. Bloom, tone mapping and ambient occlusion can each be disabled independently.
+Render scale ranges from 70% to 130% of the output dimensions. On MacVR the compositor continues to receive the headset’s requested eye size and projection. HDR controls the scene color buffer. Bloom, tone mapping and ambient occlusion can each be disabled independently. Exposure ranges from −1 to +1 EV in quarter-stop steps. Existing saves keep 0 EV until exposure changes or a preset is reapplied.
 
 ## Rendering
 
@@ -43,7 +46,7 @@ The stock game requests the same shader collection during engine startup and whe
 
 Both rendering paths reuse a pair of eye matrices after Unity copies them and defer allocation of the camera-relative material property block until a renderer writes to it. In a Unity 6.7 editor benchmark of the imported stock callback, the median with one initialized renderer fell from 1.54 to 0.54 µs. Measured heap growth fell from about 159 bytes per call to zero after warm-up.
 
-On an Apple M5 Max with synthetic MacVR, the optimized built-in player submitted its first stereo frame 1.28 s after Unity initialized. Two control runs with the original shader warmup took 89.69 and 94.23 s. Loading the main menu, entering Warehouse and returning to the menu produced zero missed compositor slots across six sampled windows. These timings exclude process startup before Unity initialized.
+On an Apple M5 Max with synthetic MacVR, the optimized built-in player reached sustained stereo 5.66 s after Unity initialized. Two control runs with the original shader warmup took 96.28 and 101.10 s. Unity skipped zero stereo frames across six samples covering the main menu, Warehouse and the return to the menu. These timings exclude process startup before Unity initialized.
 
 ## Testing an imported macOS build
 

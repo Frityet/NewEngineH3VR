@@ -22,7 +22,8 @@ namespace NativeH3VR.GraphicsUpgrade
         {
             if (!material || renderingData.cameraData.renderType != CameraRenderType.Base ||
                 !H3VREyeRendering.IsPlayerView(renderingData.cameraData.camera)) return;
-            if (GraphicsOptions.Glow == 0 && GraphicsOptions.Sharpness == 0 && GraphicsOptions.Tone == 0) return;
+            if (GraphicsOptions.Glow == 0 && GraphicsOptions.Sharpness == 0 &&
+                GraphicsOptions.Tone == 0 && GraphicsOptions.ExposureStops == 0) return;
             composition.Material = material;
             renderer.EnqueuePass(composition);
         }
@@ -33,6 +34,7 @@ namespace NativeH3VR.GraphicsUpgrade
         {
             static readonly int GlowTexture = Shader.PropertyToID("_H3VRGlowTexture");
             static readonly int Look = Shader.PropertyToID("_H3VRLook");
+            static readonly int Exposure = Shader.PropertyToID("_H3VRExposure");
             static readonly Vector4 Identity = new Vector4(1, 1, 0, 0);
             internal Material Material;
 
@@ -66,6 +68,7 @@ namespace NativeH3VR.GraphicsUpgrade
                 bool bloom = GraphicsOptions.Glow > 0;
                 Material.SetVector(Look, new Vector4(GraphicsOptions.Glow, GraphicsOptions.Sharpness,
                     GraphicsOptions.Tone, GraphicsOptions.Hdr ? 1.05f : 0.82f));
+                Material.SetFloat(Exposure, Mathf.Pow(2f, GraphicsOptions.ExposureStops));
 
                 if (bloom)
                 {

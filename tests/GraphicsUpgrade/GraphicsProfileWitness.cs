@@ -108,6 +108,12 @@ namespace NativeH3VR.QA
                     yield break;
                 }
 
+                if (scene == "WarehouseRange_Rebuilt")
+                {
+                    VerifyWarehouseReceiver("Warehouse_ShootingRangeGround", "Ground", 0);
+                    VerifyWarehouseReceiver("ShootingRangePhys", "concrete_concreteblockmetalcrossbeamsold_2k_d", 1);
+                }
+
                 // Load the API by name so the same witness binary can benchmark the stock player.
                 var options = Type.GetType("NativeH3VR.GraphicsUpgrade.GraphicsOptions, NativeH3VR.GraphicsUpgrade", true);
                 var key = Type.GetType("NativeH3VR.GraphicsUpgrade.GraphicsSetting, NativeH3VR.GraphicsUpgrade", true);
@@ -121,6 +127,9 @@ namespace NativeH3VR.QA
                     if (i == 1)
                         yield return Sample(scene, "balanced-repeat", false);
                 }
+
+                set.Invoke(null, new[] { Enum.Parse(key, "Exposure"), (object)4 });
+                yield return Sample(scene, "quality-zero-exposure", false);
 
                 // Hold scale, shadows, lights, AA, and HDR fixed while isolating the image effects.
                 foreach (string effect in new[] { "Bloom", "Sharpening", "Tonemapping", "AmbientOcclusion" })
@@ -190,6 +199,19 @@ namespace NativeH3VR.QA
             {
                 RenderTexture.active = previous;
             }
+        }
+
+        private static void VerifyWarehouseReceiver(string objectName, string materialName, int detailUV)
+        {
+            var receiver = GameObject.Find(objectName);
+            var renderer = receiver ? receiver.GetComponent<Renderer>() : null;
+            Require(renderer, "Missing Warehouse receiver " + objectName);
+            var material = Array.Find(renderer.sharedMaterials,
+                candidate => candidate && candidate.name == materialName);
+            Require(material && material.shader.name == "NativeH3VR/Stock PBR" &&
+                    material.GetFloat("_DetailT") == 1 && material.GetFloat("_DetailAlbedoMapUV") == detailUV &&
+                    material.GetTexture("_DetailAlbedoMap"),
+                "Warehouse receiver lost its native lighting or stock detail layer: " + materialName);
         }
 
         private void VerifyControllers(string sample)

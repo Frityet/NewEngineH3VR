@@ -58,6 +58,8 @@ def inspect(root, baseline):
         scene = quality_pose.name.removesuffix("-quality-pose.txt")
         data = report[scene] = {"captures": {}, "differences": {}}
         labels = ("performance", "balanced", "balanced-repeat", "quality", "quality-effects-off")
+        if (root / f"{scene}-quality-zero-exposure-pose.txt").is_file():
+            labels += ("quality-zero-exposure",)
         reference_pose = pose(root, scene, "balanced")
         for label in labels:
             if not np.allclose(pose(root, scene, label), reference_pose, atol=1e-4, rtol=0):
@@ -73,7 +75,9 @@ def inspect(root, baseline):
                 "qualityVsEffectsOff": compare(images["quality"], images["quality-effects-off"]),
             }
             noise = differences["balancedRepeat"]["meanAbsoluteRgbBytes"]
-            for comparison in ("qualityVsPerformance", "qualityVsEffectsOff"):
+            if "quality-zero-exposure" in images:
+                differences["qualityVsZeroExposure"] = compare(images["quality"], images["quality-zero-exposure"])
+            for comparison in differences.keys() - {"balancedRepeat"}:
                 if differences[comparison]["meanAbsoluteRgbBytes"] <= noise + 0.15:
                     failures.append(f"{scene} {eye} {comparison} was indistinguishable from the repeat noise")
             if baseline and (baseline / f"{scene}-stock-{eye}.png").is_file():
