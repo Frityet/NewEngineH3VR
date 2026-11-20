@@ -17,6 +17,9 @@ public sealed class ConverterApplication(string repository, IAnsiConsole console
         var loaded = request.Command != ConverterCommand.Init && configFile is not null
             ? ConversionConfig.Load(Path.GetFullPath(configFile)) : new ConversionConfig();
         var config = ApplyOptions(loaded, options, Environment.CurrentDirectory);
+        if (options.Workspace is null && config.GraphicsUpgrade != loaded.GraphicsUpgrade &&
+            config.Workspace == InstallationDiscovery.DefaultWorkspace(repository, loaded.GraphicsUpgrade))
+            config = config with { Workspace = "" };
         var through = request.Through.ToLowerInvariant();
         if (!Pipeline.Steps.Contains(through)) throw new ArgumentException("--through must be extract, managed, project, validate, or build.");
         // Discovery is bounded to known Steam/Unity locations and never launches an editor.
@@ -92,6 +95,7 @@ public sealed class ConverterApplication(string repository, IAnsiConsole console
             FmodSdk = options.FmodSdk ?? config.FmodSdk,
             BuildProbe = options.BuildProbe ?? config.BuildProbe,
             CompactPlayerData = options.CompactPlayerData ?? config.CompactPlayerData,
+            GraphicsUpgrade = options.GraphicsUpgrade ?? config.GraphicsUpgrade,
             ToolCacheDirectory = options.Cache ?? config.ToolCacheDirectory,
             Offline = options.Offline ?? config.Offline,
             BuildTarget = options.Target is null ? config.BuildTarget : options.Target.ToLowerInvariant() switch
@@ -110,7 +114,7 @@ public sealed class ConverterApplication(string repository, IAnsiConsole console
     {
         GameDirectory = config.GameDirectory.Length == 0 && games.Count == 1 ? games[0] : config.GameDirectory,
         UnityEditor = config.UnityEditor.Length == 0 && editors.Count == 1 ? editors[0] : config.UnityEditor,
-        Workspace = config.Workspace.Length == 0 ? InstallationDiscovery.DefaultWorkspace(workingDirectory) : config.Workspace
+        Workspace = config.Workspace.Length == 0 ? InstallationDiscovery.DefaultWorkspace(workingDirectory, config.GraphicsUpgrade) : config.Workspace
     };
 
     private async Task<string> ChooseDiscovered(string label, string current, IReadOnlyList<string> candidates, CancellationToken cancellation)
@@ -161,6 +165,7 @@ public sealed class ConverterApplication(string repository, IAnsiConsole console
         Add("Unity", config.UnityEditor.Length == 0 ? "Not found; use --unity" : config.UnityEditor);
         Add("Workspace", config.Workspace);
         Add("Target", config.BuildTarget);
+        Add("Graphics pipeline", config.GraphicsUpgrade ? "Universal Render Pipeline " + GraphicsUpgradeProject.PackageVersion : "Built-in");
         if (config.BuildProbe) Add("Build profile", "Linux cross-build probe (no XR or native game plug-ins)");
         if (config.CompactPlayerData) Add("Player data", "Chunked LZ4");
         Add("Recovery", config.ExtractionWorkspace ?? config.RecoveredProject ?? "AssetRipper 2.0.0 (automatic)");

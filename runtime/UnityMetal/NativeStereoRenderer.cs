@@ -330,11 +330,12 @@ namespace NativeH3VR
             Matrix4x4 previousProjection = camera.projectionMatrix;
             Matrix4x4 previousNonJittered = camera.nonJitteredProjectionMatrix;
             var previousTarget = camera.targetTexture;
-            var previousEye = camera.stereoTargetEye;
+            var renderPipelineEye = XRBridge.RenderEye;
+            var previousEye = renderPipelineEye == null ? camera.stereoTargetEye : StereoTargetEyeMask.None;
             bool previousMSAA = camera.allowMSAA;
             try
             {
-                camera.stereoTargetEye = StereoTargetEyeMask.None;
+                if (renderPipelineEye == null) camera.stereoTargetEye = StereoTargetEyeMask.None;
                 camera.allowMSAA = false;
                 camera.targetTexture = target;
                 transform.SetPositionAndRotation(TrackingOrigin.TransformPoint(view.pose.Position),
@@ -343,14 +344,15 @@ namespace NativeH3VR
                 IsRenderingEye = true;
                 camera.projectionMatrix = EyeProjection;
                 camera.nonJitteredProjectionMatrix = EyeProjection;
-                camera.Render();
+                if (renderPipelineEye == null) camera.Render();
+                else renderPipelineEye(camera, target);
             }
             finally
             {
                 IsRenderingEye = false;
                 transform.SetPositionAndRotation(previousPosition, previousRotation);
                 camera.targetTexture = previousTarget;
-                camera.stereoTargetEye = previousEye;
+                if (renderPipelineEye == null) camera.stereoTargetEye = previousEye;
                 camera.allowMSAA = previousMSAA;
                 camera.projectionMatrix = previousProjection;
                 camera.nonJitteredProjectionMatrix = previousNonJittered;

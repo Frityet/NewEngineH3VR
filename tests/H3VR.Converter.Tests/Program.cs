@@ -158,6 +158,31 @@ cases.Add(("macOS source staging uses the mod host instead of stock XR feature s
     finally { if (Directory.Exists(root)) Directory.Delete(root, true); }
 }
 ));
+cases.Add(("optional graphics source staging and workspace mode leave stock input isolated", () =>
+{
+    using var fixture = new GraphicsStagingFixture();
+    var builtIn = ConverterApplication.WithDefaults(new ConversionConfig(), [], [], fixture.Root);
+    var upgraded = ConverterApplication.WithDefaults(new ConversionConfig { GraphicsUpgrade = true }, [], [], fixture.Root);
+    Check(builtIn.Workspace != upgraded.Workspace, "the two graphics modes shared a default workspace");
+    Directory.CreateDirectory(builtIn.Project);
+    SourceStaging.Install(fixture.Repository, builtIn.Project, "StandaloneOSX");
+    Check(!Directory.Exists(Path.Combine(builtIn.Project, GraphicsUpgradeProject.RuntimeAssets)), "URP sources installed in built-in project");
+    Check(!File.Exists(Path.Combine(builtIn.Project, SourceStaging.EditorAssets, "GraphicsUpgradeConfiguration.cs")),
+        "URP editor tooling installed in built-in project");
+    Throws(() => GraphicsUpgradeProject.RequireWorkspaceMode(upgraded with { Workspace = builtIn.Workspace }));
+
+    Directory.CreateDirectory(upgraded.Project);
+    SourceStaging.Install(fixture.Repository, upgraded.Project, "StandaloneOSX", graphicsUpgrade: true);
+    var staged = Path.Combine(upgraded.Project, GraphicsUpgradeProject.RuntimeAssets);
+    Check(File.Exists(Path.Combine(staged, "Shaders/GameClarity.shader")), "URP shader was not staged");
+    Check(File.Exists(Path.Combine(staged, "NativeH3VR.GraphicsUpgrade.asmdef")), "URP assembly was not staged");
+    var marker = Path.Combine(upgraded.Project, GraphicsUpgradeProject.Marker);
+    Directory.CreateDirectory(Path.GetDirectoryName(marker)!);
+    File.WriteAllText(marker, "{}");
+    GraphicsUpgradeProject.RequireWorkspaceMode(upgraded);
+    Throws(() => GraphicsUpgradeProject.RequireWorkspaceMode(upgraded with { GraphicsUpgrade = false }));
+}
+));
 cases.Add(("macOS project and player stages reject external recovery", () =>
 {
     var config = new ConversionConfig { BuildTarget = "StandaloneOSX", RecoveredProject = "/comparison" };
@@ -167,6 +192,8 @@ cases.Add(("macOS project and player stages reject external recovery", () =>
 }
 ));
 cases.AddRange(ProjectMigrationTests.Cases());
+cases.Add(GraphicsOptionsHookTests.Case());
+
 cases.AddRange(QuickbeltColorTests.Cases());
 cases.AddRange(TnhColorTests.Cases());
 cases.AddRange(StockMaterialColorTests.Cases());
@@ -193,3 +220,23 @@ return failures == 0 ? 0 : 1;
 
 static void Check(bool condition, string message) { if (!condition) throw new Exception(message); }
 static void Throws(Action action) { try { action(); } catch (Exception) { return; } throw new Exception("Expected rejection"); }
+
+
+internal sealed class GraphicsStagingFixture : IDisposable
+{
+    public string Root { get; } = Directory.CreateTempSubdirectory("h3vr-graphics-staging-").FullName;
+    public string Repository => Path.Combine(Root, "source");
+
+    public GraphicsStagingFixture()
+    {
+        foreach (var file in new[] { "editor/GraphicsUpgradeConfiguration.cs", "runtime/GraphicsUpgrade/Shaders/GameClarity.shader",
+                     "runtime/ModHost/NativeModHost.cs" })
+        {
+            var path = Path.Combine(Repository, file);
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            File.WriteAllText(path, "synthetic");
+        }
+    }
+
+    public void Dispose() => Directory.Delete(Root, recursive: true);
+}

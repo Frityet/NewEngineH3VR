@@ -75,7 +75,19 @@ public static class TerminalWizard
                     }
                     bool offline = await Select(ui, "Offline mode", new[] { "Off", "On" },
                         draft.Offline ? "On" : "Off", cancellationToken) == "On";
-                    draft = draft with { Offline = offline };
+                    bool graphicsUpgrade = await Select(ui, "Graphics pipeline", new[] { "Built-in", "Universal Render Pipeline" },
+                        draft.GraphicsUpgrade ? "Universal Render Pipeline" : "Built-in", cancellationToken) == "Universal Render Pipeline";
+                    string workspace = draft.Workspace;
+                    if (graphicsUpgrade != draft.GraphicsUpgrade)
+                    {
+                        string defaultPath = InstallationDiscovery.DefaultWorkspace(graphicsUpgrade: draft.GraphicsUpgrade);
+                        // The application's default is checkout-relative, even when invoked from another directory.
+                        if (Path.GetFileName(workspace) == Path.GetFileName(defaultPath) &&
+                            Path.GetFileName(Path.GetDirectoryName(workspace)) == ".local")
+                            workspace = Path.Combine(Path.GetDirectoryName(workspace)!,
+                                Path.GetFileName(InstallationDiscovery.DefaultWorkspace(graphicsUpgrade: graphicsUpgrade)));
+                    }
+                    draft = draft with { Offline = offline, GraphicsUpgrade = graphicsUpgrade, Workspace = workspace };
                 }
 
                 ShowReview(ui, draft, selectedStage);
@@ -151,6 +163,7 @@ public static class TerminalWizard
         Add("Shader sources", config.ShaderSources ?? "(not set)");
         Add("Recovered project", config.RecoveredProject ?? "(not set)");
         Add("Target", TargetName(config.BuildTarget));
+        Add("Graphics pipeline", config.GraphicsUpgrade ? "Universal Render Pipeline" : "Built-in");
         Add("Integration", config.IntegrationManifest ?? "(not set)");
         Add("AssetRipper", "Managed automatically");
         Add("Tool cache", config.ToolCacheDirectory ?? "cache/ in this checkout");

@@ -27,6 +27,16 @@ The default workspace is `.local/workspace`. Unity files go into `project/` and 
 
 If a run stops partway, run the same command again. It verifies completed stages and picks up where it left off. `init` saves optional defaults to `.local/h3vr-conversion.json`, which later runs load automatically. Flags override those defaults.
 
+## Optional URP graphics upgrade
+
+Add `--graphics-upgrade` to build a separate Unity 6.7 player using URP 17.7.0.
+
+```sh
+dotnet run --project src/H3VR.Converter -c Release -- --graphics-upgrade
+```
+
+The default output is `.local/workspace-graphics-upgrade/player/`. On the wrist menu, open **Options → Graphics Options** to select Performance, Balanced or Quality. Each rendering control also works independently. [Rendering, presets and verification](docs/graphics-upgrade.md)
+
 ## Other commands
 
 ```sh

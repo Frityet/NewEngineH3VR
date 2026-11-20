@@ -32,7 +32,7 @@ public static class CliTests
                 "--target", "macos", "--integration", "/tmp/integration.json", "--cache", "/tmp/cache",
                 "--openxr-headers", "/tmp/openxr/include", "--csteamworks", "/tmp/csteamworks",
                 "--steamworks-headers", "/tmp/steamworks/public/steam", "--steam-api", "/tmp/libsteam_api.dylib",
-                "--fmod-sdk", "/tmp/fmod",
+                "--fmod-sdk", "/tmp/fmod", "--graphics-upgrade",
                 "--offline", "--through", "project", "--verbose", "--no-color", "--output", "/tmp/output" },
             (request, _) => { requests.Add(request); return Task.FromResult(23); }, console).GetAwaiter().GetResult();
 
@@ -46,7 +46,7 @@ public static class CliTests
               request.Options.OpenXrHeaders == "/tmp/openxr/include" && request.Options.CSteamworks == "/tmp/csteamworks" &&
               request.Options.SteamworksHeaders == "/tmp/steamworks/public/steam" &&
               request.Options.SteamApi == "/tmp/libsteam_api.dylib" && request.Options.FmodSdk == "/tmp/fmod" &&
-              request.Options.Offline == true && request.Options.Through == "project" &&
+              request.Options.GraphicsUpgrade == true && request.Options.Offline == true && request.Options.Through == "project" &&
               request.Options.Verbose && request.Options.NoColor && request.Options.Output == "/tmp/output",
               "one or more conversion flags were not bound to ConversionOptions");
         Check(request.Through == "project", "request did not expose its selected pipeline stage");

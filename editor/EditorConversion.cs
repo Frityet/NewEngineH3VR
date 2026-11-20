@@ -37,6 +37,7 @@ namespace H3VRConverter
             public string graphicsDevice;
             public string player;
             public bool buildProbe;
+            public bool graphicsUpgrade;
         }
 
         public static string Argument(string name)
@@ -57,7 +58,8 @@ namespace H3VRConverter
                 target = EditorUserBuildSettings.activeBuildTarget.ToString(),
                 graphicsAPI = SystemInfo.graphicsDeviceType.ToString(),
                 graphicsDevice = SystemInfo.graphicsDeviceName,
-                buildProbe = buildProbe
+                buildProbe = buildProbe,
+                graphicsUpgrade = Environment.GetCommandLineArgs().Contains("-h3vrGraphicsUpgrade")
             };
             var errors = new List<string>();
             try
@@ -66,6 +68,14 @@ namespace H3VRConverter
                 if (!string.Equals(Application.unityVersion, expectedVersion, StringComparison.Ordinal))
                     throw new InvalidOperationException("Expected Unity " + expectedVersion + "; got " + Application.unityVersion);
                 AssetDatabase.Refresh(ImportAssetOptions.ForceSynchronousImport);
+                if (report.graphicsUpgrade)
+                {
+#if NATIVEH3VR_GRAPHICS_UPGRADE
+                    GraphicsUpgradeConfiguration.VerifyPipeline();
+#else
+                    throw new InvalidOperationException("The optional NativeH3VR graphics upgrade was not installed.");
+#endif
+                }
                 var target = EditorUserBuildSettings.activeBuildTarget;
                 if (!BuildPipeline.IsBuildTargetSupported(BuildPipeline.GetBuildTargetGroup(target), target))
                     throw new InvalidOperationException("Install the Unity player build module for " + target + ".");
@@ -145,6 +155,9 @@ namespace H3VRConverter
                     EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
                     var output = Argument("-h3vrOutput");
                     Directory.CreateDirectory(Path.GetDirectoryName(output));
+#if NATIVEH3VR_GRAPHICS_UPGRADE
+                    if (report.graphicsUpgrade) GraphicsUpgradeConfiguration.KeepRuntimeShaderVariants();
+#endif
                     var built = BuildPipeline.BuildPlayer(new BuildPlayerOptions { scenes = scenes, target = target, locationPathName = output, options = BuildOptions.StrictMode });
                     if (built.summary.result != BuildResult.Succeeded) errors.Add("Player build: " + built.summary.result);
                     else
@@ -154,6 +167,9 @@ namespace H3VRConverter
                             ? Path.Combine(output, "Contents", "Resources", "Data")
                             : Path.Combine(Path.GetDirectoryName(output), Path.GetFileNameWithoutExtension(output) + "_Data");
                         if (!Directory.Exists(data)) throw new DirectoryNotFoundException("The player data directory is missing: " + data);
+#if NATIVEH3VR_GRAPHICS_UPGRADE
+                        if (report.graphicsUpgrade) GraphicsUpgradeConfiguration.KeepRuntimeShaderVariants();
+#endif
                         BundleConversion.Build(plan, bundleOutput, Path.Combine(data, "StreamingAssets"));
                         report.player = output;
                     }

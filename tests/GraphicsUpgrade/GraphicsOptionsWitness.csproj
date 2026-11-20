@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>netstandard2.1</TargetFramework>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Nullable>disable</Nullable>
+    <AssemblyName>NativeH3VR.GraphicsOptionsWitness</AssemblyName>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="$(NativeH3VRManaged)/UnityEngine*.dll" Private="false" />
+    <Reference Include="$(NativeH3VRManaged)/NativeH3VR.*.dll" Private="false" />
+    <Reference Include="$(NativeH3VRManaged)/Assembly-CSharp.dll" Private="false" />
+  </ItemGroup>
+</Project>

@@ -50,10 +50,13 @@ public sealed partial class Pipeline(string repository, ConversionConfig config)
             AddExtractionSources(repository, Add);
             return Convert.ToHexStringLower(hash.GetHashAndReset());
         }
+        bool hashGraphicsSources = config.GraphicsUpgrade && step is "project" or "validate" or "build";
         foreach (var directory in new[] { "src", "tools", "editor", "runtime" })
             foreach (var file in SafeFiles.Files(Path.Combine(repository, directory))
                 .Where(path => !path.Split(Path.DirectorySeparatorChar).Any(part => part is "obj" or "bin")
-                    && Path.GetExtension(path) is ".cs" or ".csproj").Order(StringComparer.Ordinal))
+                    && Path.GetExtension(path) is ".cs" or ".csproj"
+                    && (hashGraphicsSources || !GraphicsUpgradeProject.IsOptionalSource(Path.GetRelativePath(repository, path).Replace('\\', '/'))))
+                .Order(StringComparer.Ordinal))
                 FileInput(file);
         foreach (var file in new[] { "Directory.Build.props", "global.json" })
             FileInput(Path.Combine(repository, file));
@@ -68,6 +71,14 @@ public sealed partial class Pipeline(string repository, ConversionConfig config)
         }
         if (step is "project" or "validate" or "build")
         {
+            if (config.GraphicsUpgrade)
+            {
+                FileInput(GraphicsUpgradeProject.EditorPackageManifest(config));
+                foreach (var file in SafeFiles.Files(Path.Combine(repository, GraphicsUpgradeProject.RuntimeSource))
+                    .Where(path => GraphicsUpgradeProject.IsRuntimeAsset(path) && Path.GetExtension(path) != ".cs")
+                    .Order(StringComparer.Ordinal))
+                    FileInput(file);
+            }
             Add(JsonSerializer.Serialize(config with
             {
                 Offline = false,
@@ -139,6 +150,7 @@ public sealed partial class Pipeline(string repository, ConversionConfig config)
         }
         Directory.CreateDirectory(Receipts);
         using var lease = new FileStream(lockPath, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
+        if (through is not ("extract" or "managed")) GraphicsUpgradeProject.RequireWorkspaceMode(config);
         using var sourceLease = OpenExtractionLease();
         Console.WriteLine("Fingerprinting local inputs before conversion/resume…");
         var gameFingerprint = GameFingerprint();
@@ -304,8 +316,11 @@ public sealed partial class Pipeline(string repository, ConversionConfig config)
             LocalAssets.Stage(config, candidate);
             var convexJournal = await LegacyConvexAssetMigration.StageAsync(repository, config, candidate, cancellation);
             AssetBaseline.Capture(candidate);
-            SourceStaging.Install(repository, candidate, config.BuildTarget, config.BuildProbe);
+            SourceStaging.Install(repository, candidate, config.BuildTarget, config.BuildProbe, config.GraphicsUpgrade);
+            if (config.GraphicsUpgrade) GraphicsOptionsHook.Install(candidate, config.EngineAssemblies, config.MonoReferenceAssemblies);
             if (config.IntegrationManifest is not null) Integration.Apply(config.IntegrationManifest, candidate, config.BuildTarget, config.UnityVersion);
+            if (config.GraphicsUpgrade && config.BuildTarget == "StandaloneOSX")
+                Integration.StageGraphicsUpgradeMetalRenderer(repository, candidate);
             var temporaryPlan = Path.Combine(candidate, "bundle-plan.json");
             var bundleReport = BundlePlan.Create(Path.Combine(config.GameData, "StreamingAssets"), candidate, temporaryPlan);
             if (bundleReport.Issues != 0)
@@ -316,6 +331,7 @@ public sealed partial class Pipeline(string repository, ConversionConfig config)
             var plan = JsonNode.Parse(File.ReadAllText(temporaryPlan))!;
             plan["project"] = Path.GetFullPath(config.Project);
             File.Delete(temporaryPlan);
+            List<string> graphicsEvidence = config.GraphicsUpgrade ? await ConfigureGraphicsUpgrade(candidate, cancellation) : [];
             Directory.Move(candidate, config.Project);
             var reportPath = Path.Combine(Receipts, "project-migration.json");
             SafeFiles.AtomicJson(reportPath, report with { Project = config.Project });
@@ -323,14 +339,40 @@ public sealed partial class Pipeline(string repository, ConversionConfig config)
             // Unity creates/updates .meta files and XR settings during import. Authored
             // game assets, copied binaries and tooling must remain identical on resume.
             return SafeFiles.Files(Path.Combine(config.Project, "Assets"))
-                .Where(p => !p.EndsWith(".meta", StringComparison.OrdinalIgnoreCase))
+                .Where(p => !p.EndsWith(".meta", StringComparison.OrdinalIgnoreCase) ||
+                    config.GraphicsUpgrade && SafeFiles.Contains(Path.Combine(config.Project, GraphicsUpgradeProject.RuntimeAssets), p))
                 .Concat(SafeFiles.Files(Path.Combine(config.Project, "ProjectSettings")))
                 .Concat(SafeFiles.Files(Path.Combine(config.Project, "Packages")))
                 .Concat(report.LegacyHdrMaterials is null ? [] : [SafeFiles.Inside(config.Project, report.LegacyHdrMaterials)])
                 .Concat(convexJournal is null ? [] : [convexJournal])
-                .Concat([reportPath, planPath]).ToList();
+                .Concat([reportPath, planPath]).Concat(graphicsEvidence).ToList();
         }
         finally { if (Directory.Exists(candidate)) Directory.Delete(candidate, true); }
+    }
+
+    private async Task<List<string>> ConfigureGraphicsUpgrade(string candidate, CancellationToken cancellation)
+    {
+        var run = "graphics-upgrade-" + Guid.NewGuid().ToString("N")[..8];
+        var report = Path.Combine(Receipts, run + ".json");
+        var log = Path.Combine(Receipts, run + ".log");
+        string[] args = ["-batchmode", "-disable-assembly-updater", "-projectPath", candidate,
+            "-buildTarget", config.BuildTarget, "-executeMethod", "H3VRConverter.GraphicsUpgradeConfiguration.Prepare",
+            "-logFile", log, "-h3vrReport", report, "-nativeH3vrUnityVersion", config.UnityVersion];
+        if (config.BuildTarget == "StandaloneOSX") args = [.. args, "-force-metal"];
+        try
+        {
+            await Processes.Run(config.UnityEditor, args, repository, cancellation: cancellation);
+        }
+        catch (InvalidOperationException error)
+        {
+            throw new InvalidDataException("Unity graphics upgrade setup failed. Inspect " + log, error);
+        }
+        if (!File.Exists(report) || !File.Exists(Path.Combine(candidate, GraphicsUpgradeProject.Marker)))
+            throw new InvalidDataException("Unity did not configure the graphics upgrade. Inspect " + log);
+        using var document = JsonDocument.Parse(File.ReadAllText(report));
+        if (!document.RootElement.GetProperty("passed").GetBoolean())
+            throw new InvalidDataException("Unity graphics upgrade setup failed. Inspect " + report);
+        return [report, log];
     }
 
     private async Task<List<string>> Editor(bool build, CancellationToken cancellation)
@@ -354,6 +396,7 @@ public sealed partial class Pipeline(string repository, ConversionConfig config)
         string[] editorArguments = ["-batchmode", "-disable-assembly-updater", "-projectPath", config.Project, "-buildTarget", config.BuildTarget, "-executeMethod", build ? "H3VRConverter.EditorConversion.Build" : "H3VRConverter.EditorConversion.Validate", "-logFile", logfile, "-nativeH3vrUnityVersion", config.UnityVersion, "-h3vrReport", report, "-h3vrOutput", output, "-h3vrBundlePlan", Path.Combine(Receipts, "bundle-plan.json"), "-h3vrBundleOutput", bundleOutput];
         if (config.BuildTarget == "StandaloneOSX") editorArguments = [.. editorArguments, "-force-metal"];
         if (config.BuildProbe) editorArguments = [.. editorArguments, "-h3vrBuildProbe"];
+        if (config.GraphicsUpgrade) editorArguments = [.. editorArguments, "-h3vrGraphicsUpgrade"];
         await Processes.Run(config.UnityEditor, editorArguments, repository, cancellation: cancellation);
         if (!File.Exists(report)) throw new InvalidDataException("Unity did not produce the expected report. Inspect " + logfile);
         using var document = JsonDocument.Parse(File.ReadAllText(report));
@@ -371,7 +414,7 @@ public sealed partial class Pipeline(string repository, ConversionConfig config)
             {
                 if (!OperatingSystem.IsMacOS()) throw new PlatformNotSupportedException("The macOS player must be signed and verified on macOS.");
                 Integration.PlaceMacPlayerLibraries(output);
-                var playerReceipt = PlayerReceipt.Write(output, config.GameDirectory, Path.Combine(Receipts, "extract.json"), config.UnityVersion);
+                var playerReceipt = PlayerReceipt.Write(output, config.GameDirectory, Path.Combine(Receipts, "extract.json"), config.UnityVersion, config.GraphicsUpgrade);
                 using var playerMetadata = JsonDocument.Parse(File.ReadAllText(playerReceipt));
                 var executable = playerMetadata.RootElement.GetProperty("playerExecutable").GetString()!;
                 await Processes.Run("lipo", ["-verify_arch", "arm64", Path.Combine(output, "Contents/MacOS", executable)], repository, cancellation: cancellation);
@@ -452,7 +495,10 @@ public sealed partial class Pipeline(string repository, ConversionConfig config)
         var path = Path.Combine(Receipts, "project.json");
         var receipt = JsonSerializer.Deserialize<StepReceipt>(File.ReadAllText(path), ConversionConfig.Json)!;
         var files = new Dictionary<string, string>(receipt.Files);
-        var roots = new[] { "ProjectSettings", "Packages", "Assets/XR" }.Select(p => Path.Combine(config.Project, p)).ToArray();
+        var settingRoots = new List<string> { "ProjectSettings", "Packages", "Assets/XR" };
+        // URP serializes shader prefiltering back to its generated pipeline asset.
+        if (config.GraphicsUpgrade) settingRoots.Add(GraphicsUpgradeProject.GeneratedAssets);
+        var roots = settingRoots.Select(p => Path.Combine(config.Project, p)).ToArray();
         foreach (var key in files.Keys.Where(p => roots.Any(r => SafeFiles.Contains(r, p))).ToArray()) files.Remove(key);
         foreach (var root in roots.Where(Directory.Exists))
             foreach (var file in SafeFiles.Files(root)) files[file] = SafeFiles.Hash(file);

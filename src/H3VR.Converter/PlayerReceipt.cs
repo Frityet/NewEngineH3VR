@@ -45,7 +45,7 @@ internal static class PlayerReceipt
         return build;
     }
 
-    internal static string Write(string app, string game, string extractionReceipt, string unityVersion = ConversionConfig.TargetVersion)
+    internal static string Write(string app, string game, string extractionReceipt, string unityVersion = ConversionConfig.TargetVersion, bool graphicsUpgrade = false)
     {
         ValidateSupportedInstallation(game);
         var contents = Path.Combine(app, "Contents");
@@ -58,6 +58,8 @@ internal static class PlayerReceipt
         if (!Directory.Exists(managed)) throw new InvalidDataException("Player managed assemblies directory is missing.");
         var assemblies = Directory.GetFiles(managed, "*.dll").Order(StringComparer.Ordinal).ToDictionary(path => Path.GetFileName(path)!, SafeFiles.Hash);
         if (!assemblies.ContainsKey("NativeH3VR.Game.dll")) throw new InvalidDataException("Player is missing the retargeted NativeH3VR.Game.dll.");
+        if (graphicsUpgrade && !assemblies.ContainsKey(GraphicsUpgradeProject.RuntimeAssembly + ".dll"))
+            throw new InvalidDataException("Player is missing the requested graphics upgrade assembly.");
         var path = Path.Combine(contents, "Resources", "nativeh3vr-build.json");
         var extract = JsonSerializer.Deserialize<StepReceipt>(File.ReadAllText(extractionReceipt), ConversionConfig.Json)
             ?? throw new InvalidDataException("Extraction receipt is empty.");
@@ -70,6 +72,7 @@ internal static class PlayerReceipt
             unityVersion,
             buildTarget = "StandaloneOSX",
             architecture = "arm64",
+            graphicsPipeline = graphicsUpgrade ? "URP " + GraphicsUpgradeProject.PackageVersion : "Built-in",
             playerExecutable = executable,
             managedAssemblies = assemblies,
             steamBuildId = SteamBuildId(game),

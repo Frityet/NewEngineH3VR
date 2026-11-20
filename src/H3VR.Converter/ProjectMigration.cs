@@ -9,7 +9,7 @@ namespace H3VR.Converter;
 
 public sealed record ProjectMigrationReport(string Project, string UnityVersion, Dictionary<string, string> Assemblies,
     int ScriptBindings, int RewrittenReferences, int ExecutionOrderEntries, string RecoverableSourceDirectory,
-    string ShaderOverlay, string ProjectVersion, string? OpenXrPackage, string AssetBundleMembership, string? LegacyHdrMaterials);
+    string ShaderOverlay, string ProjectVersion, string? OpenXrPackage, string AssetBundleMembership, string? LegacyHdrMaterials, string? GraphicsPipelinePackage);
 
 /// <summary>Rewrites only a copied candidate project. RecoveredProject is treated as immutable input.</summary>
 public sealed class ProjectMigration(ConversionConfig config, string candidate)
@@ -53,7 +53,11 @@ public sealed class ProjectMigration(ConversionConfig config, string candidate)
                 if (File.Exists(saved)) throw new IOException("Recoverable original managed assembly already exists: " + saved);
                 File.Move(destination, saved);
             }
-            File.Copy(source, destination); WritePluginMeta(meta, guid, ReadExecutionOrders(source));
+            File.Copy(source, destination);
+            // The legacy UnityScript global Rotate type shadows UIElements.Rotate
+            // in ShaderGraph when Unity automatically references this plugin.
+            bool explicitReference = config.GraphicsUpgrade && name == "NativeH3VR.UnityScript.dll";
+            WritePluginMeta(meta, guid, ReadExecutionOrders(source), explicitReference);
             dlls[name] = (destination, guid);
         }
 
@@ -128,7 +132,8 @@ public sealed class ProjectMigration(ConversionConfig config, string candidate)
         return new ProjectMigrationReport(root, config.UnityVersion,
             dlls.ToDictionary(p => p.Key, p => Path.GetRelativePath(root, p.Value.Path)), bindingRows.Count,
             referenceCounts.Values.Sum(), orders.Values.Sum(x => x.Count), Path.GetRelativePath(root, archive), shaderOverlay,
-            Path.Combine("ProjectSettings", "ProjectVersion.txt"), openXrPackage, bundleMembership, hdrMaterials);
+            Path.Combine("ProjectSettings", "ProjectVersion.txt"), openXrPackage, bundleMembership, hdrMaterials,
+            config.GraphicsUpgrade ? GraphicsUpgradeProject.PackageName + "@" + GraphicsUpgradeProject.PackageVersion : null);
     }
 
     private void CopySteamWindowsPlugins(string root, string assets)
@@ -409,6 +414,12 @@ public sealed class ProjectMigration(ConversionConfig config, string candidate)
         else manifest = new JsonObject();
         var dependencies = manifest["dependencies"] as JsonObject ?? new JsonObject(); manifest["dependencies"] = dependencies;
         dependencies.Remove("com.unity.modules.vr");
+        if (config.GraphicsUpgrade)
+        {
+            dependencies[GraphicsUpgradeProject.PackageName] = GraphicsUpgradeProject.PackageVersion;
+            dependencies["com.unity.modules.ui"] = "1.0.0";
+            dependencies["com.unity.modules.uielements"] = "1.0.0";
+        }
         dependencies["com.unity.inputsystem"] = "6.7.0";
         bool unityXr = config.BuildTarget != "StandaloneOSX" && !config.BuildProbe;
         (string Name, string Version)[] xrPackages =
@@ -457,10 +468,10 @@ public sealed class ProjectMigration(ConversionConfig config, string candidate)
         var node = JsonNode.Parse(File.ReadAllText(file)) as JsonObject; if (node?["dependencies"] is JsonObject dependencies) dependencies.Remove("com.unity.ugui");
         File.WriteAllText(file, (node ?? new JsonObject()).ToJsonString(new System.Text.Json.JsonSerializerOptions { WriteIndented = true }) + "\n");
     }
-    private static void WritePluginMeta(string path, string guid, Dictionary<string, int> orders)
+    private static void WritePluginMeta(string path, string guid, Dictionary<string, int> orders, bool explicitReference)
     {
         var orderText = orders.Count == 0 ? "  executionOrder: {}\n" : "  executionOrder:\n" + string.Join("", orders.OrderBy(p => p.Key, StringComparer.Ordinal).Select(p => $"    {p.Key}: {p.Value}\n"));
-        File.WriteAllText(path, $"fileFormatVersion: 2\nguid: {guid}\nPluginImporter:\n  externalObjects: {{}}\n  serializedVersion: 2\n  iconMap: {{}}\n{orderText}  defineConstraints: []\n  isPreloaded: 0\n  isOverridable: 0\n  isExplicitlyReferenced: 0\n  validateReferences: 1\n  platformData:\n  - first:\n      Any:\n    second:\n      enabled: 1\n      settings: {{}}\n  userData: NativeH3VR local managed migration\n  assetBundleName:\n  assetBundleVariant:\n");
+        File.WriteAllText(path, $"fileFormatVersion: 2\nguid: {guid}\nPluginImporter:\n  externalObjects: {{}}\n  serializedVersion: 2\n  iconMap: {{}}\n{orderText}  defineConstraints: []\n  isPreloaded: 0\n  isOverridable: 0\n  isExplicitlyReferenced: {(explicitReference ? 1 : 0)}\n  validateReferences: 1\n  platformData:\n  - first:\n      Any:\n    second:\n      enabled: 1\n      settings: {{}}\n  userData: NativeH3VR local managed migration\n  assetBundleName:\n  assetBundleVariant:\n");
     }
     private static string? ReadGuid(string text) => GuidPattern.Match(text) is { Success: true } m ? m.Groups[1].Value : null;
     private static string DeterministicGuid(string value) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(value))).ToLowerInvariant()[..32];

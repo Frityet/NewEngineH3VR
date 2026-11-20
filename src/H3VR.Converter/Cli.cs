@@ -101,6 +101,10 @@ public sealed class ConversionOptions : CommandSettings
     [Description("Losslessly compress scene data after building the player.")]
     public bool? CompactPlayerData { get; init; }
 
+    [CommandOption("--graphics-upgrade")]
+    [Description("Build with the optional Universal Render Pipeline graphics upgrade.")]
+    public bool? GraphicsUpgrade { get; init; }
+
     [CommandOption("--cache <PATH>")]
     [Description("Tool cache under the checkout's .local/ or cache/ directory (default: cache/).")]
     public string? Cache { get; init; }

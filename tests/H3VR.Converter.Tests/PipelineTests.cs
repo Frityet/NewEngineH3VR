@@ -14,6 +14,7 @@ public static class PipelineTests
         yield return ("external extraction fingerprint covers native plugin inputs", () => MutationIsRejected("plugin"));
         yield return ("project fingerprint covers shader overlay inputs", ShaderMutationChangesProjectFingerprint);
         yield return ("managed fingerprint covers Unity and target but ignores shaders", ManagedFingerprintSelection);
+        yield return ("graphics upgrade scopes package and shader fingerprints to project and player steps", GraphicsFingerprintSelection);
         yield return ("workspace lock excludes concurrent conversion and can be reacquired", WorkspaceLock);
         yield return ("resuming a workspace refuses a lock redirected outside the checkout", WorkspaceLockBoundary);
         yield return ("baseline records only null MonoScript slots by source object and asset", BaselineNullScripts);
@@ -203,6 +204,36 @@ public static class PipelineTests
         new Pipeline(fixture.Repository, config).Run("extract", CancellationToken.None).GetAwaiter().GetResult();
         Check(File.Exists(Path.Combine(fixture.Workspace, ".conversion/extract.json")),
             "adding editor/shader/target options invalidated the completed extract receipt");
+    }
+
+    private static void GraphicsFingerprintSelection()
+    {
+        using var fixture = new Fixture();
+        fixture.CreateUnityInputs();
+        var builtIn = fixture.Config();
+        var upgraded = builtIn with { GraphicsUpgrade = true };
+        var package = GraphicsUpgradeProject.EditorPackageManifest(upgraded);
+        Write(package, $$"""{"name":"{{GraphicsUpgradeProject.PackageName}}","version":"{{GraphicsUpgradeProject.PackageVersion}}"}""");
+        GraphicsUpgradeProject.VerifyEditorPackage(upgraded);
+        var shader = Path.Combine(fixture.Repository, GraphicsUpgradeProject.RuntimeSource, "Shaders/GameClarity.shader");
+        Write(shader, "original");
+        var runtime = Path.Combine(fixture.Repository, GraphicsUpgradeProject.RuntimeSource, "Fixture.cs");
+        Write(runtime, "// Original opt-in source");
+        var stock = new Pipeline(fixture.Repository, builtIn);
+        var urp = new Pipeline(fixture.Repository, upgraded);
+        foreach (var step in new[] { "extract", "managed" })
+            Check(stock.FingerprintForTests(step) == urp.FingerprintForTests(step), "Graphics upgrade changed an upstream fingerprint");
+        var previous = stock.FingerprintForTests("project");
+        var initialGraphics = urp.FingerprintForTests("project");
+        Check(previous != initialGraphics, "project receipts did not identify the selected graphics pipeline");
+        string managed = urp.FingerprintForTests("managed");
+        Write(shader, "updated");
+        Write(runtime, "// Updated opt-in source");
+        Check(managed == urp.FingerprintForTests("managed"), "optional C# changed the managed receipt");
+        Check(previous == stock.FingerprintForTests("project"), "optional shaders invalidated the built-in graphics project");
+        Check(initialGraphics != urp.FingerprintForTests("project"), "optioned shader was absent from the URP fingerprint");
+        Write(package, """{"name":"com.unity.render-pipelines.universal","version":"17.6.0"}""");
+        Check(Capture(() => GraphicsUpgradeProject.VerifyEditorPackage(upgraded)) is InvalidDataException, "accepted a different URP package");
     }
 
     private static void ShaderMutationChangesProjectFingerprint()

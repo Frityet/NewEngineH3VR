@@ -26,6 +26,7 @@ public sealed record ConversionConfig
     public string? FmodSdk { get; init; }
     public bool BuildProbe { get; init; }
     public bool CompactPlayerData { get; init; }
+    public bool GraphicsUpgrade { get; init; }
     public string BuildTarget { get; init; } = OperatingSystem.IsMacOS() && System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture == System.Runtime.InteropServices.Architecture.Arm64 ? "StandaloneOSX" : "StandaloneWindows64";
 
     public static readonly JsonSerializerOptions Json = new() { WriteIndented = true, PropertyNameCaseInsensitive = true };
@@ -130,6 +131,11 @@ public sealed record ConversionConfig
         if (BuildTarget == "StandaloneOSX") PlayerReceipt.ValidateSupportedInstallation(GameDirectory);
         if (through != "extract" && (!File.Exists(UnityEditor) || !File.Exists(Path.Combine(EngineAssemblies, "UnityEngine.CoreModule.dll"))))
             throw new InvalidDataException($"Set --unity to an installation of Unity {UnityVersion} containing its scripting assemblies, or use --tui.");
+        if (through is not ("extract" or "managed"))
+        {
+            GraphicsUpgradeProject.RequireWorkspaceMode(this);
+            if (GraphicsUpgrade) GraphicsUpgradeProject.VerifyEditorPackage(this);
+        }
         foreach (var input in new[] { GameDirectory, string.IsNullOrEmpty(UnityEditor) ? null : UnityData, RecoveredProject, ExtractionWorkspace, ShaderSources, IntegrationManifest is null ? null : Path.GetDirectoryName(IntegrationManifest) }.OfType<string>())
             SafeFiles.RequireSeparate(input, Workspace);
         if (BuildTarget is not ("StandaloneWindows64" or "StandaloneOSX" or "StandaloneLinux64"))

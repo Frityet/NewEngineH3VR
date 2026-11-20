@@ -41,10 +41,13 @@
 !/tools/**/*.csproj
 !/runtime/**/*.cs
 !/runtime/**/*.csproj
+!/runtime/GraphicsUpgrade/Shaders/*.shader
+!/runtime/GraphicsUpgrade/Shaders/*.hlsl
 !/editor/**/*.cs
 !/tests/**/*.cs
 !/tests/**/*.csproj
 !/tests/StockMenuRendering/*.py
+!/tests/GraphicsUpgrade/*.py
 !/docs/**/*.md
 !/runtime/UnityMetal/MetalOpenXR.h
 !/runtime/UnityMetal/MetalOpenXR.mm

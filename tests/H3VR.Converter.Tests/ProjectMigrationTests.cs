@@ -11,6 +11,7 @@ public static class ProjectMigrationTests
 {
     public static IEnumerable<(string Name, Action Run)> Cases()
     {
+        yield return ("an opt-in project pins the installed Unity 6.7 URP release", PinGraphicsPackage);
         yield return ("duplicate scene GUID repair preserves baked occlusion and is deterministic", DuplicateSceneGuids);
         yield return ("legacy scene migration preserves baked data and validates ownership", LegacyScenes);
         yield return ("MD4 vectors and Unity file ID", Md4Vectors);
@@ -140,6 +141,30 @@ public static class ProjectMigrationTests
         Check(Md4.UnityFileId("H3VR", "Fixture") == BitConverter.ToInt32(Md4.Hash(Encoding.UTF8.GetBytes("s\0\0\0H3VRFixture")), 0), "Unity fileID is signed little-endian MD4 prefix");
     }
 
+    private static void PinGraphicsPackage()
+    {
+        using var fixture = new Fixture();
+        fixture.CreateManaged("NativeH3VR.Game", "Assembly-CSharp", "H3VR", "Fixture");
+        fixture.CreateManaged("NativeH3VR.UnityScript", "Assembly-UnityScript", "", "Rotate");
+        fixture.WriteSteamActions("{\"default_bindings\":[{\"binding_url\":\"bindings_knuckles.json\"}]}",
+            ("bindings_knuckles.json", "{}"));
+        var config = fixture.Config() with { GraphicsUpgrade = true };
+        fixture.WriteCandidate("Packages/manifest.json", """{"dependencies":{"com.unity.render-pipelines.universal":"17.6.0"}}""");
+        var report = new ProjectMigration(config, fixture.Candidate).Run();
+        using var manifest = JsonDocument.Parse(File.ReadAllText(Path.Combine(fixture.Candidate, "Packages/manifest.json")));
+        var dependencies = manifest.RootElement.GetProperty("dependencies");
+        Check(dependencies.GetProperty(GraphicsUpgradeProject.PackageName).GetString()
+            == GraphicsUpgradeProject.PackageVersion, "the opt-in upgrade failed to pin URP");
+        Check(dependencies.GetProperty("com.unity.modules.ui").GetString() == "1.0.0" &&
+            dependencies.GetProperty("com.unity.modules.uielements").GetString() == "1.0.0",
+            "the graphics menu and ShaderGraph editor UI modules were not pinned");
+        Check(report.GraphicsPipelinePackage == GraphicsUpgradeProject.PackageName + "@" + GraphicsUpgradeProject.PackageVersion,
+            "migration report did not declare the selected URP package");
+        var legacy = File.ReadAllText(Path.Combine(fixture.Candidate, "Assets/Plugins/NativeH3VR.UnityScript.dll.meta"));
+        Check(legacy.Contains("isExplicitlyReferenced: 1", StringComparison.Ordinal),
+            "legacy UnityScript Rotate can shadow ShaderGraph's UIElements.Rotate");
+    }
+
     private static void MigrateFixture()
     {
         using var fixture = new Fixture();
@@ -168,6 +193,8 @@ public static class ProjectMigrationTests
         Check(SafeFiles.Hash(sourceManifest) == sourceHash, "original recovered project metadata unchanged");
         using var manifest = JsonDocument.Parse(File.ReadAllText(Path.Combine(fixture.Candidate, "Packages/manifest.json")));
         var packages = manifest.RootElement.GetProperty("dependencies");
+        Check(!packages.TryGetProperty(GraphicsUpgradeProject.PackageName, out _) && report.GraphicsPipelinePackage == null,
+            "the default migration added a URP dependency");
         Check(!packages.TryGetProperty("com.unity.ugui", out _), "duplicate UGUI package retained");
         Check(!packages.TryGetProperty("com.unity.modules.vr", out _), "the removed standalone VR module was retained");
         Check(packages.GetProperty("com.unity.xr.openxr").GetString() == "1.19.0" &&

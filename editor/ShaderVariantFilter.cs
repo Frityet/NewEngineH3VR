@@ -23,13 +23,31 @@ namespace H3VRConverter
         {
             if (snippet.shaderType != ShaderType.Vertex && snippet.shaderType != ShaderType.Fragment) return;
             var mode = LightMode(snippet.passType);
-            if (mode == null || !data.Any(IsRecoveredPlatform)) return;
+            bool srp = false;
+#if NATIVEH3VR_GRAPHICS_UPGRADE
+            srp = snippet.passType == PassType.ScriptableRenderPipeline;
+#endif
+            if ((mode == null && !srp) || !data.Any(IsRecoveredPlatform)) return;
 
             var path = AssetDatabase.GetAssetPath(shader);
             var name = (snippet.passName ?? "").Trim().ToUpperInvariant();
             if (string.IsNullOrEmpty(path) || !Catalog.Value.TryGetValue(path, out var original)
-                || AssetDatabase.AssetPathToGUID(path) != original.Guid
-                || !original.Passes.TryGetValue((mode, name), out var domains)
+                || AssetDatabase.AssetPathToGUID(path) != original.Guid)
+                return;
+            Domain[] domains;
+            if (srp)
+            {
+                // The URP adapter changes only the LightMode of the existing stock pass.
+                // Match its original catalog entry using the preserved shader and pass identity.
+                domains = original.Passes
+                    .Where(entry => entry.Key.Item2 == name && entry.Key.Item1 is "FORWARDBASE" or "ALWAYS" or "VERTEX")
+                    .SelectMany(entry => entry.Value)
+                    .Where(domain => domain.Subshader == snippet.pass.SubshaderIndex && domain.Pass == snippet.pass.PassIndex)
+                    .ToArray();
+                if (domains.Length != 1) return;
+                mode = "URP";
+            }
+            else if (!original.Passes.TryGetValue((mode, name), out domains)
                 || !domains.Any(domain => domain.Subshader == snippet.pass.SubshaderIndex && domain.Pass == snippet.pass.PassIndex))
                 return;
 

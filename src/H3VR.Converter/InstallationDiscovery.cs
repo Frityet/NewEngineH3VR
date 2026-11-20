@@ -9,8 +9,8 @@ public static class InstallationDiscovery
 {
     public const string TargetUnityVersion = ConversionConfig.TargetVersion;
 
-    public static string DefaultWorkspace(string? workingDirectory = null) =>
-        Path.Combine(Path.GetFullPath(workingDirectory ?? Environment.CurrentDirectory), ".local", "workspace");
+    public static string DefaultWorkspace(string? workingDirectory = null, bool graphicsUpgrade = false) =>
+        Path.Combine(Path.GetFullPath(workingDirectory ?? Environment.CurrentDirectory), ".local", graphicsUpgrade ? "workspace-graphics-upgrade" : "workspace");
 
     public static IReadOnlyList<string> DiscoverGameDirectories(string? homeDirectory = null, IEnumerable<string>? steamRoots = null)
     {

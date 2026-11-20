@@ -182,6 +182,9 @@ namespace NativeH3VR
 
     public static class XRBridge
     {
+        // XR providers that submit individual eye textures can use the active pipeline's render request.
+        public static Action<Camera, RenderTexture> RenderEye { get; set; }
+
 #if NATIVEH3VR_METAL
         public static IMetalOpenXRPlayer Metal { get; private set; }
         public static void Register(IMetalOpenXRPlayer player)

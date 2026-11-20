@@ -6,10 +6,11 @@ namespace H3VR.Converter;
 public static class Integration
 {
     internal const string MetalBridge = "NativeH3VR.UnityMetal";
+    private const string MetalRendererSource = "Assets/OpenXRProvider/NativeStereoRenderer.cs";
     private static readonly string[] MetalSources =
     [
         "Assets/OpenXRProvider/MetalOpenXR.cs",
-        "Assets/OpenXRProvider/NativeStereoRenderer.cs",
+        MetalRendererSource,
         "Assets/OpenXRProvider/H3VRMetalBinding.cs",
         "Assets/OpenXRProvider/SyntheticHands.cs",
         "Assets/OpenXRProvider/StockGearNormals.cs",
@@ -126,6 +127,18 @@ public static class Integration
             Directory.CreateDirectory(Path.GetDirectoryName(settings)!);
             File.WriteAllText(settings, content);
         }
+    }
+
+    internal static void StageGraphicsUpgradeMetalRenderer(string repository, string candidate)
+    {
+        // Apply validates the integration hashes first. Only the private candidate
+        // gets the render-pipeline compatibility code from this converter checkout.
+        var destination = SafeFiles.Inside(candidate, MetalRendererSource);
+        RejectLinks(candidate, destination);
+        if (!File.Exists(destination))
+            throw new FileNotFoundException("The macOS integration did not stage its stereo renderer.", destination);
+        var source = Path.Combine(repository, "runtime/UnityMetal/NativeStereoRenderer.cs");
+        File.Copy(source, destination, overwrite: true);
     }
 
     private static void RejectLinks(string root, string path)
