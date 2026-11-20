@@ -234,6 +234,15 @@ def pool(windows):
     }
 
 
+def capture_sources(group):
+    by_phase = {phase: group / phase for phase in PHASES}
+    if not any(path.exists() or path.is_symlink() for path in by_phase.values()):
+        return {phase: group for phase in PHASES}
+    require(all(path.is_dir() for path in by_phase.values()),
+            "Phase-specific layout requires both take and hold session directories")
+    return by_phase
+
+
 def inspect(root):
     report = {
         "schemaVersion": 1, "captures": str(root.resolve()),
@@ -259,15 +268,25 @@ def inspect(root):
         for repeat in REPEATS:
             references = {}
             for mode in MODES:
-                path = root / repeat / f"{map_id}-{mode}"
+                group = root / repeat / f"{map_id}-{mode}"
                 try:
-                    require((path / "profile-complete.txt").is_file(), "Missing successful gameplay witness receipt")
-                    unity, runtime = read_csv(path / "unity.csv"), read_csv(path / "openxr.csv")
-                except (OSError, ValueError, csv.Error) as error:
-                    report["failures"].append(f"{path.relative_to(root)}: {error}")
+                    sources = capture_sources(group)
+                except ValueError as error:
+                    report["failures"].append(f"{group.relative_to(root)}: {error}")
                     continue
 
-                for phase in PHASES:
+                traces = {}
+                for phase, path in sources.items():
+                    if path not in traces:
+                        try:
+                            require((path / "profile-complete.txt").is_file(), "Missing successful gameplay witness receipt")
+                            traces[path] = read_csv(path / "unity.csv"), read_csv(path / "openxr.csv")
+                        except (OSError, ValueError, csv.Error) as error:
+                            report["failures"].append(f"{path.relative_to(root)}: {error}")
+                            traces[path] = None
+                    if traces[path] is None:
+                        continue
+                    unity, runtime = traces[path]
                     label = f"{phase}-{mode}"
                     stem = f"{scene}-{label}"
                     try:
@@ -322,7 +341,8 @@ def write_csv(path, report):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("captures", type=Path, help="Root containing r01, r02 and r03")
+    parser.add_argument("captures", type=Path,
+                        help="Root containing r01, r02 and r03, optionally with take/hold sessions per group")
     parser.add_argument("report", type=Path, help="Destination for summary.json and results.csv")
     args = parser.parse_args()
     report = inspect(args.captures)
