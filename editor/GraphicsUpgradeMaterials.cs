@@ -17,6 +17,7 @@ namespace H3VRConverter
     {
         private const string StockPbrName = "NativeH3VR/Stock PBR";
         private const string GeneratedDefault = "Assets/NativeH3VR/GraphicsUpgrade/Generated/StockDefault.mat";
+        private const string LegacyDirectionalShadow = "Assets/NativeH3VR/GraphicsUpgrade/Shaders/LegacyDirectionalShadow.hlsl";
         private static readonly Regex BuiltinDefault = new Regex(
             @"\{fileID: 10303, guid: 0000000000000000f000000000000000, type: 0\}",
             RegexOptions.CultureInvariant);
@@ -240,6 +241,8 @@ namespace H3VRConverter
                     string source = File.ReadAllText(path);
                     string migrated = LegacyPass.Replace(source, pass =>
                         pass.Groups["prefix"].Value + LegacyPassModes[pass.Groups["mode"].Value] + "\"");
+                    if (source.StartsWith("Shader \"Alloy/Vertex Blend\"", StringComparison.Ordinal))
+                        migrated = AddVertexBlendDirectionalShadows(migrated, AssetDatabase.AssetPathToGUID(path), changed);
                     if (migrated == source)
                         continue;
                     // Keep original shader identity, render state, program, pass order and
@@ -255,6 +258,76 @@ namespace H3VRConverter
                 AssetDatabase.StopAssetEditing();
             }
             return count;
+        }
+
+        private static string AddVertexBlendDirectionalShadows(string source, string shaderGuid, SortedSet<string> changed)
+        {
+            // The split recovered forward pass contains distinct baked and realtime shader
+            // programs. Adapt the recognized realtime-only programs in place, so material
+            // keyword selection and all four stock layers keep their original implementation.
+            const string passStart = "#define DIRECTIONAL 1";
+            int start = source.IndexOf(passStart, StringComparison.Ordinal);
+            if (start < 0)
+                return source;
+            int end = source.IndexOf("ENDCG", start, StringComparison.Ordinal);
+            if (end < 0)
+                return source;
+            string forward = source.Substring(start, end - start);
+            if (forward.Contains(LegacyDirectionalShadow))
+                return source;
+
+            string prefix = "Assets/NativeH3VRShaderPrograms/" + shaderGuid + "/pass-0-";
+            bool adapted = false;
+            foreach (Match include in Regex.Matches(forward, "#include \"(" + Regex.Escape(prefix) + "[0-9]+\\.cginc)\""))
+            {
+                string path = include.Groups[1].Value;
+                if (!File.Exists(path))
+                    continue;
+                string program = File.ReadAllText(path);
+                if (program.Contains(" * StockShadowStrength("))
+                {
+                    adapted = true;
+                    continue;
+                }
+                string migrated = Regex.Replace(program,
+                    @"(?ms)^#(?:if|elif) defined\(DIRECTIONAL\)(?<keywords>[^\r\n]*)\r?\n(?<body>.*?)(?=^#(?:if|elif) defined\(DIRECTIONAL\)|\z)",
+                    AddVertexBlendShadowTerm);
+                if (migrated == program)
+                    continue;
+                File.WriteAllText(path, migrated);
+                AssetDatabase.ImportAsset(path);
+                changed.Add(path);
+                adapted = true;
+            }
+            if (!adapted)
+                return source;
+
+            string bridge = "\n#pragma dynamic_branch _ _MAIN_LIGHT_SHADOWS _MAIN_LIGHT_SHADOWS_CASCADE" +
+                "\n#include \"" + LegacyDirectionalShadow + "\"";
+            return source.Insert(start + passStart.Length, bridge);
+        }
+
+        private static string AddVertexBlendShadowTerm(Match branch)
+        {
+            string keywords = branch.Groups["keywords"].Value;
+            if (!keywords.Contains("!defined(SHADOWS_SCREEN)") || !keywords.Contains("!defined(LIGHTMAP_ON)") ||
+                !keywords.Contains("!defined(SHADOWS_SHADOWMASK)") || !keywords.Contains("!defined(LIGHTMAP_SHADOW_MIXING)") ||
+                !keywords.Contains("!defined(UNITY_SINGLE_PASS_STEREO)"))
+                return branch.Value;
+
+            string body = branch.Groups["body"].Value;
+            const string light = "_LightColor0.xyz";
+            const string position = "inp.texcoord3.xyz";
+            if (!body.Contains("_WorldSpaceCameraPos - " + position))
+                return branch.Value;
+            var direct = Regex.Match(body, @"(?m)^\s*tmp\d+\.xyz = (?<color>_LightColor0\.xyz) \* tmp\d+\.xyz \+ tmp\d+\.xyz;");
+            int index = body.IndexOf(light, StringComparison.Ordinal);
+            if (!direct.Success || index != direct.Groups["color"].Index ||
+                body.LastIndexOf(light, StringComparison.Ordinal) != index)
+                return branch.Value;
+            string expression = "(" + light + " * StockShadowStrength(" + position + "))";
+            int relative = branch.Groups["body"].Index - branch.Index + index;
+            return branch.Value.Remove(relative, light.Length).Insert(relative, expression);
         }
 
         private static int ReplaceBuiltinDefaults(Shader urpLit, SortedSet<string> changed)

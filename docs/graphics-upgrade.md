@@ -34,7 +34,7 @@ Render scale ranges from 70% to 130% of the output dimensions. On MacVR the comp
 
 ## Rendering
 
-The renderer uses URP Forward with SRP batching. The material conversion preserves the stock asset identities used by scenes, prefabs and stock bundle addresses. Common Alloy surfaces use an authored URP PBR shader for their original packed metal, occlusion, specularity and roughness channels. Specialized effects retain recovered shader programs. The generated project records material-family counts and changed assets in `ProjectSettings/NativeH3VRGraphicsMaterials.json`.
+The renderer uses URP Forward with SRP batching. The material conversion preserves the stock asset identities used by scenes, prefabs and stock bundle addresses. Common Alloy surfaces use an authored URP PBR shader for their original packed metal, occlusion, specularity and roughness channels. Specialized effects retain recovered shader programs. Friendly45’s ground keeps all four stock vertex-blended layers and samples the URP directional shadow atlas in its surface shader. The generated project records material-family counts and changed assets in `ProjectSettings/NativeH3VRGraphicsMaterials.json`.
 
 Supported Alloy detail layers retain their original textures, mask, normal strength and UV set. In Warehouse this lets the floor and the building use URP lighting while keeping their different detail mappings. The original window cutouts cast the skylight pattern onto the floor.
 
