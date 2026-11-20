@@ -24,9 +24,12 @@ def pose(root, scene, label):
 
 def health(image):
     red, green, blue = image.transpose(2, 0, 1)
+    mean_luma = (0.2126 * red.mean(dtype=np.float64) + 0.7152 * green.mean(dtype=np.float64)
+                 + 0.0722 * blue.mean(dtype=np.float64))
     # Tone mapping can reduce the intensity of the shader error color.
     magenta = (red >= 130) & (blue >= 130) & (np.abs(red - blue) <= 0.22 * np.maximum(red, blue))
     return {"width": image.shape[1], "height": image.shape[0],
+            "meanRec709LumaBytes": round(float(mean_luma), 4),
             "blackFraction": float((image.max(axis=2) <= 4).mean()),
             "highlightSaturationFraction": float((image.max(axis=2) >= 254).mean()),
             "errorPinkFraction": float(((red >= 248) & (blue >= 248) & (green <= 8)).mean()),
@@ -78,6 +81,11 @@ def inspect(root, baseline):
             noise = differences["balancedRepeat"]["meanAbsoluteRgbBytes"]
             if "quality-zero-exposure" in images:
                 differences["qualityVsZeroExposure"] = compare(images["quality"], images["quality-zero-exposure"])
+                captures = data["captures"][eye]
+                gain = captures["quality"]["meanRec709LumaBytes"] - captures["quality-zero-exposure"]["meanRec709LumaBytes"]
+                drift = abs(captures["balanced"]["meanRec709LumaBytes"] - captures["balanced-repeat"]["meanRec709LumaBytes"])
+                if gain <= drift + 0.15:
+                    failures.append(f"{scene} {eye} positive exposure did not brighten the image above repeat variation")
             for comparison in (key for key in differences if key != "balancedRepeat"):
                 if differences[comparison]["meanAbsoluteRgbBytes"] <= noise + 0.15:
                     failures.append(f"{scene} {eye} {comparison} was indistinguishable from the repeat noise")
