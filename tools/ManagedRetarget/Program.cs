@@ -109,6 +109,15 @@ foreach (var filename in keep)
                     case "UnityEngine.MeshCollider::set_skinWidth":
                         replacement = Shim("SetLegacyMeshSkinWidth");
                         break;
+                    case "UnityEngine.MeshCollider::set_convex":
+                        replacement = Shim("SetLegacyMeshConvex");
+                        break;
+                    case "UnityEngine.MeshCollider::get_sharedMesh":
+                        replacement = Shim("GetLegacyMeshColliderMesh");
+                        break;
+                    case "UnityEngine.MeshCollider::set_sharedMesh":
+                        replacement = Shim("SetLegacyMeshColliderMesh");
+                        break;
                     case "UnityEngine.RenderSettings::set_customReflection":
                         replacement = New("UnityEngine.RenderSettings", "set_customReflection", 1);
                         break;

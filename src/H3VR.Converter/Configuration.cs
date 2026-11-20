@@ -142,7 +142,8 @@ public sealed record ConversionConfig
                 throw new InvalidDataException("Set --dxbc-compiler and --spirv-cross to the installed translator executables.");
         }
         ValidateToolCache(repository, GameDirectory, string.IsNullOrEmpty(UnityEditor) ? null : UnityData, Workspace, RecoveredProject, ExtractionWorkspace, ShaderSources);
-        if (through == "build" && BuildTarget == "StandaloneOSX")
+        if ((through == "build" && BuildTarget == "StandaloneOSX") ||
+            (DxbcCompiler is not null && through is "project" or "validate" or "build"))
             PlayerEnlighten.RequireClassDatabase(CacheDirectory(repository));
         if (RecoveredProject is not null && !Directory.Exists(Path.Combine(RecoveredProject, "Assets")))
             throw new InvalidDataException("RecoveredProject must contain Assets. Recovery input is never modified.");

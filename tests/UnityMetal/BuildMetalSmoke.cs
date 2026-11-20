@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using UnityEditor;
+using UnityEditor.Build;
 using UnityEditor.Build.Reporting;
 using UnityEditor.SceneManagement;
 using UnityEngine;
@@ -19,8 +20,8 @@ public static class BuildMetalSmoke
         PlayerSettings.SetUseDefaultGraphicsAPIs(target, false);
         PlayerSettings.SetGraphicsAPIs(target, new[] { GraphicsDeviceType.Metal });
         EditorUserBuildSettings.SetPlatformSettings("Standalone", "OSXUniversal", "Architecture", "ARM64");
-        PlayerSettings.SetArchitecture(BuildTargetGroup.Standalone, 1);
-        PlayerSettings.SetScriptingBackend(BuildTargetGroup.Standalone, ScriptingImplementation.Mono2x);
+        PlayerSettings.SetArchitecture(NamedBuildTarget.Standalone, 1);
+        PlayerSettings.SetScriptingBackend(NamedBuildTarget.Standalone, ScriptingImplementation.Mono2x);
         PlayerSettings.enableFrameTimingStats = true;
         PlayerSettings.colorSpace = ColorSpace.Linear;
         PlayerSettings.runInBackground = true;

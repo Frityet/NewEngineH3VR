@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Reflection;
-using System.Threading;
 using UnityEngine;
 using UnityEngine.Networking;
 using UnityEngine.XR;
@@ -9,8 +8,6 @@ namespace NativeH3VR
 {
     public static class Compatibility
     {
-        private static int warnedLegacyMeshInflation;
-
         public static Component GetCollisionOther(Collision collision)
         {
             // The legacy getter returned the opposing Rigidbody for a compound body.
@@ -19,23 +16,20 @@ namespace NativeH3VR
             return body != null ? (Component)body : collision.collider;
         }
 
-        public static void SetLegacyMeshInflation(MeshCollider collider, bool enabled)
-        {
-            if (collider is null)
-                throw new NullReferenceException();
-            // Unity's current convex cooker handles the mesh and convex assignments. Its cooking
-            // options have no equivalent for the removed geometric expansion and beveling pass.
-            if (enabled && Interlocked.Exchange(ref warnedLegacyMeshInflation, 1) == 0)
-                Debug.LogWarning("Legacy convex mesh inflation was requested. Unity 6.7 cooks the supplied mesh without the old inflation margin.");
-        }
+        public static void SetLegacyMeshInflation(MeshCollider collider, bool enabled) =>
+            LegacyMeshCollider.SetInflation(collider, enabled);
 
-        public static void SetLegacyMeshSkinWidth(MeshCollider collider, float width)
-        {
-            if (collider is null)
-                throw new NullReferenceException();
-            // Width only applied to the old convex geometry inflation. Contact offset affects
-            // collision detection and would change unrelated contacts if substituted here.
-        }
+        public static void SetLegacyMeshSkinWidth(MeshCollider collider, float width) =>
+            LegacyMeshCollider.SetSkinWidth(collider, width);
+
+        public static void SetLegacyMeshConvex(MeshCollider collider, bool convex) =>
+            LegacyMeshCollider.SetConvex(collider, convex);
+
+        public static Mesh GetLegacyMeshColliderMesh(MeshCollider collider) =>
+            LegacyMeshCollider.GetSharedMesh(collider);
+
+        public static void SetLegacyMeshColliderMesh(MeshCollider collider, Mesh mesh) =>
+            LegacyMeshCollider.SetSharedMesh(collider, mesh);
 
         public static byte[] EncodeToPNG(Texture2D texture)
         {

@@ -43,7 +43,7 @@ namespace NativeH3VR
         static bool TryBoundary()
         {
             inputSubsystems.Clear();
-            SubsystemManager.GetInstances(inputSubsystems);
+            SubsystemManager.GetSubsystems(inputSubsystems);
             for (int i = 0; i < inputSubsystems.Count; i++)
                 if (inputSubsystems[i].running && inputSubsystems[i].TryGetBoundaryPoints(boundary) &&
                     boundary.Count >= 3)
@@ -56,7 +56,7 @@ namespace NativeH3VR
         public static void ResetSeatedZeroPose()
         {
             inputSubsystems.Clear();
-            SubsystemManager.GetInstances(inputSubsystems);
+            SubsystemManager.GetSubsystems(inputSubsystems);
             for (int i = 0; i < inputSubsystems.Count; i++)
                 if (inputSubsystems[i].running && inputSubsystems[i].TryRecenter())
                     return;

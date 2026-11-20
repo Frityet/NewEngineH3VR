@@ -108,4 +108,8 @@ File.WriteAllText(Path.Combine(source, "verification.json"),
                                            new JsonSerializerOptions { WriteIndented = true }));
 Console.WriteLine(
     $"Validated {typeCount} type refs, {methodCount} engine/compat call sites ({apis.Count} distinct methods), {fieldCount} fields. Errors: {errors.Count}");
+foreach (var error in errors.Take(20))
+    Console.Error.WriteLine(JsonSerializer.Serialize(error));
+if (errors.Count > 20)
+    Console.Error.WriteLine($"{errors.Count - 20} more errors are in verification.json.");
 Environment.ExitCode = errors.Count == 0 ? 0 : 1;
