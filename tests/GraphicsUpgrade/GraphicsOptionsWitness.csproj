@@ -9,5 +9,6 @@
     <Reference Include="$(NativeH3VRManaged)/UnityEngine*.dll" Private="false" />
     <Reference Include="$(NativeH3VRManaged)/NativeH3VR.*.dll" Private="false" />
     <Reference Include="$(NativeH3VRManaged)/Assembly-CSharp.dll" Private="false" />
+    <Reference Include="$(NativeH3VRManaged)/Valve.Newtonsoft.Json.dll" Private="false" />
   </ItemGroup>
 </Project>

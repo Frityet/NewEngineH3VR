@@ -13,11 +13,11 @@ def digest(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def check_timings(timing, unity_trace):
+def check_timings(timing, unity_trace, minimum_samples=80):
     profile = json.loads(timing.read_text())
     for metric in ("unity_eye_render_cpu", "unity_metal_command_buffer", "macvr_gpu_completion_interval"):
         sample = profile["timings"][metric]
-        if not sample or sample["samples"] < 80:
+        if not sample or sample["samples"] < minimum_samples:
             raise RuntimeError(f"Too few paired stereo samples for {metric} in {timing}")
     start, end = profile["window_display_start_ns"], profile["window_display_end_ns"]
     with unity_trace.open(newline="") as file:
@@ -44,9 +44,18 @@ def main():
     parser.add_argument("--profile", action="store_true", help="Capture and time the three URP presets")
     parser.add_argument("--builtin", action="store_true", help="Profile the original Built-in renderer")
     parser.add_argument("--scene", action="append", default=[], help="Also capture a named stock scene (repeatable)")
+    parser.add_argument("--tnh", metavar="MAP", help="Profile one stock Take & Hold map from a fresh session")
+    parser.add_argument("--tnh-seed", type=int, metavar="ID", help="Stock Take & Hold point sequence ID (default 0)")
+    parser.add_argument("--preset", choices=("balanced", "quality"), help="Graphics preset for a Take & Hold session")
     args = parser.parse_args()
-    if (args.builtin or args.scene) and not args.profile:
-        parser.error("--builtin and --scene require --profile")
+    if (args.builtin or args.scene or args.tnh or args.preset or args.tnh_seed is not None) and not args.profile:
+        parser.error("--builtin, --scene, --tnh and --preset require --profile")
+    if args.tnh and (args.scene or args.builtin == bool(args.preset)):
+        parser.error("--tnh requires either --builtin or --preset, and cannot be used with --scene")
+    if args.preset and not args.tnh:
+        parser.error("--preset requires --tnh")
+    if args.tnh_seed is not None and (not args.tnh or args.tnh_seed < 0):
+        parser.error("--tnh-seed requires --tnh and a nonnegative sequence ID")
     app, runtime, launcher, out = (p.resolve() for p in (args.app, args.runtime, args.launcher, args.out))
     if out.exists():
         parser.error("--out must be a fresh directory for isolated player settings")
@@ -70,19 +79,25 @@ def main():
     if args.profile:
         env = dict(os.environ, NATIVEH3VR_GRAPHICS_PROFILE_WITNESS=str(out),
                    NATIVEH3VR_GRAPHICS_PROFILE_BUILTIN=str(int(args.builtin)),
-                   NATIVEH3VR_GRAPHICS_PROFILE_SCENE=",".join(args.scene))
+                   NATIVEH3VR_GRAPHICS_PROFILE_SCENE=",".join(args.scene),
+                   NATIVEH3VR_GRAPHICS_PROFILE_TNH=args.tnh or "",
+                   NATIVEH3VR_GRAPHICS_PROFILE_TNH_SEED=str(args.tnh_seed or 0),
+                   NATIVEH3VR_GRAPHICS_PROFILE_PRESET=args.preset or "")
         subprocess.run([*launch, "--log-file", str(out / "profile.log"), "--timeout", "330",
                         "--trace-file", str(out / "openxr.csv"), "--unity-profile-file", str(out / "unity.csv")],
                        env=env, check=True)
         if not (out / "profile-complete.txt").is_file():
             raise RuntimeError(f"Graphics profile witness did not complete. Inspect {out / 'profile.log'}")
-        for frames in sorted(out.glob("*-frames.txt")):
+        frame_windows = sorted(out.glob("*-frames.txt"))
+        if args.tnh and len(frame_windows) != 2:
+            raise RuntimeError("Take & Hold witness must record one opening Take and one first Hold window")
+        for frames in frame_windows:
             timing = frames.with_name(frames.name.removesuffix("-frames.txt") + "-timings.json")
             with timing.open("w") as file:
                 subprocess.run(["dotnet", str(launcher), "profile", "--unity", str(out / "unity.csv"),
                                 "--openxr", str(out / "openxr.csv"), "--warmup-seconds", "0", "--unity-frames",
                                 *frames.read_text().split()], stdout=file, check=True)
-            check_timings(timing, out / "unity.csv")
+            check_timings(timing, out / "unity.csv", 240 if args.tnh else 80)
         print(out)
         return
 
