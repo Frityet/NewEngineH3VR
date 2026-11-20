@@ -80,13 +80,19 @@ namespace NativeH3VR.QA
             var renderScale = nativePage.Find("RenderScale Value").GetComponent<Text>();
             var preset = nativePage.Find("Preset Value").GetComponent<Text>();
             var expectedPath = Path.Combine(output, "render-scale.txt");
+            var stateDirectory = Environment.GetEnvironmentVariable("NATIVEH3VR_STATE_DIR");
+            Require(!string.IsNullOrEmpty(stateDirectory), "Graphics Options witness requires isolated launcher state");
+            string settingsPath = Path.Combine(stateDirectory, "graphics-options.json");
             if (verifySaved)
             {
+                Require(File.Exists(settingsPath), "No isolated graphics preferences after restart");
                 Require(renderScale.text == File.ReadAllText(expectedPath), "Render scale was not restored after restart");
                 Require(preset.text == "Custom", "Custom preset state was not restored after restart");
                 return;
             }
 
+            Require(!File.Exists(settingsPath) && preset.text == "Balanced" && renderScale.text == "100%",
+                "A fresh state directory did not start at Balanced and 100% without a graphics preferences file");
             string initialPreset = preset.text;
             nativePage.Find("Preset Next").GetComponent<Button>().onClick.Invoke();
             Require(preset.text != initialPreset && preset.text != "Custom", "Selecting a named preset did not update the panel");
@@ -132,6 +138,7 @@ namespace NativeH3VR.QA
             graphics.Button.onClick.Invoke();
             Require(nativePage.gameObject.activeInHierarchy && renderScale.text != initialScale && preset.text == "Custom",
                 "Reopening Graphics Options lost the selected settings");
+            Require(File.Exists(settingsPath), "Graphics controls did not write to isolated launcher state");
             File.WriteAllText(expectedPath, renderScale.text);
         }
 

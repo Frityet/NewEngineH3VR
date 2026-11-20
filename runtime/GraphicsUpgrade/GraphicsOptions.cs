@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 using UnityEngine;
 using UnityEngine.Rendering;
 using UnityEngine.Rendering.Universal;
@@ -16,6 +17,7 @@ namespace NativeH3VR.GraphicsUpgrade
     public static class GraphicsOptions
     {
         const string Preference = "NativeH3VR.URP.Graphics.v1";
+        const string PreferenceFile = "graphics-options.json";
         static readonly string[] Labels =
         {
             "Preset", "Render scale", "Anti-aliasing", "Shadow distance", "Shadow detail",
@@ -72,8 +74,7 @@ namespace NativeH3VR.GraphicsUpgrade
             if (key == GraphicsSetting.Preset) Array.Copy(Presets[index], values, values.Length);
             else values[(int)key - 1] = index;
             Apply();
-            PlayerPrefs.SetString(Preference, JsonUtility.ToJson(new SavedOptions { values = values }));
-            PlayerPrefs.Save();
+            Save();
             Changed?.Invoke();
         }
 
@@ -81,16 +82,81 @@ namespace NativeH3VR.GraphicsUpgrade
         {
             if (values != null) return;
             values = (int[])Presets[1].Clone();
-            if (!PlayerPrefs.HasKey(Preference)) return;
             try
             {
-                var saved = JsonUtility.FromJson<SavedOptions>(PlayerPrefs.GetString(Preference));
+                var stateDirectory = Environment.GetEnvironmentVariable("NATIVEH3VR_STATE_DIR");
+                string json;
+                if (string.IsNullOrEmpty(stateDirectory))
+                {
+                    if (!PlayerPrefs.HasKey(Preference)) return;
+                    json = PlayerPrefs.GetString(Preference);
+                }
+                else
+                {
+                    var path = Path.Combine(stateDirectory, PreferenceFile);
+                    if (!File.Exists(path)) return;
+                    json = File.ReadAllText(path);
+                }
+
+                var saved = JsonUtility.FromJson<SavedOptions>(json);
                 if (saved?.values == null) return;
                 for (int i = 0; i < Math.Min(values.Length, saved.values.Length); i++)
                     if ((uint)saved.values[i] < Choices[i + 1].Length) values[i] = saved.values[i];
             }
-            catch (ArgumentException) { Debug.LogWarning("Unreadable URP graphics preferences. Using Balanced."); }
+            catch (Exception error) when (IsPreferenceError(error))
+            {
+                Debug.LogWarning("Could not read URP graphics preferences. Using Balanced. " + error.Message);
+            }
         }
+
+        static void Save()
+        {
+            string temporary = null;
+            try
+            {
+                var json = JsonUtility.ToJson(new SavedOptions { values = values });
+                var stateDirectory = Environment.GetEnvironmentVariable("NATIVEH3VR_STATE_DIR");
+                if (string.IsNullOrEmpty(stateDirectory))
+                {
+                    PlayerPrefs.SetString(Preference, json);
+                    PlayerPrefs.Save();
+                    return;
+                }
+
+                Directory.CreateDirectory(stateDirectory);
+                var path = Path.Combine(stateDirectory, PreferenceFile);
+                temporary = Path.Combine(stateDirectory, PreferenceFile + "." + Guid.NewGuid().ToString("N") + ".tmp");
+                File.WriteAllText(temporary, json);
+                if (File.Exists(path))
+                {
+                    File.Replace(temporary, path, null);
+                }
+                else
+                {
+                    try { File.Move(temporary, path); }
+                    catch (IOException) when (File.Exists(path)) { File.Replace(temporary, path, null); }
+                }
+                temporary = null;
+            }
+            catch (Exception error) when (IsPreferenceError(error))
+            {
+                Debug.LogWarning("Could not save URP graphics preferences. " + error.Message);
+            }
+            finally
+            {
+                if (temporary != null)
+                {
+                    try { File.Delete(temporary); }
+                    catch (Exception error) when (IsPreferenceError(error))
+                    {
+                        Debug.LogWarning("Could not remove temporary URP graphics preferences. " + error.Message);
+                    }
+                }
+            }
+        }
+
+        static bool IsPreferenceError(Exception error) =>
+            error is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException or PlayerPrefsException;
 
         internal static int Samples => 1 << GetIndex(GraphicsSetting.Msaa);
         internal static bool Hdr => GetIndex(GraphicsSetting.Hdr) != 0;
