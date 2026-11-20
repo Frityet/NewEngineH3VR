@@ -133,6 +133,8 @@ The link step also writes `shader-variant-domains.json`. It lists the real keywo
 
 When Unity builds for Metal, Direct3D 11 or Vulkan, the build strips any combination that isn't in that list for its pass group. The guards in the source still catch anything the catalog can't vouch for. [Unity shader preprocessing](https://docs.unity3d.com/6000.7/Documentation/ScriptReference/Build.IPreprocessShaders.OnProcessShader.html)
 
+The alpha-clipped cloud has a legacy ShadowCollector pass. Recognizing that pass lets the importer retain the verified ForwardBase catalog alongside it. If a shader overlay prepared with an older converter fails on `QuantumTheory/3DCloudModels-AlphaClip`, rerun shader preparation against the existing private recovery. The original ForwardBase contains 38 keyword combinations.
+
 If a material turns on several keywords from the same group, Unity picks the closest variant it has. Making sure that matches what Unity 5.6 did means comparing renders. [Unity shader keywords](https://docs.unity3d.com/6000.7/Documentation/Manual/shader-keywords.html)
 
 ### Why the raw export isn't enough

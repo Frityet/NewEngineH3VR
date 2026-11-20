@@ -401,7 +401,7 @@ public sealed class ProjectMigration(ConversionConfig config, string candidate)
             var relative = Path.GetRelativePath(sourceAssets, source); var destination = SafeFiles.Inside(assets, relative.Replace(Path.DirectorySeparatorChar, '/'));
             var sourceMeta = source + ".meta"; if (!File.Exists(sourceMeta)) throw new InvalidDataException("Shader overlay is missing its original .meta GUID: " + relative);
             var guid = ReadGuid(File.ReadAllText(sourceMeta)) ?? throw new InvalidDataException("Shader metadata has no GUID: " + relative);
-            if (verifyGraphics && config.BuildTarget == "StandaloneOSX")
+            if (verifyGraphics)
             {
                 var hdrProperties = LegacyHdrMaterials.ReadHdrColorProperties(content);
                 if (hdrProperties.Length != 0) hdrColors.Add(guid, hdrProperties.ToHashSet(StringComparer.Ordinal));

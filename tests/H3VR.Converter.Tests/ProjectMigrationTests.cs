@@ -22,7 +22,8 @@ public static class ProjectMigrationTests
         yield return ("missing referenced controller bindings fail closed", MissingSteamVrBinding);
         yield return ("shader overlay rejects dummy exports", RejectDummyShader);
         yield return ("graphics overlay verifies each recovered shader and its generated includes", VerifyGraphicsShaders);
-        yield return ("stock material migration converts legacy HDR colors without touching native material data", MigrateHdrMaterials);
+        foreach (var target in new[] { "StandaloneOSX", "StandaloneWindows64", "StandaloneLinux64" })
+            yield return ($"{target} converts stock HDR colors and preserves authored materials", () => MigrateHdrMaterials(target));
         foreach (var stockHdr in LegacyDynamicHdrMaterialsTests.Cases()) yield return stockHdr;
         yield return ("compute overlays preserve local asset identity and rebind Unity importer references", ReplaceComputeShader);
         yield return ("integration applies a hash-pinned OpenXR provider", ApplyIntegration);
@@ -296,7 +297,7 @@ public static class ProjectMigrationTests
         Check(Capture(() => Verify()) is InvalidDataException, "rejects graphics shader content not recorded in the receipt");
     }
 
-    private static void MigrateHdrMaterials()
+    private static void MigrateHdrMaterials(string target)
     {
         using var fixture = new Fixture();
         fixture.CreateManaged("NativeH3VR.Game", "Assembly-CSharp", "H3VR", "Fixture");
@@ -335,7 +336,7 @@ public static class ProjectMigrationTests
                 }
             }
             """, extract);
-        var config = fixture.Config(fixture.Shaders);
+        var config = fixture.Config(fixture.Shaders) with { BuildTarget = target };
         var report = new ProjectMigration(config, fixture.Candidate).Run();
         var candidate = Path.Combine(fixture.Candidate, source);
         string converted = File.ReadAllText(candidate);

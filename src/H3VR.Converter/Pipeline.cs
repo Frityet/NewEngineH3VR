@@ -270,7 +270,7 @@ public sealed partial class Pipeline(string repository, ConversionConfig config)
             var patched = Path.Combine(candidate, "patched");
             var patchArgs = new List<string> { "run", "--project", Path.Combine(repository, "tools/OpenXRPatch"), "-c", "Release", "--",
                 retargeted, Path.Combine(adapter, "NativeH3VR.OpenXR.dll"), patched, "--unity-engine", config.EngineAssemblies };
-            if (config.BuildTarget == "StandaloneOSX" && LegacyHdrMaterials.IsLinearProject(config.Export))
+            if (LegacyHdrMaterials.IsLinearProject(config.Export))
                 patchArgs.Add("--legacy-stock-rim");
             if (StockShaderWarmupProject.TryPrepare(config.Export, out _))
                 patchArgs.Add("--stock-shader-warmup");
