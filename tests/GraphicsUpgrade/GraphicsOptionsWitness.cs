@@ -97,34 +97,29 @@ namespace NativeH3VR.QA
             Require(!File.Exists(settingsPath) && preset.text == "Balanced" && renderScale.text == "100%" &&
                     exposure.text == "+0.25 EV",
                 "A fresh state directory did not start at Balanced, 100% and +0.25 EV");
-            string initialPreset = preset.text;
-            nativePage.Find("Preset Next").GetComponent<Button>().onClick.Invoke();
-            Require(preset.text != initialPreset && preset.text != "Custom", "Selecting a named preset did not update the panel");
-            string initialScale = renderScale.text;
-            var scaleNext = nativePage.Find("RenderScale Next").GetComponent<FVRPointableButton>();
-            var collider = scaleNext.GetComponent<BoxCollider>();
             Physics.SyncTransforms();
-            var origin = collider.bounds.center - scaleNext.transform.forward * 0.025f;
-            var input = hand.Input;
-            var previous = hand.CurrentPointable;
-            try
-            {
-                Require(Physics.Raycast(origin, scaleNext.transform.forward, out var hit,
-                            Mathf.Min(0.09f, scaleNext.MaxPointingRange), hand.PointingLayerMask, QueryTriggerInteraction.Collide) &&
-                        hit.collider == collider, "A stock controller ray did not hit the new render-scale pointable");
-                hand.Input.TriggerDown = true;
-                hand.CurrentPointable = hit.collider.GetComponent<FVRPointable>();
-            }
-            finally
-            {
-                hand.Input = input;
-                hand.CurrentPointable = previous;
-            }
-            Require(renderScale.text != initialScale, "Pointing at and triggering the render-scale control did not change it");
-            Require(preset.text == "Custom", "Changing render scale did not select Custom");
-            Require(exposure.text == "+0.5 EV", "The Quality preset did not apply its exposure");
-            nativePage.Find("Exposure Next").GetComponent<Button>().onClick.Invoke();
+            TriggerArrow(nativePage, hand, "Preset", "Next");
+            Require(preset.text == "Quality" && exposure.text == "+0.5 EV",
+                "The preset arrow did not select Quality and apply its exposure");
+            TriggerArrow(nativePage, hand, "RenderScale", "Next");
+            Require(renderScale.text == "115%" && preset.text == "Custom",
+                "The render-scale arrow did not select Custom at 115%");
+            TriggerArrow(nativePage, hand, "Exposure", "Next");
             Require(exposure.text == "+0.75 EV", "The exposure arrow did not change the compensation");
+
+            foreach (string setting in new[]
+            {
+                "RenderScale", "Msaa", "ShadowQuality", "ShadowDistance", "Exposure",
+                "AdditionalLights", "AmbientOcclusion", "Hdr", "Bloom", "Tonemapping", "Sharpening"
+            })
+            {
+                var value = nativePage.Find(setting + " Value").GetComponent<Text>();
+                string original = value.text;
+                TriggerArrow(nativePage, hand, setting, "Next");
+                Require(value.text != original, $"The {setting} next arrow did not change its displayed value");
+                TriggerArrow(nativePage, hand, setting, "Previous");
+                Require(value.text == original, $"The {setting} previous arrow did not restore {original}");
+            }
 
             var back = quality.Find("Canvas/Button_Back (3)").GetComponent<Button>();
             var panelForward = back.transform.forward;
@@ -143,11 +138,40 @@ namespace NativeH3VR.QA
             back.onClick.Invoke();
             Require(!quality.gameObject.activeInHierarchy, "Stock Back did not return to options navigation");
             graphics.Button.onClick.Invoke();
-            Require(nativePage.gameObject.activeInHierarchy && renderScale.text != initialScale && preset.text == "Custom",
+            Require(nativePage.gameObject.activeInHierarchy && renderScale.text == "115%" &&
+                    preset.text == "Custom" && exposure.text == "+0.75 EV",
                 "Reopening Graphics Options lost the selected settings");
             Require(File.Exists(settingsPath), "Graphics controls did not write to isolated launcher state");
             File.WriteAllText(expectedPath, renderScale.text);
             File.WriteAllText(expectedExposure, exposure.text);
+        }
+
+        private static void TriggerArrow(Transform page, FVRViveHand hand, string setting, string direction)
+        {
+            var name = setting + " " + direction;
+            var arrow = page.Find(name);
+            if (!arrow || !arrow.TryGetComponent(out FVRPointableButton pointable) ||
+                !arrow.TryGetComponent(out BoxCollider collider))
+                throw new InvalidOperationException($"Missing stock pointable collider for the {name} arrow");
+
+            var forward = arrow.forward;
+            var origin = collider.bounds.center - forward * 0.025f;
+            Require(Physics.Raycast(origin, forward, out var hit, Mathf.Min(0.09f, pointable.MaxPointingRange),
+                        hand.PointingLayerMask, QueryTriggerInteraction.Collide) && hit.collider == collider,
+                $"A stock controller ray did not hit the {name} arrow");
+
+            var input = hand.Input;
+            var previous = hand.CurrentPointable;
+            try
+            {
+                hand.Input.TriggerDown = true;
+                hand.CurrentPointable = hit.collider.GetComponent<FVRPointable>();
+            }
+            finally
+            {
+                hand.Input = input;
+                hand.CurrentPointable = previous;
+            }
         }
 
         private void CapturePage(Canvas canvas, Vector3 pointingDirection, string filename)
