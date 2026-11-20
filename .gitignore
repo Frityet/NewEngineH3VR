@@ -1,0 +1,7 @@
+.DS_Store
+__pycache__/
+/fixture/Library/
+/fixture/Logs/
+/fixture/Temp/
+/fixture/UserSettings/
+/results/
