@@ -15,11 +15,15 @@ namespace NativeH3VR
         // https://nvidiagameworks.github.io/PhysX/3.4/PhysXGuide/Manual/Geometry.html
         internal static Mesh Create(Mesh source, float skinWidth)
         {
-            if (!source.isReadable || !float.IsFinite(skinWidth) || skinWidth <= 0f)
+            if (!source.isReadable)
                 return null;
+            return Create(source.name, source.vertices, skinWidth, out _);
+        }
 
-            var points = source.vertices;
-            if (points.Length == 0 || points.Any(point => !Finite(point)))
+        internal static Mesh Create(string sourceName, Vector3[] points, float skinWidth, out bool usedVertexLimit)
+        {
+            usedVertexLimit = false;
+            if (!float.IsFinite(skinWidth) || skinWidth <= 0f || points.Length == 0 || points.Any(point => !Finite(point)))
                 return null;
 
             Vector3 minimum = points[0], maximum = points[0];
@@ -82,9 +86,16 @@ namespace NativeH3VR
                 new List<Vector3> { box[0], box[4], box[7], box[3] },
                 new List<Vector3> { box[1], box[2], box[6], box[5] }
             };
+            var outerBox = new List<List<Vector3>>(polygons);
             foreach (var plane in planes)
                 if (!Clip(polygons, plane.Normal, plane.Distance + skinWidth, epsilon))
                     return null;
+
+            if (UniqueVertices(polygons, epsilon).Count > VertexLimit)
+            {
+                polygons = ClipToVertexLimit(outerBox, planes, skinWidth, epsilon);
+                usedVertexLimit = true;
+            }
 
             var vertices = new List<Vector3>();
             var triangles = new List<int>();
@@ -111,7 +122,7 @@ namespace NativeH3VR
 
             var mesh = new Mesh
             {
-                name = source.name + " (legacy convex inflation)",
+                name = sourceName + " (legacy convex inflation)",
                 hideFlags = HideFlags.DontSaveInEditor | HideFlags.DontSaveInBuild
             };
             mesh.SetVertices(vertices);
@@ -233,6 +244,55 @@ namespace NativeH3VR
                 if (!planes.Any(plane => Vector3.Dot(plane.Normal, face.Normal) > NearParallel))
                     planes.Add(face);
             return planes;
+        }
+
+        private static List<List<Vector3>> ClipToVertexLimit(List<List<Vector3>> polygons, List<Face> planes,
+            float skinWidth, float epsilon)
+        {
+            // Prioritize the planes that remove the largest fraction of the present hull.
+            // Stop at the last valid hull when a further crop would exceed the convex limit.
+            var remaining = new List<Face>(planes);
+            var vertices = UniqueVertices(polygons, epsilon);
+            while (remaining.Count != 0)
+            {
+                int best = -1;
+                float strongest = 0.01f;
+                for (int index = 0; index < remaining.Count; index++)
+                {
+                    var plane = remaining[index];
+                    float inside = 0f, outside = 0f;
+                    foreach (var vertex in vertices)
+                    {
+                        float distance = Vector3.Dot(plane.Normal, vertex) - plane.Distance - skinWidth;
+                        inside = Mathf.Max(inside, -distance);
+                        outside = Mathf.Max(outside, distance);
+                    }
+                    float depth = inside + outside;
+                    float fraction = depth > epsilon ? outside / depth : 0f;
+                    if (fraction <= strongest) continue;
+                    best = index;
+                    strongest = fraction;
+                }
+                if (best < 0) break;
+                var next = remaining[best];
+                var clipped = new List<List<Vector3>>(polygons);
+                if (!Clip(clipped, next.Normal, next.Distance + skinWidth, epsilon)) break;
+                var clippedVertices = UniqueVertices(clipped, epsilon);
+                if (clippedVertices.Count > VertexLimit) break;
+                polygons = clipped;
+                vertices = clippedVertices;
+                remaining.RemoveAt(best);
+            }
+            return polygons;
+        }
+
+        private static List<Vector3> UniqueVertices(List<List<Vector3>> polygons, float epsilon)
+        {
+            var vertices = new List<Vector3>();
+            foreach (var polygon in polygons)
+                foreach (var vertex in polygon)
+                    FindOrAdd(vertices, vertex, epsilon);
+            return vertices;
         }
 
         private static bool Clip(List<List<Vector3>> polygons, Vector3 normal, float distance, float epsilon)

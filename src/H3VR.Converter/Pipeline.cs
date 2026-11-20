@@ -167,7 +167,7 @@ public sealed partial class Pipeline(string repository, ConversionConfig config)
                 {
                     "extract" => await Extract(cancellation),
                     "managed" => await Managed(cancellation),
-                    "project" => Prepare(),
+                    "project" => await Prepare(cancellation),
                     "validate" => await Editor(false, cancellation),
                     "build" => await Editor(true, cancellation),
                     _ => throw new InvalidOperationException()
@@ -274,7 +274,7 @@ public sealed partial class Pipeline(string repository, ConversionConfig config)
         File.Move(final, game, true); File.Copy(backend, Path.Combine(managed, "NativeH3VR.Platform.dll"));
     }
 
-    private List<string> Prepare()
+    private async Task<List<string>> Prepare(CancellationToken cancellation)
     {
         if (Directory.Exists(config.Project)) throw new IOException("Unrecorded project exists. Inspect it before using a fresh workspace.");
         var candidate = Path.Combine(config.Workspace, "project-candidate-" + Guid.NewGuid().ToString("N"));
@@ -283,6 +283,7 @@ public sealed partial class Pipeline(string repository, ConversionConfig config)
             SafeFiles.CopyTree(config.Export, candidate);
             var report = new ProjectMigration(config, candidate).Run();
             LocalAssets.Stage(config, candidate);
+            var convexJournal = await LegacyConvexAssetMigration.StageAsync(repository, config, candidate, cancellation);
             AssetBaseline.Capture(candidate);
             SourceStaging.Install(repository, candidate, config.BuildTarget, config.BuildProbe);
             if (config.IntegrationManifest is not null) Integration.Apply(config.IntegrationManifest, candidate, config.BuildTarget, config.UnityVersion);
@@ -307,6 +308,7 @@ public sealed partial class Pipeline(string repository, ConversionConfig config)
                 .Concat(SafeFiles.Files(Path.Combine(config.Project, "ProjectSettings")))
                 .Concat(SafeFiles.Files(Path.Combine(config.Project, "Packages")))
                 .Concat(report.LegacyHdrMaterials is null ? [] : [SafeFiles.Inside(config.Project, report.LegacyHdrMaterials)])
+                .Concat(convexJournal is null ? [] : [convexJournal])
                 .Concat([reportPath, planPath]).ToList();
         }
         finally { if (Directory.Exists(candidate)) Directory.Delete(candidate, true); }
