@@ -52,6 +52,18 @@ Both pipelines also restore 12 environment reverb controls from the supported St
 
 On an Apple M5 Max with synthetic MacVR, the optimized built-in player reached sustained stereo 5.66 s after Unity initialized. Two control runs with the original shader warmup took 96.28 and 101.10 s. Unity skipped zero stereo frames across six samples covering the main menu, Warehouse and the return to the menu. These timings exclude process startup before Unity initialized.
 
+## Performance in stock scenes
+
+Both signed macOS players were measured at 1440 × 1600 per eye and 90 Hz on the M5 Max, with the same simulated headset pose in each scene. The table gives median CPU time in milliseconds for rendering both eyes and scheduling submission.
+
+| Scene | Optimized built-in | URP Performance | URP Balanced | URP Quality |
+| --- | ---: | ---: | ---: | ---: |
+| Main menu | 0.966 | 1.150 | 0.823 | 1.197 |
+| Warehouse | 0.966 | 0.919 | 0.975 | 1.239 |
+| Friendly 45 | 1.463 | 0.950 | 1.048 | 1.228 |
+
+The twelve measurement windows contained 1,195 completed stereo frames, with zero skipped stereo pairs or missed compositor wait slots. At the Quality preset, enabling shadows darkened about 27% of the sampled Warehouse floor and 10% of the sampled Friendly 45 ground by more than eight levels of image luma in each eye. Repeating the same Balanced settings produced zero pixels above that threshold in those regions.
+
 ## Testing an imported macOS build
 
 The test runner uses a separate preferences directory and a diagnostic mod bound to the selected build. Set `APP`, `LAUNCHER` and `MACVR` to the generated app, UnityMetalCli DLL and local MacVR runtime export. Choose fresh output directories.
