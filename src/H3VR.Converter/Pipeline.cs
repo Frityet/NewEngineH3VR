@@ -504,6 +504,8 @@ public sealed partial class Pipeline(string repository, ConversionConfig config)
         foreach (var key in files.Keys.Where(p => roots.Any(r => SafeFiles.Contains(r, p))).ToArray()) files.Remove(key);
         foreach (var root in roots.Where(Directory.Exists))
             foreach (var file in SafeFiles.Files(root)) files[file] = SafeFiles.Hash(file);
+        if (config.GraphicsUpgrade)
+            GraphicsUpgradeProject.RefreshGeneratedDefaults(config.Project, config.Export, files);
         var upgrades = ImportShaderUpgrades(config.Project, files, File.ReadLines(logfile));
         SafeFiles.AtomicJson(shaderUpgrades, upgrades);
         SafeFiles.AtomicJson(path, receipt with { Files = files });

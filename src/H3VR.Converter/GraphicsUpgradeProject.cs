@@ -12,6 +12,24 @@ internal static class GraphicsUpgradeProject
     internal const string RuntimeAssembly = "NativeH3VR.GraphicsUpgrade";
     internal const string Marker = "ProjectSettings/NativeH3VRGraphicsUpgrade.json";
 
+    // URP 17.7 creates these two defaults at the Assets root. Its build
+    // preprocessor serializes the populated default volume and global settings.
+    internal static void RefreshGeneratedDefaults(string project, string recovered, Dictionary<string, string> files)
+    {
+        if (!Directory.Exists(recovered))
+            return;
+        foreach (string relative in new[] { "Assets/UniversalRenderPipelineGlobalSettings.asset", "Assets/DefaultVolumeProfile.asset" })
+        {
+            string source = SafeFiles.Inside(recovered, relative);
+            if (Path.Exists(source) || Path.Exists(source + ".meta"))
+                continue;
+            string generated = SafeFiles.Inside(project, relative);
+            var file = new FileInfo(generated);
+            if (files.ContainsKey(generated) && file.Exists && file.LinkTarget == null)
+                files[generated] = SafeFiles.Hash(generated);
+        }
+    }
+
     internal static bool IsEditorSource(string path) => Path.GetFileName(path) is
         "GraphicsUpgradeConfiguration.cs" or "GraphicsUpgradeMaterials.cs";
 

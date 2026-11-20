@@ -23,6 +23,7 @@ public static class PipelineTests
         yield return ("failed bundle plan remains inspectable after candidate cleanup", FailedBundlePlanSurvivesCleanup);
         yield return ("cold extraction receipt tracks provenance maps", ColdReceiptTracksMaps);
         yield return ("shared extraction reuses verified bytes and rejects source mutations", SharedExtractionRejectsChanges);
+        yield return ("URP receipt refresh tracks generated defaults while preserving input files", GeneratedUrpDefaults);
         yield return ("successful editor receipt records named shader upgrades and keeps other hashes", ShaderUpgradeReceipt);
     }
 
@@ -73,6 +74,36 @@ public static class PipelineTests
         File.WriteAllText(foreign, "unrelated bytes");
         Check(Capture(() => LocalAssets.Stage(config, project)) is IOException, "staging accepted a conflicting bundle");
         Check(File.ReadAllText(foreign) == "unrelated bytes", "staging removed a conflicting file");
+    }
+
+    private static void GeneratedUrpDefaults()
+    {
+        using var fixture = new Fixture();
+        var project = Path.Combine(fixture.Workspace, "project");
+        const string globalRelative = "Assets/UniversalRenderPipelineGlobalSettings.asset";
+        const string volumeRelative = "Assets/DefaultVolumeProfile.asset";
+        var generated = Path.Combine(project, globalRelative);
+        var supplied = Path.Combine(project, volumeRelative);
+        var material = Path.Combine(project, "Assets/Material/Stock.mat");
+        Write(Path.Combine(fixture.Recovered, volumeRelative), string.Empty);
+        foreach (string file in new[] { generated, supplied, material }) Write(file, "prepared");
+        var old = SafeFiles.Hash(generated);
+        var files = new[] { generated, supplied, material }.ToDictionary(file => file, SafeFiles.Hash);
+        foreach (var file in files.Keys) Write(file, "unity run");
+
+        GraphicsUpgradeProject.RefreshGeneratedDefaults(project, fixture.Recovered, files);
+        Check(files[generated] == SafeFiles.Hash(generated), "URP-generated global settings were not refreshed");
+        Check(files[supplied] == old && files[material] == old, "refresh accepted edits to supplied settings or a stock material");
+
+        File.Delete(Path.Combine(fixture.Recovered, volumeRelative));
+        Write(Path.Combine(fixture.Recovered, volumeRelative) + ".meta", "original importer metadata");
+        GraphicsUpgradeProject.RefreshGeneratedDefaults(project, fixture.Recovered, files);
+        Check(files[supplied] == old, "refresh adopted a volume created over recovery-supplied importer metadata");
+
+        File.Delete(Path.Combine(fixture.Recovered, volumeRelative) + ".meta");
+        GraphicsUpgradeProject.RefreshGeneratedDefaults(project, fixture.Recovered, files);
+        Check(files[supplied] == SafeFiles.Hash(supplied) && files[material] == old,
+            "refresh did not distinguish the Unity-generated default volume from stock material");
     }
 
     private static void ShaderUpgradeReceipt()
