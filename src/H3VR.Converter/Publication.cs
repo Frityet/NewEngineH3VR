@@ -70,7 +70,7 @@ public static class Publication
         if (path is "runtime/Platform/README.md" or "runtime/Platform/Steam/legacy_api.cpp" or
             "runtime/Platform/Fmod/bridge.cpp" or "runtime/Platform/Fmod/fmod-output.cpp" or
             "runtime/UnityMetal/MetalOpenXR.h" or "runtime/UnityMetal/MetalOpenXR.mm" or
-            "tests/GraphicsUpgrade/run.py" or "tests/GraphicsUpgrade/measure.py" or
+            "tests/GraphicsUpgrade/run.py" or "tests/GraphicsUpgrade/measure.py" or "tests/GraphicsUpgrade/compare_tnh.py" or
             "tests/StockMenuRendering/run.py" or "tests/StockMenuRendering/measure.py" or
             "tests/StockMenuRendering/verify_profiles.py" or "tests/StockMenuRendering/verify_scenes.py")
             return true;
