@@ -113,7 +113,7 @@ When the two phases come from different sessions, create both a `take` and a `ho
 
 The analysis checks the active renderer, gameplay phase, objective, both submitted eyes and headset pose. It pools the original timing samples for each map, phase and renderer into CSV and JSON. The live NPC counts, individual route timings and scene poses stay available in the JSON. Delivered frequency measures completed synthetic stereo pairs over scheduled display time.
 
-Northest Dakota's original weighted-blend snow receives shadows from the supply container, cover and trees in URP. In a fixed-caster test with the original terrain mesh and materials, the corrected shader darkened 1,979 pixels. The earlier conversion darkened zero.
+Northest Dakota’s SnowGround meshes use the original Alloy/Weighted Blend material, a non-directional lightmap and a baked shadow mask. The URP bridge now fades realtime directional shadows into that mask, following the recovered Steam lighting path. At the same opening Take pose, the cargo container’s shadow was 91–92 display-luma levels darker than nearby snow in Steam and 126–127 in Built-in. The earlier URP draw differed by less than one level. Loading the corrected receiver as a QA shader in the signed URP player gave 125–126 levels in both Balanced and Quality. The first Hold capture also shows restored shadows from the rock and upright cover.
 
 Institution uses its own scene color profile. In an earlier Quality test, a custom Neutral curve retained more shadow detail than ACES on the same camera pose. Balanced and Quality now follow the game’s active profile by default. The Graphics Options tone-mapping control can override it.
 
