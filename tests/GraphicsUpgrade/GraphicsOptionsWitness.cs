@@ -13,6 +13,7 @@ namespace NativeH3VR.QA
     {
         private string output;
         private bool verifySaved;
+        private bool failed;
 
         public static void Initialize()
         {
@@ -52,6 +53,12 @@ namespace NativeH3VR.QA
                 yield break;
             }
 
+            if (!verifySaved)
+            {
+                yield return CheckViewFade("default-");
+                if (failed) yield break;
+            }
+
             try
             {
                 manager.SetScreen(0);
@@ -70,20 +77,67 @@ namespace NativeH3VR.QA
             }
             if (!verifySaved)
             {
-                Valve.VR.SteamVR_Fade.Start(Color.red, 0f);
-                yield return new WaitForSecondsRealtime(0.25f);
-                try { VerifyViewFade(true); }
-                catch (Exception error) { Finish(error); yield break; }
-                finally { Valve.VR.SteamVR_Fade.Start(Color.clear, 0.2f); }
-                // The stock transition advances with game time, including during a slow synthetic replay.
-                yield return new WaitForSeconds(0.4f);
-                try { VerifyViewFade(false); }
-                catch (Exception error) { Finish(error); yield break; }
+                yield return CheckViewFade("");
+                if (failed) yield break;
             }
             Finish(null);
         }
 
-        private void VerifyViewFade(bool opaque)
+        private IEnumerator CheckViewFade(string profile)
+        {
+            Valve.VR.SteamVR_Fade.Start(Color.clear, 0f);
+            yield return new WaitForSecondsRealtime(0.25f);
+            Color32[][] ordinary;
+            try { ordinary = CaptureViewFade(profile + "uncovered"); }
+            catch (Exception error) { Finish(error); yield break; }
+
+            Valve.VR.SteamVR_Fade.Start(new Color(1f, 0f, 0f, 0.5f), 0f);
+            yield return new WaitForSecondsRealtime(0.25f);
+            try
+            {
+                var blended = CaptureViewFade(profile + "half");
+                for (int eye = 0; eye < 2; eye++)
+                {
+                    double error = ordinary[eye].Zip(blended[eye], BlendError).Average();
+                    Require(error <= 3, $"Half-alpha stock fade has {error:F2} RGB error in eye {eye}");
+                }
+            }
+            catch (Exception error) { Finish(error); yield break; }
+
+            Valve.VR.SteamVR_Fade.Start(Color.red, 0f);
+            yield return new WaitForSecondsRealtime(0.25f);
+            try
+            {
+                var opaque = CaptureViewFade(profile + "opaque");
+                for (int eye = 0; eye < 2; eye++)
+                    Require(opaque[eye].All(p => p.r >= 254 && p.g <= 1 && p.b <= 1),
+                        $"Opaque stock fade changed its authored color in eye {eye}");
+            }
+            catch (Exception error) { Finish(error); yield break; }
+            finally { Valve.VR.SteamVR_Fade.Start(Color.clear, 0.2f); }
+
+            // The stock transition advances in game time, including during a slow synthetic replay.
+            yield return new WaitForSeconds(0.4f);
+            try
+            {
+                var cleared = CaptureViewFade(profile + "cleared");
+                for (int eye = 0; eye < 2; eye++)
+                    Require(cleared[eye].Count(p => p.r > p.g + 35 && p.r > p.b + 35) <= cleared[eye].Length * 0.05f,
+                        $"Stock fade failed to clear in eye {eye}");
+            }
+            catch (Exception error) { Finish(error); }
+        }
+
+        private static double BlendError(Color32 ordinary, Color32 blended)
+        {
+            static float Encoded(float value, float fade) =>
+                255 * Mathf.LinearToGammaSpace((Mathf.GammaToLinearSpace(value / 255f) + fade) * 0.5f);
+            return (Mathf.Abs(Encoded(ordinary.r, 1f) - blended.r) +
+                    Mathf.Abs(Encoded(ordinary.g, 0f) - blended.g) +
+                    Mathf.Abs(Encoded(ordinary.b, 0f) - blended.b)) / 3.0;
+        }
+
+        private Color32[][] CaptureViewFade(string state)
         {
             var stereo = NativeStereoRenderer.Instance;
             Require(stereo && stereo.SourceCamera && stereo.SourceCamera.GetComponent<Valve.VR.SteamVR_Fade>(),
@@ -91,6 +145,7 @@ namespace NativeH3VR.QA
             const int size = 32;
             var image = new Texture2D(size, size, TextureFormat.RGBA32, false);
             var previous = RenderTexture.active;
+            var samples = new Color32[2][];
             try
             {
                 for (int eye = 0; eye < 2; eye++)
@@ -99,13 +154,8 @@ namespace NativeH3VR.QA
                     RenderTexture.active = target;
                     image.ReadPixels(new Rect((target.width - size) / 2, (target.height - size) / 2, size, size), 0, 0);
                     image.Apply(false);
-                    var pixels = image.GetPixels32();
-                    int red = pixels.Count(p => p.r > 180 && p.g < 20 && p.b < 20);
-                    int tinted = pixels.Count(p => p.r > p.g + 35 && p.r > p.b + 35);
-                    string state = opaque ? "opaque" : "cleared";
+                    samples[eye] = image.GetPixels32();
                     File.WriteAllBytes(Path.Combine(output, $"view-fade-{state}-{eye}.png"), image.EncodeToPNG());
-                    Require(opaque ? red >= pixels.Length * 0.95f : tinted <= pixels.Length * 0.05f,
-                        $"Stock {state} fade failed in eye {eye} ({red} red and {tinted} tinted pixels of {pixels.Length})");
                 }
             }
             finally
@@ -113,6 +163,7 @@ namespace NativeH3VR.QA
                 RenderTexture.active = previous;
                 Destroy(image);
             }
+            return samples;
         }
 
         private void CheckPanel(OptionsPanel_Screenmanager manager, FVRViveHand hand,
@@ -297,6 +348,7 @@ namespace NativeH3VR.QA
             string phase = verifySaved ? "restart" : "interaction";
             if (error != null)
             {
+                failed = true;
                 File.WriteAllText(Path.Combine(output, phase + "-failed.txt"), error.ToString());
                 Debug.LogError("GRAPHICS_OPTIONS_WITNESS_FAILED " + error);
                 Application.Quit(2);

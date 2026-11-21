@@ -72,8 +72,9 @@ namespace NativeH3VR.GraphicsUpgrade
             internal FadePass(Material material)
             {
                 this.material = material;
-                // The stock fade is drawn into scene color before grading.
-                renderPassEvent = RenderPassEvent.BeforeRenderingPostProcessing - 1;
+                // A view fade covers the composed scene. Final resolve and output encoding still
+                // run, but player exposure, bloom and tone mapping must not tint the overlay.
+                renderPassEvent = RenderPassEvent.AfterRenderingPostProcessing;
             }
 
             internal bool Prepare(Valve.VR.SteamVR_Fade component)
