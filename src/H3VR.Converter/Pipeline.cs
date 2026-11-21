@@ -325,6 +325,9 @@ public sealed partial class Pipeline(string repository, ConversionConfig config)
                 int signBindings = LegacySignTextureMips.Stage(config.GameData, assets, classDatabase);
                 if (signBindings > 0)
                     Console.WriteLine($"Preserved stock BC3 mip chains for {signBindings} stock sign and warning bindings.");
+                int cubemapBindings = LegacyMaterialCubemaps.Stage(config.GameData, assets, classDatabase);
+                if (cubemapBindings > 0)
+                    Console.WriteLine($"Preserved stock compressed faces for {cubemapBindings} material cubemap bindings.");
             }
             LocalAssets.Stage(config, candidate);
             var convexJournal = await LegacyConvexAssetMigration.StageAsync(repository, config, candidate, cancellation);

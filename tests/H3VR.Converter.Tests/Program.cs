@@ -306,6 +306,7 @@ cases.AddRange(ShaderRecoveryTests.Cases());
 cases.AddRange(ShaderKeywordTests.Cases());
 cases.AddRange(LegacyNormalDecodingTests.Cases());
 cases.AddRange(LegacyPackedTextureDataTests.Cases());
+cases.AddRange(LegacyMaterialCubemapsTests.Cases());
 cases.AddRange(CliTests.Cases());
 cases.AddRange(ApplicationTests.Cases());
 cases.AddRange(PublicationTests.Cases());
