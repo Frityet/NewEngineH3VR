@@ -193,17 +193,17 @@ namespace NativeH3VR.QA
             }
 
             Require(!File.Exists(settingsPath) && preset.text == "Balanced" && renderScale.text == "100%" &&
-                    exposure.text == "+0.25 EV",
-                "A fresh state directory did not start at Balanced, 100% and +0.25 EV");
+                    exposure.text == "0 EV" && tonemapping.text == "Game",
+                "Balanced did not start with the scene's own grading at 100% and 0 EV compensation");
             Physics.SyncTransforms();
             TriggerArrow(nativePage, hand, "Preset", "Next");
-            Require(preset.text == "Quality" && exposure.text == "+0.5 EV" && tonemapping.text == "Neutral",
-                "The preset arrow did not select Quality with Neutral tone mapping and +0.5 EV");
+            Require(preset.text == "Quality" && exposure.text == "0 EV" && tonemapping.text == "Game",
+                "Quality did not retain the scene's own grading at 0 EV compensation");
             TriggerArrow(nativePage, hand, "RenderScale", "Next");
             Require(renderScale.text == "115%" && preset.text == "Custom",
                 "The render-scale arrow did not select Custom at 115%");
             TriggerArrow(nativePage, hand, "Exposure", "Next");
-            Require(exposure.text == "+0.75 EV", "The exposure arrow did not change the compensation");
+            Require(exposure.text == "+0.25 EV", "The exposure arrow did not change the compensation");
 
             foreach (string setting in new[]
             {
@@ -218,7 +218,7 @@ namespace NativeH3VR.QA
                 TriggerArrow(nativePage, hand, setting, "Previous");
                 Require(value.text == original, $"The {setting} previous arrow did not restore {original}");
             }
-            TriggerArrow(nativePage, hand, "Tonemapping", "Next");
+            TriggerArrow(nativePage, hand, "Tonemapping", "Previous");
             Require(tonemapping.text == "ACES", "The tone mapping arrow did not select ACES");
 
             var back = quality.Find("Canvas/Button_Back (3)").GetComponent<Button>();
@@ -239,7 +239,7 @@ namespace NativeH3VR.QA
             Require(!quality.gameObject.activeInHierarchy, "Stock Back did not return to options navigation");
             graphics.Button.onClick.Invoke();
             Require(nativePage.gameObject.activeInHierarchy && renderScale.text == "115%" &&
-                    preset.text == "Custom" && exposure.text == "+0.75 EV",
+                    preset.text == "Custom" && exposure.text == "+0.25 EV",
                 "Reopening Graphics Options lost the selected settings");
             Require(File.Exists(settingsPath), "Graphics controls did not write to isolated launcher state");
             File.WriteAllText(expectedPath, renderScale.text);

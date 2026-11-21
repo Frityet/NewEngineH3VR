@@ -85,7 +85,7 @@ namespace NativeH3VR.GraphicsUpgrade
             Move(screen.OBS_Custom_MSAA, gamePage);
             Move(screen.OBS_Custom_TextureFiltering, gamePage);
             Move(screen.OBS_Custom_ParticleFXColQuality, gamePage);
-            Move(screen.OBS_Post_CC, superseded);
+            Move(screen.OBS_Post_CC, gamePage);
             Move(screen.OBS_Post_Bloom, superseded);
             Move(screen.OBS_Post_AO, superseded);
             Move(screen.OBS_Custom_Shadows, superseded);

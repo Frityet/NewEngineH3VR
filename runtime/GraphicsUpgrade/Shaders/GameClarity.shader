@@ -13,6 +13,7 @@ Shader "Hidden/NativeH3VR/PlayerView"
         HLSLINCLUDE
         #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
         #include "Packages/com.unity.render-pipelines.core/Runtime/Utilities/Blit.hlsl"
+        #include "StockColorGrading.hlsl"
 
         TEXTURE2D_X(_H3VRGlowTexture);
         float4 _H3VRLook; // bloom strength, sharpening strength, tone curve, bloom threshold
@@ -69,7 +70,8 @@ Shader "Hidden/NativeH3VR/PlayerView"
             }
             // Apply exposure to the composed linear color without moving the bloom threshold.
             color *= _H3VRExposure;
-            if (_H3VRLook.z > 1.5) color = AcesTonemap(unity_to_ACES(color));
+            if (_H3VRLook.z > 2.5) color = ApplyStockColorGrading(color);
+            else if (_H3VRLook.z > 1.5) color = AcesTonemap(unity_to_ACES(color));
             else if (_H3VRLook.z > 0.5) color = NeutralTonemap(color);
             return half4(color, center.a);
         }

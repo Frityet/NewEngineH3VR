@@ -12,7 +12,7 @@ The default graphics-upgrade workspace is `.local/workspace-graphics-upgrade`. S
 
 ## Graphics Options
 
-Open **Graphics Options** from the game’s options panel. **Balanced** is the initial preset. Changing a value applies it immediately, updates the displayed preset and saves your choices across launches. **Game Settings** opens the stock controls for game quality, texture filtering, particle collisions and scope MSAA.
+Open **Graphics Options** from the game’s options panel. **Balanced** is the initial preset. Changing a value applies it immediately, updates the displayed preset and saves your choices across launches. **Game Settings** opens the stock controls for game quality, scene color grading, texture filtering, particle collisions and scope MSAA.
 
 The launcher saves the graphics choices in `graphics-options.json` inside its `--state-dir`. Each new state directory starts with Balanced. Direct player launches use Unity’s player preferences.
 
@@ -26,13 +26,13 @@ The launcher saves the graphics choices in `graphics-options.json` inside its `-
 | HDR rendering | Off | On | On |
 | Bloom | Off | Subtle | Full |
 | Sharpening | Off | Low | Low |
-| Exposure | 0 EV | +0.25 EV | +0.5 EV |
-| Tone mapping | Off | Neutral | Neutral |
+| Exposure compensation | 0 EV | 0 EV | 0 EV |
+| Tone mapping | Off | Game | Game |
 | Ambient occlusion | Off | Off | On |
 
 Render scale ranges from 70% to 130% of the output dimensions. On MacVR the compositor continues to receive the headset’s requested eye size and projection. HDR controls the scene color buffer. Bloom, tone mapping and ambient occlusion can each be disabled independently. Exposure ranges from −1 to +1 EV in quarter-stop steps. Saves from before the exposure setting use 0 EV until you change exposure or select a preset.
 
-ACES is available under Tone mapping. Saved ACES settings are kept, including former Quality settings that now appear as Custom. Select Quality again to apply the current preset.
+**Game** follows the active scene's authored color grading and the stock color-grading switch. Northest Dakota uses Neutral with +0.8 EV. Other scenes have their own curves, exposure and color adjustments. Exposure adds compensation to the selected look. Selecting **Neutral**, **ACES** or **Off** overrides the scene grade. Existing custom choices retain their exposure and tone curve. A saved preset uses its updated defaults.
 
 ## Rendering
 
@@ -109,9 +109,9 @@ When the two phases come from different sessions, create both a `take` and a `ho
 
 The analysis checks the active renderer, gameplay phase, objective, both submitted eyes and headset pose. It pools the original timing samples for each map, phase and renderer into CSV and JSON. The live NPC counts, individual route timings and scene poses stay available in the JSON. Delivered frequency measures completed synthetic stereo pairs over scheduled display time.
 
-The earlier comparison below used a version in which Northest Dakota's original `Alloy/Weighted Blend` snow lost the shadows from a supply container, cover and a tree under URP. The shader migration now applies the URP main-light shadow to the recovered direct-light term. An isolated Metal test used the level's original snow material, textures and terrain mesh. In the same caster test, the corrected shader darkened 1,979 pixels and the previous shader darkened zero. The table retains its original measurements.
+Northest Dakota's original weighted-blend snow receives shadows from the supply container, cover and trees in URP. In a fixed-caster test with the original terrain mesh and materials, the corrected shader darkened 1,979 pixels. The earlier conversion darkened zero.
 
-The third tested Institution route has a dark corridor at the first Hold. In a fixed-pose check using the former Quality preset, changing only tone mapping from ACES to Neutral reduced the near-black area from 96% to 49% of each submitted eye. The ACES repeat reproduced both eye images byte for byte. Quality now selects Neutral with 4× MSAA, high shadows, ambient occlusion and +0.5 EV. The measurements below use the former preset.
+Institution uses its own scene color profile. In an earlier Quality test, a custom Neutral curve retained more shadow detail than ACES on the same camera pose. Balanced and Quality now follow the game’s active profile by default. The Graphics Options tone-mapping control can override it.
 
 ### Measured Take & Hold results
 

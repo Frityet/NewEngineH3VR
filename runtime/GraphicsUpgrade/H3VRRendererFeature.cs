@@ -43,6 +43,9 @@ namespace NativeH3VR.GraphicsUpgrade
                 internal TextureHandle source;
                 internal Material material;
                 internal int pass;
+                internal Vector4 look;
+                internal float exposure;
+                internal StockColorGrading.Binding grading;
             }
 
             internal CompositionPass()
@@ -55,6 +58,15 @@ namespace NativeH3VR.GraphicsUpgrade
             {
                 var resources = frameData.Get<UniversalResourceData>();
                 if (resources.isActiveTargetBackBuffer) return;
+                var camera = frameData.Get<UniversalCameraData>();
+                StockColorGrading.Binding grading = default;
+                int tone = GraphicsOptions.Tone;
+                if (GraphicsOptions.UseStockGrading && !StockColorGrading.TryGetBinding(camera.camera, out grading))
+                    tone = 0;
+                var look = new Vector4(GraphicsOptions.Glow, GraphicsOptions.Sharpness, tone,
+                    GraphicsOptions.Hdr ? 1.05f : 0.82f);
+                float exposure = Mathf.Pow(2f, GraphicsOptions.ExposureStops);
+                if (look.x == 0 && look.y == 0 && tone == 0 && exposure == 1) return;
                 var source = resources.activeColorTexture;
                 var desc = graph.GetTextureDesc(source);
                 // The color attachment can be multisampled, but filters consume its resolved color.
@@ -65,15 +77,11 @@ namespace NativeH3VR.GraphicsUpgrade
                 desc.filterMode = FilterMode.Bilinear;
                 desc.name = "H3VR composed color";
                 var result = graph.CreateTexture(desc);
-                bool bloom = GraphicsOptions.Glow > 0;
-                Material.SetVector(Look, new Vector4(GraphicsOptions.Glow, GraphicsOptions.Sharpness,
-                    GraphicsOptions.Tone, GraphicsOptions.Hdr ? 1.05f : 0.82f));
-                Material.SetFloat(Exposure, Mathf.Pow(2f, GraphicsOptions.ExposureStops));
+                bool bloom = look.x > 0;
 
                 if (bloom)
                 {
                     // One sixteenth as many pixels. Preserve texture-array slices for single-pass XR.
-                    var camera = frameData.Get<UniversalCameraData>();
                     desc.sizeMode = TextureSizeMode.Explicit;
                     desc.width = Mathf.Max(1, (camera.cameraTargetDescriptor.width + 3) / 4);
                     desc.height = Mathf.Max(1, (camera.cameraTargetDescriptor.height + 3) / 4);
@@ -81,6 +89,7 @@ namespace NativeH3VR.GraphicsUpgrade
                     var highlights = graph.CreateTexture(desc);
                     using var extract = graph.AddRasterRenderPass<Draw>("H3VR | Extract highlights", out var data);
                     SetDraw(extract, data, source, highlights, 0);
+                    data.look = look;
                     extract.SetGlobalTextureAfterPass(highlights, GlowTexture);
                 }
 
@@ -88,6 +97,9 @@ namespace NativeH3VR.GraphicsUpgrade
                 {
                     if (bloom) combine.UseGlobalTexture(GlowTexture);
                     SetDraw(combine, data, source, result, bloom ? 2 : 1);
+                    data.look = look;
+                    data.exposure = exposure;
+                    data.grading = grading;
                 }
                 resources.cameraColor = result;
             }
@@ -100,7 +112,15 @@ namespace NativeH3VR.GraphicsUpgrade
                 builder.UseTexture(source);
                 builder.SetRenderAttachment(target, 0, AccessFlags.WriteAll);
                 builder.SetRenderFunc(static (Draw data, RasterGraphContext context) =>
-                    Blitter.BlitTexture(context.cmd, data.source, Identity, data.material, data.pass));
+                {
+                    data.material.SetVector(Look, data.look);
+                    if (data.pass == 1 || data.pass == 2)
+                    {
+                        data.material.SetFloat(Exposure, data.exposure);
+                        if (data.look.z > 2.5f) data.grading.Apply(data.material);
+                    }
+                    Blitter.BlitTexture(context.cmd, data.source, Identity, data.material, data.pass);
+                });
             }
         }
     }

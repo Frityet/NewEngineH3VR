@@ -99,6 +99,12 @@ The URP Stock PBR shader preserves the packed Alloy channels, the roughness of t
 
 A spotlight in Indoor Range and a green glow stick gave separate checks on the recovered light falloff. At the original distances of 1.91 m and 0.51 m, their mean absolute luminance errors fell from 68.31 to 2.45 and from 78.77 to 1.16 levels. Turning off each light supplied a dark reference for that capture.
 
+### Transparent particles and thermal replacement
+
+The Steam vertex-lit particle shader uses vertex alpha, the original texture and a transparent blend. Five smoke, dust and crate materials used an opaque shader after the original URP conversion. On the real crate emitter the Steam shader covered 922 pixels of a 64 × 64 target, and the opaque conversion filled all 4,096. The authored URP particle shader covered 926 pixels, matching the 6.7 Built-in result. Run the graphics test with `--vertex-particles` to repeat the check against a converted player.
+
+The thermal camera also depends on the material's effective `RenderType`. The stock holly wreath resolves to Opaque at queue 2450 despite alpha-testing its visible fronds. Unity 6.7's default tag changed the thermal silhouette from 77,186 pixels to 55,316 in a fixed rear view. Preserving the Steam default recovered the original coverage in both pipelines. Materials with explicit overrides retain their own tags.
+
 ### Texture channels
 
 Some opaque materials store roughness or masks in texture alpha. Unity's transparent-colour dilation can then overwrite visible colour in texels whose alpha happens to be zero. On the Friendly 45 pine, the original material's median RGB was (15, 14, 11). Reimport with dilation produced (95, 100, 56). Preserving the original colour gave (14, 15, 11). The converter identifies the verified material and texture usages before configuring the importer.

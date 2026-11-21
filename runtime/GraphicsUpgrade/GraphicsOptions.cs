@@ -19,6 +19,7 @@ namespace NativeH3VR.GraphicsUpgrade
         const string Preference = "NativeH3VR.URP.Graphics.v1";
         const string PreferenceFile = "graphics-options.json";
         const int NeutralExposureIndex = 4;
+        const int GameGrading = 3;
         static readonly string[] Labels =
         {
             "Preset", "Render scale", "Anti-aliasing", "Shadow distance", "Shadow detail",
@@ -33,7 +34,7 @@ namespace NativeH3VR.GraphicsUpgrade
             new[] { "Off", "Low", "Medium", "High" },
             new[] { "0", "2", "4", "8" },
             new[] { "Off", "On" }, new[] { "Off", "Subtle", "Full" },
-            new[] { "Off", "Low", "Medium", "High" }, new[] { "Off", "Neutral", "ACES" },
+            new[] { "Off", "Low", "Medium", "High" }, new[] { "Off", "Neutral", "ACES", "Game" },
             new[] { "Off", "On" },
             new[] { "-1 EV", "-0.75 EV", "-0.5 EV", "-0.25 EV", "0 EV", "+0.25 EV", "+0.5 EV", "+0.75 EV", "+1 EV" }
         };
@@ -44,8 +45,13 @@ namespace NativeH3VR.GraphicsUpgrade
         {
             // Scale, MSAA, distance, detail, lights, HDR, bloom, sharpen, tone, AO, exposure
             new[] { 1, 0, 0, 1, 1, 0, 0, 0, 0, 0, NeutralExposureIndex },
+            new[] { 2, 1, 1, 2, 2, 1, 1, 1, GameGrading, 0, NeutralExposureIndex },
+            new[] { 2, 2, 2, 3, 3, 1, 2, 1, GameGrading, 1, NeutralExposureIndex }
+        };
+        static readonly int[][] PreviousPresets =
+        {
+            new[] { 1, 0, 0, 1, 1, 0, 0, 0, 0, 0, 4 },
             new[] { 2, 1, 1, 2, 2, 1, 1, 1, 1, 0, 5 },
-            // The Neutral curve preserves more low-light detail in the game's baked interiors.
             new[] { 2, 2, 2, 3, 3, 1, 2, 1, 1, 1, 6 }
         };
 
@@ -103,6 +109,12 @@ namespace NativeH3VR.GraphicsUpgrade
 
                 var saved = JsonUtility.FromJson<SavedOptions>(json);
                 if (saved?.values == null) return;
+                for (int i = 0; i < PreviousPresets.Length; i++)
+                    if (saved.values.AsSpan().SequenceEqual(PreviousPresets[i]))
+                    {
+                        values = (int[])Presets[i].Clone();
+                        return;
+                    }
                 // Existing saves used zero compensation, including with their tone curve enabled.
                 values[(int)GraphicsSetting.Exposure - 1] = NeutralExposureIndex;
                 for (int i = 0; i < Math.Min(values.Length, saved.values.Length); i++)
@@ -168,6 +180,7 @@ namespace NativeH3VR.GraphicsUpgrade
         internal static float Glow => GetIndex(GraphicsSetting.Bloom) * 0.12f;
         internal static float Sharpness => GetIndex(GraphicsSetting.Sharpening) * 0.18f;
         internal static int Tone => GetIndex(GraphicsSetting.Tonemapping);
+        internal static bool UseStockGrading => Tone == GameGrading;
         internal static bool Occlusion => GetIndex(GraphicsSetting.AmbientOcclusion) != 0;
         internal static float ExposureStops => (GetIndex(GraphicsSetting.Exposure) - NeutralExposureIndex) * 0.25f;
 
