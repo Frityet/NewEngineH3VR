@@ -62,7 +62,7 @@ On an Apple M5 Max with synthetic MacVR, the optimized built-in player reached s
 
 ## Performance in stock scenes
 
-Both signed macOS players were measured at 1440 × 1600 per eye and 90 Hz on the M5 Max, with the same simulated headset pose in each scene. The table gives median CPU time in milliseconds for rendering both eyes and scheduling submission.
+These initial menu and range measurements used signed macOS players before the scene-grading and specular-filtering updates. They used 1440 × 1600 per eye and a 90 Hz target on the M5 Max, with the same simulated headset pose in each scene. The table gives median CPU time in milliseconds for rendering both eyes and scheduling submission.
 
 | Scene | Optimized built-in | URP Performance | URP Balanced | URP Quality |
 | --- | ---: | ---: | ---: | ---: |
