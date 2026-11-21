@@ -61,6 +61,8 @@ internal static class LegacyPackedTextureDataTests
         const string stock = "25fd9307a0847d644aa971888b915ff0";
         const string derived = "63a14f95b23c4a0e0b8ad8b62049063ae";
         const string shader = "a93930d1adfa66c45b9aa2fd5bf93c02";
+        const string freshShader = "d12b9bfbcba0c2948b8865b31e7d9a32";
+        const string freshStock = "279548c8ba733bf4d847d5817222ae7c";
         string source = $$"""
             Material:
               m_Name: TAH_TouchToBegin
@@ -73,10 +75,14 @@ internal static class LegacyPackedTextureDataTests
                     m_Offset: {x: 0, y: 0}
             """.ReplaceLineEndings("\r\n");
         string expected = source.Replace(stock + ", type: 3", derived + ", type: 2", StringComparison.Ordinal);
-        if (LegacySignTextureMips.RewriteBinding(source, "TAH_TouchToBegin", stock, derived) != expected)
+        if (LegacySignTextureMips.RewriteBinding(source, "TAH_TouchToBegin", stock, derived, new HashSet<string> { shader }) != expected)
             throw new Exception("Rebinding changed more than the original main texture reference.");
+        string fresh = source.Replace(shader, freshShader).Replace(stock, freshStock);
+        if (LegacySignTextureMips.RewriteBinding(fresh, "TAH_TouchToBegin", freshStock, derived,
+                new HashSet<string> { freshShader }) != expected.Replace(shader, freshShader))
+            throw new Exception("Rebinding depends on the prior extraction GUIDs.");
         foreach (string unrelated in new[] { expected, source.Replace(shader, stock), source.Replace("_MainTex", "_SpecTex") })
-            if (LegacySignTextureMips.RewriteBinding(unrelated, "TAH_TouchToBegin", stock, derived) is not null)
+            if (LegacySignTextureMips.RewriteBinding(unrelated, "TAH_TouchToBegin", stock, derived, new HashSet<string> { shader }) is not null)
                 throw new Exception("The sign migration accepted an unrelated binding.");
     }
 
