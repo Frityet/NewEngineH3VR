@@ -54,7 +54,20 @@ namespace NativeH3VR.QA
             {
                 var options = Type.GetType("NativeH3VR.GraphicsUpgrade.GraphicsOptions, NativeH3VR.GraphicsUpgrade", true);
                 var setting = Type.GetType("NativeH3VR.GraphicsUpgrade.GraphicsSetting, NativeH3VR.GraphicsUpgrade", true);
-                options.GetMethod("SetIndex").Invoke(null, new[] { Enum.Parse(setting, "Preset"), (object)preset });
+                var presetKey = Enum.Parse(setting, "Preset");
+                options.GetMethod("SetIndex").Invoke(null, new[] { presetKey, (object)preset });
+                var getIndex = options.GetMethod("GetIndex");
+                var choiceLabel = options.GetMethod("ChoiceLabel");
+                var resolved = (int)getIndex.Invoke(null, new[] { presetKey });
+                Require(resolved == preset, "The active T&H graphics preset did not match " + variant);
+                var choices = new Dictionary<string, string>();
+                foreach (var key in Enum.GetValues(setting))
+                {
+                    var index = getIndex.Invoke(null, new[] { key });
+                    choices.Add(key.ToString(), (string)choiceLabel.Invoke(null, new[] { key, index }));
+                }
+                File.WriteAllText(Path.Combine(output, "graphics-selection.json"), JsonConvert.SerializeObject(
+                    new { preset = resolved, mode = variant, choices }, Formatting.Indented));
             }
 
             const string lobby = "TakeAndHold_Lobby_2";
