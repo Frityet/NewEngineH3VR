@@ -155,6 +155,13 @@ The witness freezes game time after the opening Take measurement. It marks each 
 
 In the earlier Balanced player, marking each group covered its entire reference crop. The container bound Alloy/Oriented/Blend. The distant mountain bound Alloy/Core with a decal. A separate mask on all 996 renderers using the nearby CynCliff material covered zero pixels in the distant mountain crop.
 
+For the live snow shadow regression, use pose-matched Northest profile captures at 1440 × 1600 per eye. The Built-in reference and URP candidate must use the same sequence seed and observer pose. Seed 0 checks the opening cargo shadow. Seed 1 also checks the first Hold tree shadow. The report records both eyes, the footprint and adjacent lit snow, and hashes of the source images.
+
+```sh
+uv run tests/ShaderParity/check_northest_snow.py "$BUILTIN_CAPTURE" "$URP_CAPTURE" \
+  --seed 1 --mode balanced --out "$SNOW_JSON"
+```
+
 ## Game cameras and view fades
 
 The stock handheld thermal camera and T7 use the game's picture-in-picture camera to select a replacement shader. The URP conversion builds its opaque, cutout and transparent programs from the locally recovered Steam shader. A thermal camera draws the applicable replacement with each object's own material properties. The effective `RenderType` of the original material selects the program, including materials that override their shader's tag.
