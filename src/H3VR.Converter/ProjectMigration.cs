@@ -90,8 +90,11 @@ public sealed class ProjectMigration(ConversionConfig config, string candidate)
             }
         }
         AddBuiltInUguiBindings(bindings, bindingRows, dlls, assemblyTypes, originalTypes);
-        var shaderOverlay = ApplyShaderOverlay(root, assets, out var computeGuids, out var hdrColors);
+        var shaderOverlay = ApplyShaderOverlay(root, assets, out var computeGuids, out var hdrColors, out var dataAlphaShaders);
         var hdrMaterials = LegacyHdrMaterials.Apply(config, root, assets, hdrColors);
+        int preservedAlphaTextures = LegacyTextureAlpha.Apply(assets, dataAlphaShaders);
+        if (preservedAlphaTextures > 0)
+            Console.WriteLine($"Preserved stock RGB in {preservedAlphaTextures} data-alpha textures.");
         var recoveredGuids = recovered.Select(r => r.Guid).Where(g => !string.IsNullOrEmpty(g)).ToHashSet(StringComparer.Ordinal);
         var referenceCounts = new Dictionary<string, int>(); var unresolved = new HashSet<string>();
         foreach (var path in SafeFiles.Files(assets).Where(IsUnitySerializedText))
@@ -395,10 +398,11 @@ public sealed class ProjectMigration(ConversionConfig config, string candidate)
     }
 
     private string ApplyShaderOverlay(string root, string assets, out HashSet<string> computeGuids,
-        out Dictionary<string, HashSet<string>> hdrColors)
+        out Dictionary<string, HashSet<string>> hdrColors, out Dictionary<string, string> dataAlphaShaders)
     {
         computeGuids = [];
         hdrColors = new(StringComparer.OrdinalIgnoreCase);
+        dataAlphaShaders = new(StringComparer.OrdinalIgnoreCase);
         if (config.ShaderSources is null) return "not configured";
         var overlayRoot = Path.GetFullPath(config.ShaderSources); if (!Directory.Exists(overlayRoot)) throw new DirectoryNotFoundException("ShaderSources directory does not exist.");
         SafeFiles.RequireSeparate(overlayRoot, root); RejectLinks(overlayRoot);
@@ -430,6 +434,7 @@ public sealed class ProjectMigration(ConversionConfig config, string candidate)
             {
                 var hdrProperties = LegacyHdrMaterials.ReadHdrColorProperties(content);
                 if (hdrProperties.Length != 0) hdrColors.Add(guid, hdrProperties.ToHashSet(StringComparer.Ordinal));
+                if (LegacyTextureAlpha.ReadDataShader(content) is { } dataShader) dataAlphaShaders.Add(guid, dataShader);
             }
             var targetMeta = destination + ".meta";
             if (File.Exists(targetMeta))

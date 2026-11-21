@@ -22,6 +22,7 @@ public static class ProjectMigrationTests
         yield return ("missing referenced controller bindings fail closed", MissingSteamVrBinding);
         yield return ("shader overlay rejects dummy exports", RejectDummyShader);
         yield return ("graphics overlay verifies each recovered shader and its generated includes", VerifyGraphicsShaders);
+        yield return ("stock RGB is preserved for exclusive opaque data-alpha uses", PreserveDataAlphaRgb);
         foreach (var target in new[] { "StandaloneOSX", "StandaloneWindows64", "StandaloneLinux64" })
             yield return ($"{target} converts stock HDR colors and preserves authored materials", () => MigrateHdrMaterials(target));
         foreach (var stockHdr in LegacyDynamicHdrMaterialsTests.Cases()) yield return stockHdr;
@@ -29,6 +30,71 @@ public static class ProjectMigrationTests
         yield return ("integration applies a hash-pinned OpenXR provider", ApplyIntegration);
         yield return ("integration rejects traversal and hash mismatch", RejectUnsafeIntegration);
         yield return ("macOS player puts Steam and FMOD libraries directly in PlugIns", PlaceMacPlayerLibraries);
+    }
+
+    private static void PreserveDataAlphaRgb()
+    {
+        using var f = new Fixture();
+        const string alloy = "76d7d27bf46448744b5deb4484aaa8ec";
+        const string pine = "85543bfddcf8c824c915d07a065342d1";
+        const string prototyping = "1e94baccfd73a4142bb746e61dcf1c7a";
+        const string ao = "66666666666666666666666666666666";
+        const string detail = "77777777777777777777777777777777";
+        const string packed = "11111111111111111111111111111111";
+        const string shared = "22222222222222222222222222222222";
+        const string direct = "33333333333333333333333333333333";
+        const string cutout = "44444444444444444444444444444444";
+        const string unknown = "55555555555555555555555555555555";
+
+        string Importer(string guid) => $"""
+            fileFormatVersion: 2
+            guid: {guid}
+            TextureImporter:
+              alphaUsage: 1
+              alphaIsTransparency: 1
+              textureType: 0
+            """.ReplaceLineEndings("\r\n");
+        string Material(string shader, string keywords, int mode, string slot, string texture) => $$"""
+            Material:
+              m_Shader: {fileID: 4800000, guid: {{shader}}, type: 3}
+              m_ShaderKeywords: {{keywords}}
+              m_CustomRenderQueue: -1
+              m_SavedProperties:
+                m_TexEnvs:
+                  {{slot}}:
+                    m_Texture: {fileID: 2800000, guid: {{texture}}, type: 3}
+                m_Floats:
+                  _Mode: {{mode}}
+                  _SrcBlend: 1
+                  _DstBlend: 0
+                  _Glossiness: 0.5
+            """.ReplaceLineEndings("\r\n");
+        const string roughness = "_SMOOTHNESS_TEXTURE_ALBEDO_CHANNEL_A";
+        f.WriteCandidate("Assets/Material/Pine.mat", Material(alloy, roughness, 0, "_MainTex", pine));
+        f.WriteCandidate("Assets/Material/Packed.mat", Material(alloy, "", 0, "_SpecTex", packed));
+        f.WriteCandidate("Assets/Material/Ambient.mat", Material(prototyping, "", 0, "_AoMap", ao));
+        f.WriteCandidate("Assets/Material/Detail.mat", Material(alloy, "_DETAIL_MULX2", 0, "_DetailAlbedoMap", detail));
+        f.WriteCandidate("Assets/Material/Shared.mat", Material(alloy, roughness, 0, "_MainTex", shared));
+        f.WriteCandidate("Assets/Material/OtherUse.mat", Material(alloy, "_ALPHATEST_ON", 1, "_MainTex", shared));
+        f.WriteCandidate("Assets/Material/Cutout.mat", Material(alloy, "_ALPHATEST_ON " + roughness, 0, "_MainTex", cutout));
+        f.WriteCandidate("Assets/Material/Unknown.mat", Material(unknown, roughness, 0, "_MainTex", unknown));
+        f.WriteCandidate("Assets/Material/Direct.mat", Material(alloy, "", 0, "_SpecTex", direct));
+        f.WriteCandidate("Assets/UI.prefab", $"  m_Sprite: {{fileID: 21300000, guid: {direct}, type: 3}}");
+        string[] textures = [pine, packed, ao, detail, shared, direct, cutout, unknown];
+        foreach (string guid in textures)
+            f.WriteCandidate($"Assets/Texture2D/{guid}.png.meta", Importer(guid));
+
+        string assets = Path.Combine(f.Candidate, "Assets");
+        var shaders = new Dictionary<string, string> { [alloy] = "Alloy/Core", [prototyping] = "Alloy/Prototyping" };
+        Check(LegacyTextureAlpha.Apply(assets, shaders) == 4, "expected the exclusive opaque albedo, packed, detail, and occlusion textures");
+        foreach (string guid in textures)
+        {
+            string expected = Importer(guid);
+            if (guid is pine or packed or ao or detail) expected = expected.Replace("alphaIsTransparency: 1", "alphaIsTransparency: 0");
+            Check(File.ReadAllText(Path.Combine(assets, "Texture2D", guid + ".png.meta")) == expected,
+                "unexpected importer changes for " + guid);
+        }
+        Check(LegacyTextureAlpha.Apply(assets, shaders) == 0, "data-alpha migration must be idempotent");
     }
 
     private static void DuplicateSceneGuids()
