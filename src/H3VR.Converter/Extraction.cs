@@ -9,7 +9,7 @@ public sealed partial class Pipeline
         {
             "src/H3VR.Converter/Extraction.cs", "src/H3VR.Converter/AssetRipperIntegration.cs",
             "src/H3VR.Converter/SafeFiles.cs",
-            "src/H3VR.Converter/Publication.cs", "src/H3VR.Converter/H3VR.Converter.csproj",
+            "src/H3VR.Converter/H3VR.Converter.csproj",
             ".gitmodules"
         })
         {

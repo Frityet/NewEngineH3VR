@@ -41,7 +41,7 @@ public static class Publication
                 if (path == ".gitmodules")
                 {
                     hasModules = true;
-                    if (!ApprovedModules(content)) failures.Add(".gitmodules: only the pinned public AssetRipper submodule is allowed");
+                    if (!AssetRipperIntegration.ApprovedModules(content)) failures.Add(".gitmodules: only the pinned public AssetRipper submodule is allowed");
                 }
             }
             catch (DecoderFallbackException) { failures.Add(path + ": binary content"); }
@@ -51,16 +51,6 @@ public static class Publication
         foreach (var failure in failures) Console.Error.WriteLine(failure);
         Console.WriteLine($"Publication: {count} staged files, {failures.Count} violations. New source requires provenance review.");
         return failures.Count == 0 ? 0 : 1;
-    }
-    internal static bool ApprovedModules(string content)
-    {
-        var lines = content.Split('\n').Select(line => line.Trim()).Where(line => line.Length != 0).ToArray();
-        return lines.SequenceEqual(new[]
-        {
-            $"[submodule \"{AssetRipperIntegration.SubmodulePath}\"]",
-            "path = " + AssetRipperIntegration.SubmodulePath,
-            "url = " + AssetRipperIntegration.UpstreamUrl
-        }, StringComparer.Ordinal);
     }
     public static bool Allowed(string path)
     {

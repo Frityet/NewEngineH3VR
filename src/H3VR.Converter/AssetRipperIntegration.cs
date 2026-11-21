@@ -191,11 +191,21 @@ public static class AssetRipperIntegration
 
     private static string HashFile(string path) => SafeFiles.Hash(path);
 
+    internal static bool ApprovedModules(string content)
+    {
+        var lines = content.Split('\n').Select(line => line.Trim()).Where(line => line.Length != 0).ToArray();
+        return lines.SequenceEqual(new[]
+        {
+            $"[submodule \"{AssetRipperIntegration.SubmodulePath}\"]",
+            "path = " + AssetRipperIntegration.SubmodulePath,
+            "url = " + AssetRipperIntegration.UpstreamUrl
+        }, StringComparer.Ordinal);
+    }
     private static void ValidateSubmoduleMetadata(string repository)
     {
         var gitmodules = Path.Combine(repository, ".gitmodules");
         if (!File.Exists(gitmodules)) throw new InvalidDataException("The checkout is missing .gitmodules for the pinned AssetRipper source.");
-        if (!Publication.ApprovedModules(File.ReadAllText(gitmodules)))
+        if (!ApprovedModules(File.ReadAllText(gitmodules)))
             throw new InvalidDataException($"Expected {SubmodulePath} to use the pinned public source {UpstreamUrl}; refusing altered submodule metadata.");
     }
 

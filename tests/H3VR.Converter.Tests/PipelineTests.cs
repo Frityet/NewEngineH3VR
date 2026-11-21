@@ -286,6 +286,10 @@ public static class PipelineTests
         fixture.CreateUnityInputs();
         var pipeline = new Pipeline(fixture.Repository, fixture.Config() with { RecoveredProject = null });
         var previousExtract = pipeline.FingerprintForTests("extract");
+        var publication = Path.Combine(fixture.Repository, "src/H3VR.Converter/Publication.cs");
+        Directory.CreateDirectory(Path.GetDirectoryName(publication)!);
+        File.WriteAllText(publication, "// An unrelated public file allowlist changed.");
+        Check(pipeline.FingerprintForTests("extract") == previousExtract, "publication path rules invalidated Steam extraction");
         var previousProject = pipeline.FingerprintForTests("project");
         var mirror = fixture.Repository + "-mirror";
         SafeFiles.CopyTree(fixture.Repository, mirror);
