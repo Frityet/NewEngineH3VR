@@ -64,7 +64,7 @@ public static class Publication
             "tests/ShaderParity/inventory.py" or "tests/ShaderParity/player_archive.py" or
             "tests/ShaderParity/compare_baked_lighting.py" or "tests/ShaderParity/compare_material_mips.py" or
             "tests/ShaderParity/compare_swatches.py" or
-            "tests/ShaderParity/cover_pixels.py" or
+            "tests/ShaderParity/cover_pixels.py" or "tests/ShaderParity/check_northest_snow.py" or
             "tests/StockMenuRendering/run.py" or "tests/StockMenuRendering/measure.py" or
             "tests/StockMenuRendering/verify_profiles.py" or "tests/StockMenuRendering/verify_scenes.py")
             return true;
