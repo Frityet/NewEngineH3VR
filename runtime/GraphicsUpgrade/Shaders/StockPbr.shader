@@ -217,6 +217,8 @@ Shader "NativeH3VR/Stock PBR"
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Lighting.hlsl"
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/DistanceFog.hlsl"
 
+            #include "StockPbrLighting.hlsl"
+
             struct StockForwardVaryings
             {
                 float4 positionCS : SV_POSITION;
@@ -285,13 +287,11 @@ Shader "NativeH3VR/Stock PBR"
                 half3 dielectricTint = lerp(1.0h, baseColor.rgb / luminance, _SpecularTint);
                 SurfaceData surface = (SurfaceData)0;
                 surface.specular = min(0.99h, saturate(lerp(dielectric * dielectricTint, baseColor.rgb, metal)));
-                // Alloy weights diffuse by the packed metallic channel. URP's specular
-                // workflow also weights diffuse by reflectivity; cancel that second
-                // factor so partly metallic surfaces keep their stock diffuse response.
-                half diffuseWeight = 1.0h - ReflectivitySpecular(surface.specular);
-                surface.albedo = baseColor.rgb * ((1.0h - metal) / diffuseWeight);
+                // The stock diffuse term is weighted by metallic, independently of F0.
+                surface.albedo = baseColor.rgb * (1.0h - metal);
                 surface.smoothness = 1.0h - saturate(_Roughness * packed.a);
-                surface.occlusion = lerp(1.0h, packed.g, _Occlusion);
+                half ambientMask = packed.g * (packed.g * (packed.g * 0.305306h + 0.6821711h) + 0.0125229h);
+                surface.occlusion = lerp(1.0h, ambientMask, _Occlusion);
                 surface.normalTS = half3(0, 0, 1);
                 surface.alpha = 1.0h;
                 if (_Emission > 0.5)
@@ -306,7 +306,7 @@ Shader "NativeH3VR/Stock PBR"
                 lighting.positionWS = input.positionWS;
                 lighting.positionCS = input.positionCS;
                 lighting.normalWS = StockNormal(input.uv, input.detailUV, detailWeight, input.normalWS, input.tangentWS);
-                lighting.viewDirectionWS = GetWorldSpaceNormalizeViewDir(input.positionWS);
+                lighting.viewDirectionWS = SafeNormalize(_WorldSpaceCameraPos.xyz - input.positionWS);
                 lighting.shadowCoord = TransformWorldToShadowCoord(input.positionWS, false);
                 lighting.normalizedScreenSpaceUV = GetNormalizedScreenSpaceUV(input.positionCS);
                 lighting.preExposureMultiplier = GetPreExposureMultiplier();
@@ -321,8 +321,8 @@ Shader "NativeH3VR/Stock PBR"
                 gi.positionSS = input.positionCS.xy;
                 InitializeBakedGI(gi, lighting.bakedGI, lighting.shadowMask);
 
-                URP_LIGHT_ACCUM4 color = UniversalFragmentPBR(lighting, surface, true, _SpecularHighlights > 0.5,
-                    false, false, true, false, _GlossyReflections > 0.5);
+                URP_LIGHT_ACCUM4 color = StockEvaluateLighting(lighting, surface,
+                    1.0h - surface.smoothness, _SpecularHighlights > 0.5, _GlossyReflections > 0.5);
                 color.rgb = ClampExposed(lighting.preExposureMultiplier * BlendDistanceFog(color.rgb, input.positionCS));
                 return color;
             }
