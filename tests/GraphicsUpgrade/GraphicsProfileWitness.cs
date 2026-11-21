@@ -173,11 +173,14 @@ namespace NativeH3VR.QA
             recordState?.Invoke("begin");
             int firstFrame = Time.frameCount + 1;
             ulong start = stereo.CompletedFrames;
-            float deadline = Time.realtimeSinceStartup + 25f;
+            // Keep the full frame sample even when a live scene takes longer to submit it.
+            float deadline = Time.realtimeSinceStartup + (profile && profilePairs == TakeAndHoldPairs ? 120f : 25f);
             int count = profile ? profilePairs : 10;
             while (stereo.CompletedFrames < start + (ulong)count)
             {
-                Require(Time.realtimeSinceStartup < deadline, "No submitted stereo interval for " + name);
+                if (Time.realtimeSinceStartup >= deadline)
+                    throw new InvalidOperationException(
+                        $"Submitted {stereo.CompletedFrames - start}/{count} stereo pairs before deadline for {name}");
                 if (latest != null)
                 {
                     FrameTimingManager.CaptureFrameTimings();

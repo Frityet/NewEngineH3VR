@@ -50,6 +50,7 @@ def main():
     parser.add_argument("--builtin", action="store_true", help="Profile the original Built-in renderer")
     parser.add_argument("--scene", action="append", default=[], help="Also capture a named stock scene (repeatable)")
     parser.add_argument("--tnh", metavar="MAP", help="Profile one stock Take & Hold map from a fresh session")
+    parser.add_argument("--tnh-take-only", action="store_true", help="Finish after the opening Take capture")
     parser.add_argument("--inspect-cover", action="store_true", help="Diagnose the raised steel cover at the first Hold")
     parser.add_argument("--inspect-take-material", metavar="NAME", action="append", default=[],
                         help="Mark an exact material name or prefix* in the opening Take and capture lighting controls (repeatable)")
@@ -72,6 +73,8 @@ def main():
         parser.error("--preset requires --tnh")
     if args.inspect_cover and not args.tnh:
         parser.error("--inspect-cover requires --tnh")
+    if args.tnh_take_only and (not args.tnh or args.inspect_cover):
+        parser.error("--tnh-take-only requires --tnh and cannot be combined with --inspect-cover")
     if args.inspect_take_material and (not args.tnh or any(
             not name.rstrip("*") or "\n" in name or "*" in name[:-1] for name in args.inspect_take_material)):
         parser.error("--inspect-take-material requires --tnh and a name or prefix with an optional trailing *")
@@ -127,19 +130,25 @@ def main():
                    NATIVEH3VR_GRAPHICS_PROFILE_BUILTIN=str(int(args.builtin)),
                    NATIVEH3VR_GRAPHICS_PROFILE_SCENE=",".join(args.scene),
                    NATIVEH3VR_GRAPHICS_PROFILE_TNH=args.tnh or "",
+                   NATIVEH3VR_GRAPHICS_PROFILE_TNH_TAKE_ONLY=str(int(args.tnh_take_only)),
                    NATIVEH3VR_COVER_WITNESS=str(int(args.inspect_cover)),
                    NATIVEH3VR_TAKE_MATERIALS="\n".join(args.inspect_take_material),
                    NATIVEH3VR_GRAPHICS_PROFILE_TNH_SEED=str(args.tnh_seed or 0),
                    NATIVEH3VR_GRAPHICS_PROFILE_TNH_OBSERVER=str(args.tnh_observer_from.resolve()) if args.tnh_observer_from else "",
                    NATIVEH3VR_GRAPHICS_PROFILE_PRESET=args.preset or "")
-        subprocess.run([*launch, "--log-file", str(out / "profile.log"), "--timeout", "330",
+        timeout = 620 if args.tnh else 330
+        subprocess.run([*launch, "--log-file", str(out / "profile.log"), "--timeout", str(timeout),
                         "--trace-file", str(out / "openxr.csv"), "--unity-profile-file", str(out / "unity.csv")],
                        env=env, check=True)
         if not (out / "profile-complete.txt").is_file():
             raise RuntimeError(f"Graphics profile witness did not complete. Inspect {out / 'profile.log'}")
         frame_windows = sorted(out.glob("*-frames.txt"))
-        if args.tnh and len(frame_windows) != 2:
-            raise RuntimeError("Take & Hold witness must record one opening Take and one first Hold window")
+        if args.tnh:
+            phases = ["take"] if args.tnh_take_only else ["hold", "take"]
+            if len(frame_windows) != len(phases) or any(
+                f"-{phase}-" not in window.name for phase, window in zip(phases, frame_windows)
+            ):
+                raise RuntimeError(f"Take & Hold witness is missing required windows: {', '.join(phases)}")
         for frames in frame_windows:
             timing = frames.with_name(frames.name.removesuffix("-frames.txt") + "-timings.json")
             with timing.open("w") as file:

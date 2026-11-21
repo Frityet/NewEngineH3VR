@@ -115,6 +115,8 @@ namespace NativeH3VR.QA
             string materialNames = Environment.GetEnvironmentVariable("NATIVEH3VR_TAKE_MATERIALS");
             if (!string.IsNullOrEmpty(materialNames))
                 yield return InspectTakeMaterials(scene, variant, preset, materialNames.Split('\n'));
+            if (Environment.GetEnvironmentVariable("NATIVEH3VR_GRAPHICS_PROFILE_TNH_TAKE_ONLY") == "1")
+                yield break;
 
             var marker = hold.SpawnPoints_Turrets[markerIndex];
             var towardNode = hold.GetSystemNodeCoreTransform().position - marker.position;
@@ -124,7 +126,7 @@ namespace NativeH3VR.QA
             UnityEngine.Random.InitState(SimulationSeed);
             hold.TriggerSystemNode();
 
-            float deadline = Time.realtimeSinceStartup + 85f;
+            float deadline = Time.realtimeSinceStartup + 220f;
             while (manager.Phase == TNH_Phase.Take)
             {
                 Require(Time.realtimeSinceStartup < deadline, "The stock node did not initiate first Hold");
@@ -133,8 +135,10 @@ namespace NativeH3VR.QA
             float holdStart = (float)RoundElapsed.GetValue(manager);
             while (Stage(hold) != TNH_HoldPoint.HoldState.Hacking || CountObjectiveNpcs(hold) == 0)
             {
-                Require(manager.Phase == TNH_Phase.Hold && Time.realtimeSinceStartup < deadline,
-                    "First Hold did not reach a live encryption wave");
+                if (manager.Phase != TNH_Phase.Hold || Time.realtimeSinceStartup >= deadline)
+                    throw new InvalidOperationException(
+                        $"First Hold did not reach a live encryption wave: phase {manager.Phase}, stage {Stage(hold)}, " +
+                        $"{CountObjectiveNpcs(hold)} objective NPCs at {(float)RoundElapsed.GetValue(manager) - holdStart:F1}s of Hold");
                 yield return null;
             }
             // Choose the view after the active hold has installed its stock cover.
