@@ -48,6 +48,8 @@ def main():
     modes.add_argument("--optics", action="store_true", help="Read all eight stock optic passes with the overlay off and on")
     parser.add_argument("--swatch-bundles", nargs="?", const="1", metavar="BUNDLE,...",
                         help="Include materials from all stock asset bundles or a comma-separated subset")
+    parser.add_argument("--swatch-replacement", nargs=3, metavar=("BUNDLE", "MATERIAL_SHADER", "CANDIDATE_SHADER"),
+                        help="Draw the named family's chart materials with a shader from a local test bundle")
     parser.add_argument("--builtin", action="store_true", help="Profile the original Built-in renderer")
     parser.add_argument("--scene", action="append", default=[], help="Also capture a named stock scene (repeatable)")
     parser.add_argument("--tnh", metavar="MAP", help="Profile one stock Take & Hold map from a fresh session")
@@ -66,6 +68,8 @@ def main():
         parser.error("--scene requires --profile or --swatches")
     if args.swatch_bundles and not args.swatches:
         parser.error("--swatch-bundles requires --swatches")
+    if args.swatch_replacement and (not args.swatches or not Path(args.swatch_replacement[0]).is_file()):
+        parser.error("--swatch-replacement requires --swatches and an existing shader bundle")
     if "*" in args.scene and (args.scene != ["*"] or not args.swatches):
         parser.error("Use --swatches --scene '*' to render all levels")
     if args.tnh and (args.scene or args.builtin == bool(args.preset)):
@@ -128,6 +132,14 @@ def main():
         scenes = ["*"] if args.scene == ["*"] else list(dict.fromkeys(["MainMenu3", *args.scene]))
         env = dict(os.environ, NATIVEH3VR_SHADER_SWATCHES=str(out), NATIVEH3VR_SWATCH_SCENES=",".join(scenes),
                    NATIVEH3VR_SWATCH_BUNDLES=args.swatch_bundles or "")
+        if args.swatch_replacement:
+            path, family, shader = args.swatch_replacement
+            bundle = Path(path).resolve()
+            env.update(NATIVEH3VR_SWATCH_CANDIDATE_BUNDLE=str(bundle), NATIVEH3VR_SWATCH_REPLACED_FAMILY=family,
+                       NATIVEH3VR_SWATCH_CANDIDATE_NAME=shader)
+            proof = {"bundleSha256": digest(bundle), "materialShader": family, "candidateShader": shader,
+                     "hostBuildSha256": digest(receipt)}
+            (out / "candidate-shader.json").write_text(json.dumps(proof, indent=2))
         timeout = 7200 if "*" in scenes or args.swatch_bundles else 240 + 90 * len(scenes)
         subprocess.run([*launch, "--log-file", str(out / "swatches.log"), "--timeout", str(timeout)],
                        env=env, check=True)

@@ -87,6 +87,8 @@ uv run tests/ShaderParity/compare_swatches.py --stock "$RETAIL_SWATCHES" \
 
 The comparator checks visible material coverage, near-black pixels and error-shader magenta. It pairs materials by their texture recipe or a one-to-one renderer and material-slot path. The report identifies generated defaults, numbered-texture candidates, conflicting slots and unmatched rows. A numbered texture name alone cannot establish texture identity. A dark surface in both players is recorded as authored or shared darkness.
 
+To repeat a chart with a candidate shader before rebuilding the player, add `--swatch-replacement "$BUNDLE" "$SOURCE_SHADER" "$CANDIDATE_SHADER"`. Use a local shader bundle built for the player's target. The witness renders copies of the affected chart materials with their original properties, keywords and queues. The output records the bundle hash, player hash and number of candidate draws per scope.
+
 ### Texture channels
 
 Some opaque materials store roughness or masks in texture alpha. Unity's transparent-colour dilation can then overwrite visible colour in texels whose alpha happens to be zero. On the Friendly 45 pine, the original material's median RGB was (15, 14, 11). Reimport with dilation produced (95, 100, 56). Preserving the original colour gave (14, 15, 11). The converter identifies the verified material and texture usages before configuring the importer.

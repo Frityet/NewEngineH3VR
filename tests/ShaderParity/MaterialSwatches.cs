@@ -18,6 +18,11 @@ namespace NativeH3VR.QA
         private const int SampleMask = 1 << SampleLayer;
         private const string Prefix = "H3VR shader comparison ";
         private static readonly Vector3 Origin = new Vector3(512f, 512f, 512f);
+#if UNITY_6000_0_OR_NEWER
+        private AssetBundle candidateBundle;
+        private Shader candidateShader;
+        private string replacedFamily;
+#endif
 
         [Serializable]
         public sealed class Entry
@@ -37,6 +42,8 @@ namespace NativeH3VR.QA
             public string status;
             public Entry[] materials;
             public string[] emptyMeshSlots;
+            public string candidateShader;
+            public int candidateDraws;
         }
 
         public static void Initialize()
@@ -96,6 +103,24 @@ namespace NativeH3VR.QA
 
         private IEnumerator Run(string output)
         {
+#if UNITY_6000_0_OR_NEWER
+            var candidatePath = Environment.GetEnvironmentVariable("NATIVEH3VR_SWATCH_CANDIDATE_BUNDLE");
+            if (!string.IsNullOrEmpty(candidatePath))
+            {
+                replacedFamily = Environment.GetEnvironmentVariable("NATIVEH3VR_SWATCH_REPLACED_FAMILY");
+                var name = Environment.GetEnvironmentVariable("NATIVEH3VR_SWATCH_CANDIDATE_NAME");
+                candidateBundle = AssetBundle.LoadFromFile(candidatePath);
+                if (!candidateBundle) throw new IOException("Could not load candidate shader bundle " + candidatePath);
+                foreach (var shader in candidateBundle.LoadAllAssets<Shader>())
+                {
+                    if (shader.name != name) continue;
+                    if (candidateShader) throw new InvalidDataException("Duplicate shader in the candidate bundle: " + name);
+                    candidateShader = shader;
+                }
+                if (!candidateShader || !candidateShader.isSupported || string.IsNullOrEmpty(replacedFamily))
+                    throw new InvalidDataException("Missing candidate shader or material family: " + name);
+            }
+#endif
             string[] selection = (Environment.GetEnvironmentVariable("NATIVEH3VR_SWATCH_SCENES") ?? "MainMenu3")
                 .Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries);
             if (selection.Length == 0) throw new ArgumentException("Choose at least one scene");
@@ -329,6 +354,14 @@ namespace NativeH3VR.QA
                 assetAddresses = bindings.AssetAddresses, prefabAssets = bindings.PrefabAssets,
                 rendererCount = bindings.RendererCount, boundSlots = bindings.BoundSlots, missingSlots = bindings.MissingSlots,
                 emptyMeshSlots = bindings.UniqueSlots(bindings.EmptySlots) };
+#if UNITY_6000_0_OR_NEWER
+            if (candidateShader)
+            {
+                index.candidateShader = candidateShader.name;
+                foreach (var surface in surfaces)
+                    if (surface.shader.name == replacedFamily) index.candidateDraws++;
+            }
+#endif
             File.WriteAllText(Path.Combine(output, scene + ".json"), JsonConvert.SerializeObject(index));
             if (pages == 0) yield break;
 
@@ -381,8 +414,28 @@ namespace NativeH3VR.QA
             var oldReflection = RenderSettings.customReflection;
 #endif
             float oldIntensity = RenderSettings.reflectionIntensity;
+#if UNITY_6000_0_OR_NEWER
+            List<Material> trialMaterials = null;
+#endif
             try
             {
+#if UNITY_6000_0_OR_NEWER
+                if (candidateShader)
+                {
+                    trialMaterials = new List<Material>(index.candidateDraws);
+                    for (int i = 0; i < surfaces.Count; i++)
+                    {
+                        var original = surfaces[i];
+                        if (original.shader.name != replacedFamily) continue;
+                        var trial = new Material(original);
+                        trialMaterials.Add(trial);
+                        trial.shader = candidateShader;
+                        trial.shaderKeywords = original.shaderKeywords;
+                        trial.renderQueue = original.rawRenderQueue;
+                        surfaces[i] = trial;
+                    }
+                }
+#endif
                 Time.timeScale = 0;
 #if UNITY_6000_0_OR_NEWER
                 var sceneLights = FindObjectsByType<Light>();
@@ -478,9 +531,20 @@ namespace NativeH3VR.QA
                 Destroy(root);
                 Destroy(reflection);
                 Destroy(mesh);
+#if UNITY_6000_0_OR_NEWER
+                if (trialMaterials != null)
+                    foreach (var trial in trialMaterials) Destroy(trial);
+#endif
             }
             yield return null;
         }
+
+#if UNITY_6000_0_OR_NEWER
+        private void OnDestroy()
+        {
+            if (candidateBundle) candidateBundle.Unload(true);
+        }
+#endif
 
         private static void Save(RenderTexture source, string file)
         {
