@@ -92,6 +92,9 @@ public sealed class ProjectMigration(ConversionConfig config, string candidate)
         AddBuiltInUguiBindings(bindings, bindingRows, dlls, assemblyTypes, originalTypes);
         var shaderOverlay = ApplyShaderOverlay(root, assets, out var computeGuids, out var hdrColors, out var dataAlphaShaders);
         var hdrMaterials = LegacyHdrMaterials.Apply(config, root, assets, hdrColors);
+        int preservedRenderTags = LegacyMaterialRenderTags.Apply(assets);
+        if (preservedRenderTags > 0)
+            Console.WriteLine($"Preserved the stock render tag on {preservedRenderTags} materials.");
         int preservedAlphaTextures = LegacyTextureAlpha.Apply(assets, dataAlphaShaders);
         if (preservedAlphaTextures > 0)
             Console.WriteLine($"Preserved stock RGB in {preservedAlphaTextures} data-alpha textures.");

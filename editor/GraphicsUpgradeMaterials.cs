@@ -144,6 +144,8 @@ namespace H3VRConverter
                     bool converted = Convert(material, stockPbr, terrainLit, vertexLitParticles, upgraders);
                     if (GraphicsUpgradeThermalShaders.ConfigureMaterial(material, stockRenderType))
                         changed.Add(path);
+                    if (converted && shader.name == "Nature/SpeedTree")
+                        material.SetOverrideTag("RenderType", stockRenderType);
                     if (!converted)
                     {
                         family.retained++;

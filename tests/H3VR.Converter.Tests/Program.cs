@@ -6,6 +6,24 @@ var cases = new List<(string Name, Action Run)>
     ("shader exporter pins the reviewed fork and upstream", () => {
         Check(ShaderExporter.ForkCommit.Length == 40 && ShaderExporter.UpstreamCommit.Length == 40 && ShaderExporter.ForkCommit != ShaderExporter.UpstreamCommit, "source revisions are not pinned");
     }),
+    ("stock SpeedTree materials keep the original replacement tag and authored queue", () => {
+        const string shader = "  m_Shader: {fileID: 14000, guid: 0000000000000000f000000000000000, type: 0}";
+        string source = shader + "\r\n  m_CustomRenderQueue: 2450\r\n  stringTagMap: {}\r\n";
+        string preserved = LegacyMaterialRenderTags.Preserve(source);
+        Check(preserved == source.Replace("{}", "{RenderType: Opaque}"), "changed the source queue or render properties");
+        Check(LegacyMaterialRenderTags.Preserve(preserved) == preserved, "preserving the source tag must be idempotent");
+        foreach (string tags in new[] { "{RenderType: Transparent}", "\r\n    RenderType: Transparent" })
+        {
+            string specified = source.Replace("{}", tags);
+            Check(LegacyMaterialRenderTags.Preserve(specified) == specified, "overwrote the authored tag");
+        }
+        const string otherTag = "OtherTag: Example";
+        var mapped = source.Replace("{}", "\r\n    " + otherTag);
+        Check(LegacyMaterialRenderTags.Preserve(mapped).Contains("    RenderType: Opaque\r\n    " + otherTag),
+            "failed to preserve a neighboring map entry");
+        var other = source.Replace("0000000000000000f000000000000000", "11111111111111111111111111111111");
+        Check(LegacyMaterialRenderTags.Preserve(other) == other, "changed an unrelated shader pointer");
+    }),
     ("stock particle fallbacks point at the renamed Unity built-in", () => {
         const string legacy = "Fallback \"Particles/Alpha Blended\"";
         const string current = "Fallback \"Legacy Shaders/Particles/Alpha Blended\"";
