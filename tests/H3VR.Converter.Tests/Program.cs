@@ -93,6 +93,19 @@ var cases = new List<(string Name, Action Run)>
         var custom = source.Replace("Hidden/PIPScope_PostProcess", "Custom/PIPScope_PostProcess", StringComparison.Ordinal);
         Check(ProjectMigration.KeepOpticPostProcessPasses(custom) == custom, "changed an unrelated shader");
     }),
+    ("recovered two-sided fragments use the original boolean face input", () => {
+        const string signature = "fout frag(v2f inp, float facing: VFACE)";
+        const string corrected = "fout frag(v2f inp, bool facing: SV_IsFrontFace)";
+        foreach (string use in new[] { "tmp0.x = facing.x ? 1.0 : -1.0;",
+                                        "tmp2.w = uint1(tmp2.w) | uint1(facing.x);" })
+        {
+            string expected = corrected + " { " + use.Replace("uint1(facing.x)", "(facing.x ? 0xffffffffu : 0u)") + " }";
+            Check(ProjectMigration.RestoreDxbcFrontFace(signature + " { " + use + " }") == expected, use);
+            Check(ProjectMigration.RestoreDxbcFrontFace(expected) == expected, "face migration is not idempotent");
+        }
+        string signed = signature + " { float side = sign(facing); }";
+        Check(ProjectMigration.RestoreDxbcFrontFace(signed) == signed, "changed a signed face calculation");
+    }),
     ("publication rejects recovered assets and old probe trees", () => {
         foreach (var name in new[] { "recovered/Game.cs", "src/Game.dll", "editor/Game.shader", "src/bin/Generated.cs", "probe/Assets/Editor/Test.cs" })
             Check(!Publication.Allowed(name), name);

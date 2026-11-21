@@ -352,6 +352,18 @@ public sealed class ProjectMigration(ConversionConfig config, string candidate)
             RegexOptions.CultureInvariant);
     }
 
+    internal static string RestoreDxbcFrontFace(string source)
+    {
+        // The stock DXBC front-face input is a boolean. A signed VFACE is nonzero
+        // for both windings, so testing it as a boolean lights both sides as front faces.
+        const string signature = "fout frag(v2f inp, float facing: VFACE)";
+        if (!source.Contains(signature, StringComparison.Ordinal) ||
+            !(source.Contains("facing.x ? 1.0 : -1.0;", StringComparison.Ordinal) ||
+              source.Contains("uint1(facing.x)", StringComparison.Ordinal))) return source;
+        return source.Replace(signature, "fout frag(v2f inp, bool facing: SV_IsFrontFace)", StringComparison.Ordinal)
+            .Replace("uint1(facing.x)", "(facing.x ? 0xffffffffu : 0u)", StringComparison.Ordinal);
+    }
+
     internal static string KeepEngineLightmapVariants(string source)
     {
         // Recovered optional groups may be shader_feature even when Unity
@@ -393,6 +405,12 @@ public sealed class ProjectMigration(ConversionConfig config, string candidate)
         var variantCatalog = verifyGraphics
             ? GraphicsShaderOverlay.Verify(config, overlayRoot, sourceAssets, shaders, includes) : null;
         int decodedLegacyNormals = 0;
+        string RepairVerifiedProgram(string source)
+        {
+            var normals = LegacyNormalDecoding.Apply(source);
+            if (!ReferenceEquals(normals, source)) decodedLegacyNormals++;
+            return RestoreDxbcFrontFace(normals);
+        }
         foreach (var source in shaders)
         {
             var bytes = File.ReadAllBytes(source); var content = Encoding.UTF8.GetString(bytes);
@@ -417,12 +435,7 @@ public sealed class ProjectMigration(ConversionConfig config, string candidate)
             SafeFiles.Copy(source, destination);
             if (!SafeFiles.Hash(destination).Equals(sourceHash, StringComparison.Ordinal)) throw new IOException("Shader overlay changed while copying: " + relative);
             var migrated = KeepEngineLightmapVariants(KeepOpticPostProcessPasses(UpdateLegacyParticleFallback(content)));
-            if (verifyGraphics)
-            {
-                var normalized = LegacyNormalDecoding.Apply(migrated);
-                if (!ReferenceEquals(normalized, migrated)) decodedLegacyNormals++;
-                migrated = normalized;
-            }
+            if (verifyGraphics) migrated = RepairVerifiedProgram(migrated);
             if (!ReferenceEquals(migrated, content)) File.WriteAllText(destination, migrated);
             // Existing recovered metadata also carries the source AssetBundle group; keep it intact when its GUID matches.
             if (!File.Exists(targetMeta)) File.Copy(sourceMeta, targetMeta);
@@ -436,12 +449,8 @@ public sealed class ProjectMigration(ConversionConfig config, string candidate)
             if (verifyGraphics)
             {
                 var program = File.ReadAllText(destination);
-                var normalized = LegacyNormalDecoding.Apply(program);
-                if (!ReferenceEquals(normalized, program))
-                {
-                    File.WriteAllText(destination, normalized);
-                    decodedLegacyNormals++;
-                }
+                var repaired = RepairVerifiedProgram(program);
+                if (!ReferenceEquals(repaired, program)) File.WriteAllText(destination, repaired);
             }
             if (!File.Exists(destination + ".meta") && File.Exists(source + ".meta")) File.Copy(source + ".meta", destination + ".meta");
         }
