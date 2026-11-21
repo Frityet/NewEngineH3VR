@@ -285,36 +285,41 @@ namespace NativeH3VR.QA
                     stockDeviceIndex = pose?.trackedDeviceIndex,
                 });
             }
+            using var process = System.Diagnostics.Process.GetCurrentProcess();
+            int playerPid = process.Id;
+            int? homeActivePid = HomeActivePlayer();
             File.WriteAllText(Path.Combine(output, sample + "-hardware-" + edge + ".json"),
                 JsonConvert.SerializeObject(new { status, frame.displayPeriod, frame.focused,
                     completedPairs = stereo.CompletedFrames, realtimeSeconds = Time.realtimeSinceStartupAsDouble,
-                    homeOwnsPlayerView = HomeOwnsPlayerView(),
+                    playerPid, homeActivePid, homeOwnsPlayerView = homeActivePid == playerPid,
                     devices }, Formatting.Indented));
         }
 
-        private static bool HomeOwnsPlayerView()
+        private static int? HomeActivePlayer()
         {
             string control = Environment.GetEnvironmentVariable("VI_HOME_CONTROL_DIR");
             if (string.IsNullOrEmpty(control))
             {
                 string state = Environment.GetEnvironmentVariable("VR_STATE_DIR");
                 if (string.IsNullOrEmpty(state))
-                    return false;
+                    return null;
                 control = Path.Combine(state, "home");
             }
 
-            // Read the owner's public status file. The reported PID must be
-            // this signed player to avoid accepting another running client.
+            // Read the owner's status without writing the shared settings.
             try
             {
                 string[] status = File.ReadAllLines(Path.Combine(control, "runtime.txt"));
-                using var process = System.Diagnostics.Process.GetCurrentProcess();
-                string owner = "active_pid=" + process.Id;
-                return Array.Exists(status, line => line == "mode=app") && Array.Exists(status, line => line == owner);
+                if (!Array.Exists(status, line => line == "mode=app"))
+                    return null;
+                const string prefix = "active_pid=";
+                string activePid = Array.Find(status, line => line.StartsWith(prefix, StringComparison.Ordinal));
+                return activePid != null && int.TryParse(activePid.Substring(prefix.Length), out int pid) && pid > 0
+                    ? pid : null;
             }
             catch (IOException)
             {
-                return false;
+                return null;
             }
         }
 
