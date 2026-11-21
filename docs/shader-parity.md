@@ -78,6 +78,20 @@ The room's teal painted stripes are a separate test of baked lighting. The actua
 
 For the matched retail observer facing the teal wall, add `--retail-room /path/to/steam-stereo.png` to the pixel test. It checks for the visible teal band in the right-hand wall region of each eye and records the cropped sample counts. Other observer positions can face different walls or have the wall entirely occluded.
 
+## Northest Dakota material identification
+
+On stock sequence 1, the opening supply area faces a green container and a distant snowy mountain. Add the following arguments to a Take & Hold profile run to identify the visible materials and isolate their lighting at the same headset pose.
+
+```sh
+--tnh NorthestDakota --tnh-seed 1 --preset balanced \
+  --inspect-take-material StorangeContainer_10ft_Green_Snowy \
+  --inspect-take-material 'FinalMountain_*'
+```
+
+The witness freezes game time after the opening Take measurement. It marks each material group, saves both eyes and records the assigned shader, keywords, reflection probes and lightmap index. Further captures isolate grading, realtime shadows and the selected renderers’ baked lightmaps. It restores the original materials and settings before entering the first Hold.
+
+In the earlier Balanced player, marking each group covered its entire reference crop. The container bound Alloy/Oriented/Blend. The distant mountain bound Alloy/Core with a decal. A separate mask on all 996 renderers using the nearby CynCliff material covered zero pixels in the distant mountain crop.
+
 ## Game cameras and view fades
 
 The stock handheld thermal camera and T7 use the game's picture-in-picture camera to select a replacement shader. The URP conversion builds its opaque, cutout and transparent programs from the locally recovered Steam shader. A thermal camera draws the applicable replacement with each object's own material properties. The effective `RenderType` of the original material selects the program, including materials that override their shader's tag.
