@@ -96,6 +96,8 @@ def main():
     modes.add_argument("--swatches", action="store_true", help="Render stock materials with controlled lighting")
     modes.add_argument("--thermal", action="store_true", help="Capture a stocked handheld thermal sensor and display")
     modes.add_argument("--optics", action="store_true", help="Read all eight stock optic passes with the overlay off and on")
+    modes.add_argument("--vertex-particles", action="store_true",
+                       help="Check the stocked legacy vertex-lit particle on Metal")
     parser.add_argument("--swatch-bundles", nargs="?", const="1", metavar="BUNDLE,...",
                         help="Include materials from all stock asset bundles or a comma-separated subset")
     parser.add_argument("--swatch-replacement", nargs=3, metavar=("BUNDLE", "MATERIAL_SHADER", "CANDIDATE_SHADER"),
@@ -157,6 +159,8 @@ def main():
         witness = "RetailThermalWitness"
     if args.optics:
         witness = "OpticBlitWitness"
+    if args.vertex_particles:
+        witness = "VertexLitParticleWitness"
     manifest = {"schemaVersion": 2, "id": package.name, "unityVersion": settings["unityVersion"],
                 "buildTarget": "StandaloneOSX", "hostBuildSha256": digest(receipt),
                 "assemblies": [{"file": assembly, "sha256": digest(package / assembly)}],
@@ -165,6 +169,14 @@ def main():
 
     launch = ["dotnet", str(launcher), "run", "--app", str(app), "--runtime", str(runtime),
               "--mods-dir", str(package.parent), "--state-dir", str(out / "state"), "--synthetic"]
+    if args.vertex_particles:
+        env = dict(os.environ, NATIVEH3VR_VERTEX_PARTICLE_WITNESS=str(out),
+                   NATIVEH3VR_EXPECT_STOCK_VERTEX_PARTICLES="1")
+        subprocess.run([*launch, "--log-file", str(out / "vertex-particles.log"), "--timeout", "100"],
+                       env=env, check=True)
+        if not (out / "complete.txt").is_file() or not (out / "installed.png").is_file():
+            raise RuntimeError(f"Particle witness did not complete. Inspect {out / 'vertex-particles.log'}")
+        return
     if args.optics:
         env = dict(os.environ, NATIVEH3VR_OPTIC_BLIT_WITNESS=str(out))
         subprocess.run([*launch, "--log-file", str(out / "optics.log"), "--timeout", "220"], env=env, check=True)

@@ -15,6 +15,7 @@ namespace H3VRConverter
 {
     internal static class GraphicsUpgradeMaterials
     {
+        private const string StockVertexLitParticlesPath = "Assets/NativeH3VR/GraphicsUpgrade/Shaders/StockVertexLitParticles.shader";
         private const string StockPbrName = "NativeH3VR/Stock PBR";
         private const string GeneratedDefault = "Assets/NativeH3VR/GraphicsUpgrade/Generated/StockDefault.mat";
         private const string LegacyDirectionalShadow = "Assets/NativeH3VR/GraphicsUpgrade/Shaders/LegacyDirectionalShadow.hlsl";
@@ -104,6 +105,9 @@ namespace H3VRConverter
             var stockPbr = Shader.Find(StockPbrName);
             if (stockPbr == null || ShaderUtil.ShaderHasError(stockPbr))
                 throw new InvalidOperationException("Stock PBR shader failed to import: " + StockPbrName);
+            var vertexLitParticles = AssetDatabase.LoadAssetAtPath<Shader>(StockVertexLitParticlesPath);
+            if (vertexLitParticles == null || ShaderUtil.ShaderHasError(vertexLitParticles))
+                throw new InvalidOperationException("Stock vertex-lit particle shader failed to import.");
             var urpLit = Shader.Find("Universal Render Pipeline/Lit");
             var terrainLit = Shader.Find(TerrainLitName);
             if (urpLit == null || terrainLit == null)
@@ -137,7 +141,7 @@ namespace H3VRConverter
                     }
 
                     string stockRenderType = material.GetTag("RenderType", false);
-                    bool converted = Convert(material, stockPbr, terrainLit, upgraders);
+                    bool converted = Convert(material, stockPbr, terrainLit, vertexLitParticles, upgraders);
                     if (GraphicsUpgradeThermalShaders.ConfigureMaterial(material, stockRenderType))
                         changed.Add(path);
                     if (!converted)
@@ -433,7 +437,7 @@ namespace H3VRConverter
             return $"{{fileID: {localId}, guid: {guid}, type: 2}}";
         }
 
-        private static bool Convert(Material material, Shader stockPbr, Shader terrainLit,
+        private static bool Convert(Material material, Shader stockPbr, Shader terrainLit, Shader vertexLitParticles,
             List<MaterialUpgrader> upgraders)
         {
             if (material.parent != null)
@@ -442,6 +446,15 @@ namespace H3VRConverter
                 return ConvertAlloy(material, stockPbr);
 
             var original = material.shader;
+            if (original.name is "Particles/VertexLit Blended" or "Legacy Shaders/Particles/VertexLit Blended")
+            {
+                // The package upgrader treats this mode-less built-in family as opaque.
+                // Keep its saved texture and emissive property and restore the transparent pass.
+                int queue = material.rawRenderQueue;
+                material.shader = vertexLitParticles;
+                material.renderQueue = queue;
+                return true;
+            }
             if (original.name.StartsWith("Universal Render Pipeline/", StringComparison.Ordinal))
                 return false;
             if (original.name == "Nature/Terrain/Specular")
@@ -492,9 +505,10 @@ namespace H3VRConverter
                 return false;
 
             int queue = material.renderQueue;
+            string renderType = material.GetTag("RenderType", false);
             material.shader = stockPbr;
             material.renderQueue = queue;
-            material.SetOverrideTag("RenderType", mode == 1 ? "TransparentCutout" : "Opaque");
+            material.SetOverrideTag("RenderType", renderType);
             material.shaderKeywords = Array.Empty<string>();
             if (mode == 1) material.EnableKeyword("_ALPHATEST_ON");
             return true;

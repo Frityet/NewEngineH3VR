@@ -10,6 +10,7 @@
     <Compile Include="../ShaderParity/*Swatches.cs" Link="%(Filename)%(Extension)" />
     <Compile Include="../ShaderParity/RetailThermalWitness.cs" Link="RetailThermalWitness.cs" />
     <Compile Include="../ShaderParity/OpticBlitWitness.cs" Link="OpticBlitWitness.cs" />
+    <Compile Include="../ShaderParity/VertexLitParticleWitness.cs" Link="VertexLitParticleWitness.cs" />
     <Reference Include="$(NativeH3VRManaged)/UnityEngine*.dll" Private="false" />
     <Reference Include="$(NativeH3VRManaged)/NativeH3VR.*.dll" Private="false" />
     <Reference Include="$(NativeH3VRManaged)/Assembly-CSharp.dll" Private="false" />
