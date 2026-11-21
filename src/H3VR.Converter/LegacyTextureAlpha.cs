@@ -94,10 +94,10 @@ internal static class LegacyTextureAlpha
 
     private static bool IsDataSlot(string shader, string slot, HashSet<string> keywords) => slot switch
     {
-        "_MainTex" => shader == "Alloy/Car Paint" ||
-            (shader == "Alloy/Core" && keywords.Contains("_SMOOTHNESS_TEXTURE_ALBEDO_CHANNEL_A")),
+        // Opaque draws read albedo RGB even where source alpha is zero.
+        "_MainTex" => shader is "Alloy/Core" or "Alloy/Car Paint" or "Alloy/Prototyping",
         "_SpecTex" => shader is "Alloy/Core" or "Alloy/Car Paint",
-        "_OrientedMainTex" => shader == "Alloy/Oriented/Core" && keywords.Contains("_SMOOTHNESS_TEXTURE_ALBEDO_CHANNEL_A"),
+        "_OrientedMainTex" => shader == "Alloy/Oriented/Core",
         "_OrientedMaterialMap" => shader == "Alloy/Oriented/Core",
         "_AoMap" => shader == "Alloy/Prototyping",
         "_DetailAlbedoMap" => shader != "Alloy/Oriented/Core" && keywords.Contains("_DETAIL_MULX2"),

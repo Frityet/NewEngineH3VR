@@ -40,6 +40,8 @@ public static class ProjectMigrationTests
         const string prototyping = "1e94baccfd73a4142bb746e61dcf1c7a";
         const string ao = "66666666666666666666666666666666";
         const string detail = "77777777777777777777777777777777";
+        const string sharedOpaque = "88888888888888888888888888888888";
+        const string carPaint = "2260e24608460374ea2590e2b38ef617";
         const string packed = "11111111111111111111111111111111";
         const string shared = "22222222222222222222222222222222";
         const string direct = "33333333333333333333333333333333";
@@ -72,6 +74,8 @@ public static class ProjectMigrationTests
         const string roughness = "_SMOOTHNESS_TEXTURE_ALBEDO_CHANNEL_A";
         f.WriteCandidate("Assets/Material/Pine.mat", Material(alloy, roughness, 0, "_MainTex", pine));
         f.WriteCandidate("Assets/Material/Packed.mat", Material(alloy, "", 0, "_SpecTex", packed));
+        f.WriteCandidate("Assets/Material/OpaqueBaseColor.mat", Material(alloy, "", 0, "_MainTex", sharedOpaque));
+        f.WriteCandidate("Assets/Material/PaintedBaseColor.mat", Material(carPaint, "", 0, "_MainTex", sharedOpaque));
         f.WriteCandidate("Assets/Material/Ambient.mat", Material(prototyping, "", 0, "_AoMap", ao));
         f.WriteCandidate("Assets/Material/Detail.mat", Material(alloy, "_DETAIL_MULX2", 0, "_DetailAlbedoMap", detail));
         f.WriteCandidate("Assets/Material/Shared.mat", Material(alloy, roughness, 0, "_MainTex", shared));
@@ -80,7 +84,7 @@ public static class ProjectMigrationTests
         f.WriteCandidate("Assets/Material/Unknown.mat", Material(unknown, roughness, 0, "_MainTex", unknown));
         f.WriteCandidate("Assets/Material/Direct.mat", Material(alloy, "", 0, "_SpecTex", direct));
         f.WriteCandidate("Assets/UI.prefab", $"  m_Sprite: {{fileID: 21300000, guid: {direct}, type: 3}}");
-        string[] textures = [pine, packed, ao, detail, shared, direct, cutout, unknown];
+        string[] textures = [pine, packed, ao, detail, sharedOpaque, shared, direct, cutout, unknown];
         foreach (string guid in textures)
             f.WriteCandidate($"Assets/Texture2D/{guid}.png.meta", Importer(guid));
 
@@ -88,15 +92,16 @@ public static class ProjectMigrationTests
         var shaders = new Dictionary<string, string>
         {
             [alloy] = LegacyTextureAlpha.ReadDataShader("""Shader "Alloy/Core" {""") ?? "",
-            [prototyping] = LegacyTextureAlpha.ReadDataShader("""Shader "Alloy/Prototyping" {""") ?? ""
+            [prototyping] = LegacyTextureAlpha.ReadDataShader("""Shader "Alloy/Prototyping" {""") ?? "",
+            [carPaint] = LegacyTextureAlpha.ReadDataShader("""Shader "Alloy/Car Paint" {""") ?? ""
         };
         Check(LegacyTextureAlpha.ReadDataShader("""Shader "Alloy/Core (Camera Relative)" {""") is null,
             "unverified shader families must be excluded");
-        Check(LegacyTextureAlpha.Apply(assets, shaders) == 4, "expected the exclusive opaque albedo, packed, detail, and occlusion textures");
+        Check(LegacyTextureAlpha.Apply(assets, shaders) == 5, "expected the exclusive opaque albedo, packed, detail, and occlusion textures");
         foreach (string guid in textures)
         {
             string expected = Importer(guid);
-            if (guid is pine or packed or ao or detail) expected = expected.Replace("alphaIsTransparency: 1", "alphaIsTransparency: 0");
+            if (guid is pine or packed or ao or detail or sharedOpaque) expected = expected.Replace("alphaIsTransparency: 1", "alphaIsTransparency: 0");
             Check(File.ReadAllText(Path.Combine(assets, "Texture2D", guid + ".png.meta")) == expected,
                 "unexpected importer changes for " + guid);
         }
