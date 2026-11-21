@@ -85,7 +85,13 @@ public static class ProjectMigrationTests
             f.WriteCandidate($"Assets/Texture2D/{guid}.png.meta", Importer(guid));
 
         string assets = Path.Combine(f.Candidate, "Assets");
-        var shaders = new Dictionary<string, string> { [alloy] = "Alloy/Core", [prototyping] = "Alloy/Prototyping" };
+        var shaders = new Dictionary<string, string>
+        {
+            [alloy] = LegacyTextureAlpha.ReadDataShader("""Shader "Alloy/Core" {""") ?? "",
+            [prototyping] = LegacyTextureAlpha.ReadDataShader("""Shader "Alloy/Prototyping" {""") ?? ""
+        };
+        Check(LegacyTextureAlpha.ReadDataShader("""Shader "Alloy/Core (Camera Relative)" {""") is null,
+            "unverified shader families must be excluded");
         Check(LegacyTextureAlpha.Apply(assets, shaders) == 4, "expected the exclusive opaque albedo, packed, detail, and occlusion textures");
         foreach (string guid in textures)
         {

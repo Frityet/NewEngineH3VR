@@ -6,7 +6,7 @@ internal static class LegacyTextureAlpha
 {
     private const RegexOptions Options = RegexOptions.CultureInvariant | RegexOptions.Multiline;
     private static readonly Regex GuidField = new(@"^guid: (?<guid>[a-f0-9]{32})\r?$", Options);
-    private static readonly Regex ShaderName = new("^Shader [\t ]+\"(?<name>Alloy/(?:Core|Oriented/Core|Prototyping|Car Paint))\"", Options);
+    private static readonly Regex ShaderName = new("^Shader[\t ]+\"(?<name>Alloy/(?:Core|Oriented/Core|Prototyping|Car Paint))\"", Options);
     private static readonly Regex Shader = new(@"^  m_Shader: \{fileID: 4800000, guid: (?<guid>[a-f0-9]{32}), type: 3\}\r?$", Options);
     private static readonly Regex Keywords = new(@"^  m_ShaderKeywords: *(?<keywords>[^\r\n]*)", Options);
     private static readonly Regex Opaque = new(@"^      (?:- )?_Mode: 0\r?$", Options);
