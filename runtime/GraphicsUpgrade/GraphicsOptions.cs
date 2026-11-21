@@ -11,7 +11,7 @@ namespace NativeH3VR.GraphicsUpgrade
     public enum GraphicsSetting
     {
         Preset, RenderScale, Msaa, ShadowDistance, ShadowQuality, AdditionalLights,
-        Hdr, Bloom, Sharpening, Tonemapping, AmbientOcclusion, Exposure
+        Hdr, Bloom, Sharpening, Tonemapping, AmbientOcclusion, Exposure, BloomRadius, SpecularFiltering
     }
 
     public static class GraphicsOptions
@@ -20,10 +20,12 @@ namespace NativeH3VR.GraphicsUpgrade
         const string PreferenceFile = "graphics-options.json";
         const int NeutralExposureIndex = 4;
         const int GameGrading = 3;
+        static readonly int SpecularFilter = Shader.PropertyToID("_H3VRSpecularFiltering");
         static readonly string[] Labels =
         {
             "Preset", "Render scale", "Anti-aliasing", "Shadow distance", "Shadow detail",
-            "Lights per object", "HDR rendering", "Bloom", "Sharpening", "Tone mapping", "Ambient occlusion", "Exposure"
+            "Lights per object", "HDR rendering", "Bloom", "Sharpening", "Tone mapping", "Ambient occlusion", "Exposure",
+            "Bloom radius", "Specular filtering"
         };
         static readonly string[][] Choices =
         {
@@ -36,17 +38,18 @@ namespace NativeH3VR.GraphicsUpgrade
             new[] { "Off", "On" }, new[] { "Off", "Subtle", "Full" },
             new[] { "Off", "Low", "Medium", "High" }, new[] { "Off", "Neutral", "ACES", "Game" },
             new[] { "Off", "On" },
-            new[] { "-1 EV", "-0.75 EV", "-0.5 EV", "-0.25 EV", "0 EV", "+0.25 EV", "+0.5 EV", "+0.75 EV", "+1 EV" }
+            new[] { "-1 EV", "-0.75 EV", "-0.5 EV", "-0.25 EV", "0 EV", "+0.25 EV", "+0.5 EV", "+0.75 EV", "+1 EV" },
+            new[] { "Tight", "Standard", "Wide" }, new[] { "Off", "Low", "High" }
         };
         static readonly float[] RenderScales = { 0.70f, 0.85f, 1f, 1.15f, 1.30f };
         static readonly int[] Distances = { 15, 30, 60, 100 };
         static readonly int[] LightCounts = { 0, 2, 4, 8 };
         static readonly int[][] Presets =
         {
-            // Scale, MSAA, distance, detail, lights, HDR, bloom, sharpen, tone, AO, exposure
-            new[] { 1, 0, 0, 1, 1, 0, 0, 0, 0, 0, NeutralExposureIndex },
-            new[] { 2, 1, 1, 2, 2, 1, 1, 1, GameGrading, 0, NeutralExposureIndex },
-            new[] { 2, 2, 2, 3, 3, 1, 2, 1, GameGrading, 1, NeutralExposureIndex }
+            // Scale, MSAA, distance, detail, lights, HDR, bloom, sharpen, tone, AO, exposure, bloom radius, specular filtering
+            new[] { 1, 0, 0, 1, 1, 0, 0, 0, 0, 0, NeutralExposureIndex, 0, 0 },
+            new[] { 2, 1, 1, 2, 2, 1, 1, 1, GameGrading, 0, NeutralExposureIndex, 1, 1 },
+            new[] { 2, 2, 2, 3, 3, 1, 2, 1, GameGrading, 1, NeutralExposureIndex, 2, 2 }
         };
         static readonly int[][] PreviousPresets =
         {
@@ -110,13 +113,16 @@ namespace NativeH3VR.GraphicsUpgrade
                 var saved = JsonUtility.FromJson<SavedOptions>(json);
                 if (saved?.values == null) return;
                 for (int i = 0; i < PreviousPresets.Length; i++)
-                    if (saved.values.AsSpan().SequenceEqual(PreviousPresets[i]))
+                    if (saved.values.Length == PreviousPresets[i].Length &&
+                        (saved.values.AsSpan().SequenceEqual(PreviousPresets[i]) ||
+                         saved.values.AsSpan().SequenceEqual(Presets[i].AsSpan(0, saved.values.Length))))
                     {
                         values = (int[])Presets[i].Clone();
                         return;
                     }
                 // Existing saves used zero compensation, including with their tone curve enabled.
                 values[(int)GraphicsSetting.Exposure - 1] = NeutralExposureIndex;
+                values[(int)GraphicsSetting.SpecularFiltering - 1] = 0;
                 for (int i = 0; i < Math.Min(values.Length, saved.values.Length); i++)
                     if ((uint)saved.values[i] < Choices[i + 1].Length) values[i] = saved.values[i];
             }
@@ -178,6 +184,10 @@ namespace NativeH3VR.GraphicsUpgrade
         internal static int Samples => 1 << GetIndex(GraphicsSetting.Msaa);
         internal static bool Hdr => GetIndex(GraphicsSetting.Hdr) != 0;
         internal static float Glow => GetIndex(GraphicsSetting.Bloom) * 0.12f;
+        static readonly Vector4[] BloomKernels = {
+            new Vector4(1.05f, 0.65f, 0f, 0f), new Vector4(1.2f, 0.375f, 0f, 0f), new Vector4(1.4f, 0.25f, 0f, 0f)
+        };
+        internal static Vector4 BloomKernel => BloomKernels[GetIndex(GraphicsSetting.BloomRadius)];
         internal static float Sharpness => GetIndex(GraphicsSetting.Sharpening) * 0.18f;
         internal static int Tone => GetIndex(GraphicsSetting.Tonemapping);
         internal static bool UseStockGrading => Tone == GameGrading;
@@ -191,6 +201,7 @@ namespace NativeH3VR.GraphicsUpgrade
             Changed = null;
             lastInputFrame = -1;
             source = active = null;
+            Shader.SetGlobalFloat(SpecularFilter, 0f);
             RenderPipelineManager.beginCameraRendering -= PrepareCamera;
             Application.quitting -= Release;
         }
@@ -221,6 +232,7 @@ namespace NativeH3VR.GraphicsUpgrade
             active.mainLightShadowmapResolution = 512 << Math.Max(0, shadows - 1);
             active.additionalLightsShadowmapResolution = Math.Max(512, active.mainLightShadowmapResolution / 2);
             active.maxAdditionalLightsCount = LightCounts[GetIndex(GraphicsSetting.AdditionalLights)];
+            Shader.SetGlobalFloat(SpecularFilter, GetIndex(GraphicsSetting.SpecularFiltering) * 0.5f);
         }
 
         static void PrepareCamera(ScriptableRenderContext context, Camera camera)
@@ -242,6 +254,7 @@ namespace NativeH3VR.GraphicsUpgrade
             if (GraphicsSettings.defaultRenderPipeline == active) GraphicsSettings.defaultRenderPipeline = source;
             UnityEngine.Object.Destroy(active);
             source = active = null;
+            Shader.SetGlobalFloat(SpecularFilter, 0f);
             H3VREyeRendering.Release();
         }
     }

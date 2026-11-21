@@ -247,7 +247,7 @@ def main():
                        env=env, check=True)
         if not (out / f"{phase}-complete.txt").is_file():
             raise RuntimeError(f"Graphics Options {phase} witness did not complete. Inspect {out / (phase + '.log')}")
-    for image in ("native-graphics.png", "game-graphics.png"):
+    for image in ("native-graphics.png", "effects-graphics.png", "game-graphics.png"):
         if not (out / image).is_file():
             raise RuntimeError(f"Graphics Options witness did not create {image}")
     print(out)

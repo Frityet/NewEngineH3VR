@@ -12,7 +12,7 @@ The default graphics-upgrade workspace is `.local/workspace-graphics-upgrade`. S
 
 ## Graphics Options
 
-Open **Graphics Options** from the game’s options panel. **Balanced** is the initial preset. Changing a value applies it immediately, updates the displayed preset and saves your choices across launches. **Game Settings** opens the stock controls for game quality, scene color grading, texture filtering, particle collisions and scope MSAA.
+Open **Graphics Options** from the game’s options panel. **Balanced** is the initial preset. The first page controls resolution, sampling, lighting and shadows. **Effects** opens bloom, sharpening, exposure and tone mapping. **Game Settings** opens the stock controls for game quality, scene color grading, texture filtering, particle collisions and scope MSAA. Changes take effect immediately and persist across launches.
 
 The launcher saves the graphics choices in `graphics-options.json` inside its `--state-dir`. Each new state directory starts with Balanced. Direct player launches use Unity’s player preferences.
 
@@ -25,7 +25,9 @@ The launcher saves the graphics choices in `graphics-options.json` inside its `-
 | Additional lights per object | 2 | 4 | 8 |
 | HDR rendering | Off | On | On |
 | Bloom | Off | Subtle | Full |
+| Bloom radius | Tight | Standard | Wide |
 | Sharpening | Off | Low | Low |
+| Specular filtering | Off | Low | High |
 | Exposure compensation | 0 EV | 0 EV | 0 EV |
 | Tone mapping | Off | Game | Game |
 | Ambient occlusion | Off | Off | On |
@@ -40,7 +42,9 @@ The renderer uses URP Forward with SRP batching. The material conversion preserv
 
 Supported Alloy detail layers retain their original textures, mask, normal strength and UV set. In Warehouse this lets the floor and the building use URP lighting while keeping their different detail mappings. The original window cutouts cast the skylight pattern onto the floor.
 
-The optional bloom pass extracts highlights at quarter width and height. One full-resolution pass combines bloom, bounded sharpening, exposure and tone mapping. At 0 EV with the other three effects off, the renderer skips both passes and their intermediate textures. The near-field ambient occlusion option reconstructs normals from depth and runs at half resolution. These effects operate on player views and bypass offscreen scope, reflection and preview renders.
+Bloom extracts highlights at quarter width and height and filters them at that resolution. The full-resolution pass samples the filtered glow once and combines it with bounded sharpening, exposure and the selected scene grade or tone curve. Bloom keeps the hue of bright HDR sources as it limits their intensity. The three radii control the spread independently of the strength. With bloom off, the renderer skips its buffers and filtering. With all player-view effects off at 0 EV, it skips composition as well. The near-field ambient occlusion option reconstructs normals from depth and runs at half resolution. These effects operate on player views and bypass offscreen scope, reflection and preview renders.
+
+Specular filtering reduces flicker on narrow highlights by increasing the specular roughness where neighboring shading normals change rapidly. On the stock P210 barrel, a moving glancing highlight had a temporal luminance error of 18.07 RMS with filtering off, 16.75 on Low and 15.47 on High against a 3× supersampled reference. The matte control retained identical pixels. The flat Hold cover showed no measurable change in that test.
 
 macOS renders both tracked views through URP render requests. When HDR or MSAA needs a separate scene texture, the bridge reuses one allocation for consecutive eyes and resolves into two persistent compositor textures. The stock reflection-probe culler checks each authored probe sphere against both tracked eye views in the macOS built-in and URP players. Windows uses Unity’s OpenXR rendering path.
 

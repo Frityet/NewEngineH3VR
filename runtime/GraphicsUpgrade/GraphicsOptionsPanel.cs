@@ -32,27 +32,30 @@ namespace NativeH3VR.GraphicsUpgrade
             GraphicsSetting.RenderScale,
             GraphicsSetting.Msaa,
             GraphicsSetting.ShadowQuality,
-            GraphicsSetting.ShadowDistance,
-            GraphicsSetting.Exposure
+            GraphicsSetting.ShadowDistance
         };
 
         private static readonly GraphicsSetting[] ImageSettings =
         {
             GraphicsSetting.AdditionalLights,
             GraphicsSetting.AmbientOcclusion,
-            GraphicsSetting.Hdr,
-            GraphicsSetting.Bloom,
-            GraphicsSetting.Tonemapping,
-            GraphicsSetting.Sharpening
+            GraphicsSetting.SpecularFiltering,
+            GraphicsSetting.Hdr
         };
+        private static readonly GraphicsSetting[] GlowSettings =
+            { GraphicsSetting.Bloom, GraphicsSetting.BloomRadius, GraphicsSetting.Sharpening };
+        private static readonly GraphicsSetting[] ColorSettings =
+            { GraphicsSetting.Tonemapping, GraphicsSetting.Exposure };
 
         private const float TextScale = 0.07f;
         private readonly Dictionary<GraphicsSetting, Text> values = new Dictionary<GraphicsSetting, Text>();
         private RectTransform nativePage;
+        private RectTransform effectsPage;
         private RectTransform gamePage;
         private Text stockTitle;
         private string stockTitleText;
-        private Text tabLabel;
+        private Text effectsTab;
+        private Text gameTab;
 
         private void Build(OptionsScreen_Quality screen)
         {
@@ -76,6 +79,7 @@ namespace NativeH3VR.GraphicsUpgrade
             stockTitleText = stockTitle.text;
 
             nativePage = Page(parent, "Native Graphics Settings");
+            effectsPage = Page(parent, "Graphics Effects Settings");
             gamePage = Page(parent, "Stock Game Graphics Settings");
             var superseded = Page(parent, "Superseded Built-in Graphics Controls");
 
@@ -100,19 +104,23 @@ namespace NativeH3VR.GraphicsUpgrade
 
             // Construct inactive so the cloned pointables initialize with our colors and listeners.
             var navigation = Page(parent, "Graphics Page Navigation");
-            tabLabel = CreateButton(template, navigation, "GraphicsPage", "Game Settings",
-                new Vector2(21.8f, 22.07f), 8.6f, 2.8f, TogglePage);
+            effectsTab = CreateButton(template, navigation, "EffectsPage", "Effects",
+                new Vector2(13f, 22.07f), 7.5f, 2.8f, () => TogglePage(effectsPage));
+            gameTab = CreateButton(template, navigation, "GraphicsPage", "Game Settings",
+                new Vector2(21.8f, 22.07f), 8.6f, 2.8f, () => TogglePage(gamePage));
             AddColumn(template, nativePage, RenderSettings, 1f);
             AddColumn(template, nativePage, ImageSettings, 19f);
+            AddColumn(template, effectsPage, GlowSettings, 1f);
+            AddColumn(template, effectsPage, ColorSettings, 19f);
             navigation.gameObject.SetActive(true);
-            ShowGamePage(false);
+            ShowPage(nativePage);
         }
 
         private void OnEnable()
         {
             GraphicsOptions.Changed += RefreshValues;
             if (nativePage)
-                ShowGamePage(false);
+                ShowPage(nativePage);
         }
 
         private void OnDisable()
@@ -148,17 +156,16 @@ namespace NativeH3VR.GraphicsUpgrade
             GraphicsOptions.SetIndex(setting, (index + step + count) % count);
         }
 
-        private void TogglePage()
-        {
-            ShowGamePage(!gamePage.gameObject.activeSelf);
-        }
+        private void TogglePage(RectTransform page) => ShowPage(page.gameObject.activeSelf ? nativePage : page);
 
-        private void ShowGamePage(bool showGame)
+        private void ShowPage(RectTransform selected)
         {
-            nativePage.gameObject.SetActive(!showGame);
-            gamePage.gameObject.SetActive(showGame);
-            stockTitle.text = showGame ? "Game Graphics" : stockTitleText;
-            tabLabel.text = showGame ? "Graphics" : "Game Settings";
+            nativePage.gameObject.SetActive(selected == nativePage);
+            effectsPage.gameObject.SetActive(selected == effectsPage);
+            gamePage.gameObject.SetActive(selected == gamePage);
+            stockTitle.text = selected == nativePage ? stockTitleText : selected == effectsPage ? "Graphics Effects" : "Game Graphics";
+            effectsTab.text = selected == effectsPage ? "Graphics" : "Effects";
+            gameTab.text = selected == gamePage ? "Graphics" : "Game Settings";
             RefreshValues();
         }
 

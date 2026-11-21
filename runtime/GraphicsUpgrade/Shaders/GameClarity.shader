@@ -17,6 +17,7 @@ Shader "Hidden/NativeH3VR/PlayerView"
 
         TEXTURE2D_X(_H3VRGlowTexture);
         float4 _H3VRLook; // bloom strength, sharpening strength, tone curve, bloom threshold
+        float4 _H3VRBloomKernel; // quarter-resolution tap offset and center weight
         float _H3VRExposure;
 
         half4 SceneColor(float2 uv)
@@ -30,7 +31,8 @@ Shader "Hidden/NativeH3VR/PlayerView"
             float knee = 0.4;
             float excess = clamp(peak - _H3VRLook.w + knee, 0.0, 2.0 * knee);
             excess = max(peak - _H3VRLook.w, excess * excess / (4.0 * knee));
-            return min(color, 16.0) * (excess / max(peak, 0.0001));
+            float inversePeak = rcp(max(peak, 0.0001));
+            return color * (excess * inversePeak * min(1.0, 16.0 * inversePeak));
         }
 
         half4 Extract(Varyings input) : SV_Target
@@ -41,6 +43,19 @@ Shader "Hidden/NativeH3VR/PlayerView"
                       + Highlight(SceneColor(uv + float2(d.x, -d.y)).rgb)
                       + Highlight(SceneColor(uv + float2(-d.x, d.y)).rgb);
             return half4(sum * 0.25, 1);
+        }
+
+        half4 FilterHighlights(Varyings input) : SV_Target
+        {
+            UNITY_SETUP_STEREO_EYE_INDEX_POST_VERTEX(input);
+            float2 uv = input.texcoord;
+            float2 d = abs(_BlitTexture_TexelSize.xy) * _H3VRBloomKernel.x;
+            float center = _H3VRBloomKernel.y, side = (1.0 - center) * 0.5;
+            float3 axes = SceneColor(uv + float2(d.x, 0)).rgb + SceneColor(uv - float2(d.x, 0)).rgb
+                        + SceneColor(uv + float2(0, d.y)).rgb + SceneColor(uv - float2(0, d.y)).rgb;
+            float3 corners = SceneColor(uv + d).rgb + SceneColor(uv - d).rgb
+                           + SceneColor(uv + float2(d.x, -d.y)).rgb + SceneColor(uv + float2(-d.x, d.y)).rgb;
+            return half4(SceneColor(uv).rgb * (center * center) + axes * (side * center) + corners * (side * side), 1);
         }
 
         half4 Compose(float2 uv, bool bloom)
@@ -61,12 +76,7 @@ Shader "Hidden/NativeH3VR/PlayerView"
             }
             if (bloom)
             {
-                float2 r = d * 3.5;
-                half3 glow = SAMPLE_TEXTURE2D_X(_H3VRGlowTexture, sampler_LinearClamp, uv + float2(r.x,r.y)).rgb
-                           + SAMPLE_TEXTURE2D_X(_H3VRGlowTexture, sampler_LinearClamp, uv + float2(-r.x,r.y)).rgb
-                           + SAMPLE_TEXTURE2D_X(_H3VRGlowTexture, sampler_LinearClamp, uv + float2(r.x,-r.y)).rgb
-                           + SAMPLE_TEXTURE2D_X(_H3VRGlowTexture, sampler_LinearClamp, uv - r).rgb;
-                color += glow * (0.25 * _H3VRLook.x);
+                color += SAMPLE_TEXTURE2D_X(_H3VRGlowTexture, sampler_LinearClamp, uv).rgb * _H3VRLook.x;
             }
             // Apply exposure to the composed linear color without moving the bloom threshold.
             color *= _H3VRExposure;
@@ -115,6 +125,16 @@ Shader "Hidden/NativeH3VR/PlayerView"
             #pragma target 3.5
             #pragma vertex Vert
             #pragma fragment FinishWithBloom
+            #pragma multi_compile _ STEREO_INSTANCING_ON STEREO_MULTIVIEW_ON
+            ENDHLSL
+        }
+        Pass
+        {
+            Name "Filter highlights"
+            HLSLPROGRAM
+            #pragma target 3.5
+            #pragma vertex Vert
+            #pragma fragment FilterHighlights
             #pragma multi_compile _ STEREO_INSTANCING_ON STEREO_MULTIVIEW_ON
             ENDHLSL
         }

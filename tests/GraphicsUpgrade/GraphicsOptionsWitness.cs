@@ -64,7 +64,7 @@ namespace NativeH3VR.QA
                 manager.SetScreen(0);
                 var graphics = manager.transform.GetComponentsInChildren<FVRPointableButton>()
                     .Single(control => control.name == "Button_Option_3_Graphics");
-                graphics.Button.onClick.Invoke();
+                Press(graphics.transform, hand);
 
                 var nativePage = manager.OPS_Quality.transform.Find("Canvas/Native Graphics Settings");
                 Require(nativePage, "Native graphics did not attach when the late-created panel initialized");
@@ -173,10 +173,18 @@ namespace NativeH3VR.QA
             Require(nativePage.gameObject.activeInHierarchy, "Stock Graphics Options button did not open the native page");
 
             var canvas = nativePage.GetComponentInParent<Canvas>(true);
+            var effects = quality.Find("Canvas/Graphics Effects Settings");
+            var game = quality.Find("Canvas/Stock Game Graphics Settings");
+            var navigation = quality.Find("Canvas/Graphics Page Navigation");
+            var effectsTab = navigation.Find("EffectsPage");
+            var gameTab = navigation.Find("GraphicsPage");
+            var back = quality.Find("Canvas/Button_Back (3)");
             var renderScale = nativePage.Find("RenderScale Value").GetComponent<Text>();
             var preset = nativePage.Find("Preset Value").GetComponent<Text>();
-            var exposure = nativePage.Find("Exposure Value").GetComponent<Text>();
-            var tonemapping = nativePage.Find("Tonemapping Value").GetComponent<Text>();
+            var specular = nativePage.Find("SpecularFiltering Value").GetComponent<Text>();
+            var radius = effects.Find("BloomRadius Value").GetComponent<Text>();
+            var exposure = effects.Find("Exposure Value").GetComponent<Text>();
+            var tonemapping = effects.Find("Tonemapping Value").GetComponent<Text>();
             var expectedExposure = Path.Combine(output, "exposure.txt");
             var expectedPath = Path.Combine(output, "render-scale.txt");
             var stateDirectory = Environment.GetEnvironmentVariable("NATIVEH3VR_STATE_DIR");
@@ -184,81 +192,83 @@ namespace NativeH3VR.QA
             string settingsPath = Path.Combine(stateDirectory, "graphics-options.json");
             if (verifySaved)
             {
-                Require(File.Exists(settingsPath), "No isolated graphics preferences after restart");
-                Require(renderScale.text == File.ReadAllText(expectedPath), "Render scale was not restored after restart");
-                Require(preset.text == "Custom", "Custom preset state was not restored after restart");
-                Require(exposure.text == File.ReadAllText(expectedExposure), "Exposure was not restored after restart");
-                Require(tonemapping.text == "ACES", "The selected tone curve was not restored after restart");
+                Require(File.Exists(settingsPath) && preset.text == "Custom" && renderScale.text == File.ReadAllText(expectedPath),
+                    "Custom settings or render scale were lost across restart");
+                Require(specular.text == "Low", "Specular filtering was lost across restart");
+                Press(effectsTab, hand);
+                Require(effects.gameObject.activeInHierarchy && exposure.text == File.ReadAllText(expectedExposure) &&
+                        tonemapping.text == "ACES" && radius.text == "Tight", "Effect choices were lost across restart");
                 return;
             }
 
             Require(!File.Exists(settingsPath) && preset.text == "Balanced" && renderScale.text == "100%" &&
-                    exposure.text == "0 EV" && tonemapping.text == "Game",
-                "Balanced did not start with the scene's own grading at 100% and 0 EV compensation");
-            Physics.SyncTransforms();
-            TriggerArrow(nativePage, hand, "Preset", "Next");
-            Require(preset.text == "Quality" && exposure.text == "0 EV" && tonemapping.text == "Game",
-                "Quality did not retain the scene's own grading at 0 EV compensation");
-            TriggerArrow(nativePage, hand, "RenderScale", "Next");
-            Require(renderScale.text == "115%" && preset.text == "Custom",
-                "The render-scale arrow did not select Custom at 115%");
-            TriggerArrow(nativePage, hand, "Exposure", "Next");
-            Require(exposure.text == "+0.25 EV", "The exposure arrow did not change the compensation");
+                    specular.text == "Low" && exposure.text == "0 EV" && tonemapping.text == "Game" && radius.text == "Standard",
+                "Balanced did not open with its scene grade and default filters");
+            Press(nativePage.Find("Preset Next"), hand);
+            Require(preset.text == "Quality" && specular.text == "High" && radius.text == "Wide" &&
+                    exposure.text == "0 EV" && tonemapping.text == "Game", "Unexpected Quality graphics choices");
+            Press(nativePage.Find("RenderScale Next"), hand);
+            Require(renderScale.text == "115%" && preset.text == "Custom", "The render-scale arrow did not select Custom at 115%");
+            RoundTrip(nativePage, hand, "RenderScale", "Msaa", "ShadowQuality", "ShadowDistance", "AdditionalLights",
+                "AmbientOcclusion", "Hdr", "SpecularFiltering");
+            Press(nativePage.Find("SpecularFiltering Previous"), hand);
+            Require(specular.text == "Low", "The specular filtering control did not change to Low");
+            CapturePage(canvas, back.forward, "native-graphics.png");
 
-            foreach (string setting in new[]
-            {
-                "RenderScale", "Msaa", "ShadowQuality", "ShadowDistance", "Exposure",
-                "AdditionalLights", "AmbientOcclusion", "Hdr", "Bloom", "Tonemapping", "Sharpening"
-            })
-            {
-                var value = nativePage.Find(setting + " Value").GetComponent<Text>();
-                string original = value.text;
-                TriggerArrow(nativePage, hand, setting, "Next");
-                Require(value.text != original, $"The {setting} next arrow did not change its displayed value");
-                TriggerArrow(nativePage, hand, setting, "Previous");
-                Require(value.text == original, $"The {setting} previous arrow did not restore {original}");
-            }
-            TriggerArrow(nativePage, hand, "Tonemapping", "Previous");
-            Require(tonemapping.text == "ACES", "The tone mapping arrow did not select ACES");
+            Press(effectsTab, hand);
+            Require(effects.gameObject.activeInHierarchy && !nativePage.gameObject.activeInHierarchy, "Effects did not open");
+            RoundTrip(effects, hand, "Bloom", "BloomRadius", "Sharpening", "Tonemapping", "Exposure");
+            Press(effects.Find("BloomRadius Next"), hand);
+            Press(effects.Find("Exposure Next"), hand);
+            Press(effects.Find("Tonemapping Previous"), hand);
+            Require(radius.text == "Tight" && exposure.text == "+0.25 EV" && tonemapping.text == "ACES",
+                "The effects arrows did not select the expected radius, exposure and tone curve");
+            CapturePage(canvas, back.forward, "effects-graphics.png");
 
-            var back = quality.Find("Canvas/Button_Back (3)").GetComponent<Button>();
-            var panelForward = back.transform.forward;
-            CapturePage(canvas, panelForward, "native-graphics.png");
-
-            var tab = quality.Find("Canvas/Graphics Page Navigation/GraphicsPage").GetComponent<Button>();
-            var gamePage = quality.Find("Canvas/Stock Game Graphics Settings");
-            tab.onClick.Invoke();
-            Require(gamePage.gameObject.activeInHierarchy && !nativePage.gameObject.activeInHierarchy,
-                "Game Settings did not display the retained stock controls");
-            CapturePage(canvas, panelForward, "game-graphics.png");
-            tab.onClick.Invoke();
-            Require(nativePage.gameObject.activeInHierarchy, "Native Graphics did not reopen");
-
-            tab.onClick.Invoke();
-            back.onClick.Invoke();
+            Press(gameTab, hand);
+            Require(game.gameObject.activeInHierarchy && !effects.gameObject.activeInHierarchy &&
+                    manager.OPS_Quality.OBS_Post_CC.transform.IsChildOf(game), "Game Settings did not show the stock grading control");
+            CapturePage(canvas, back.forward, "game-graphics.png");
+            Press(gameTab, hand);
+            Require(nativePage.gameObject.activeInHierarchy, "The Graphics tab did not return from Game Settings");
+            Press(effectsTab, hand);
+            Press(effectsTab, hand);
+            Require(nativePage.gameObject.activeInHierarchy, "The Graphics tab did not return from Effects");
+            Press(gameTab, hand);
+            Press(back, hand);
             Require(!quality.gameObject.activeInHierarchy, "Stock Back did not return to options navigation");
-            graphics.Button.onClick.Invoke();
-            Require(nativePage.gameObject.activeInHierarchy && renderScale.text == "115%" &&
-                    preset.text == "Custom" && exposure.text == "+0.25 EV",
-                "Reopening Graphics Options lost the selected settings");
+            Press(graphics.transform, hand);
+            Require(nativePage.gameObject.activeInHierarchy && renderScale.text == "115%" && preset.text == "Custom" &&
+                    exposure.text == "+0.25 EV", "Reopening Graphics Options lost the selected settings");
             Require(File.Exists(settingsPath), "Graphics controls did not write to isolated launcher state");
             File.WriteAllText(expectedPath, renderScale.text);
             File.WriteAllText(expectedExposure, exposure.text);
         }
 
-        private static void TriggerArrow(Transform page, FVRViveHand hand, string setting, string direction)
+        private static void RoundTrip(Transform page, FVRViveHand hand, params string[] settings)
         {
-            var name = setting + " " + direction;
-            var arrow = page.Find(name);
-            if (!arrow || !arrow.TryGetComponent(out FVRPointableButton pointable) ||
-                !arrow.TryGetComponent(out BoxCollider collider))
-                throw new InvalidOperationException($"Missing stock pointable collider for the {name} arrow");
+            foreach (var setting in settings)
+            {
+                var value = page.Find(setting + " Value").GetComponent<Text>();
+                string original = value.text;
+                Press(page.Find(setting + " Next"), hand);
+                Require(value.text != original, $"The {setting} next arrow did not change its displayed value");
+                Press(page.Find(setting + " Previous"), hand);
+                Require(value.text == original, $"The {setting} previous arrow did not restore {original}");
+            }
+        }
 
-            var forward = arrow.forward;
+        private static void Press(Transform control, FVRViveHand hand)
+        {
+            if (!control || !control.TryGetComponent(out FVRPointableButton pointable) ||
+                !control.TryGetComponent(out BoxCollider collider))
+                throw new InvalidOperationException($"Missing pointable or collider on {control?.name}");
+            Physics.SyncTransforms();
+            var forward = control.forward;
             var origin = collider.bounds.center - forward * 0.025f;
             Require(Physics.Raycast(origin, forward, out var hit, Mathf.Min(0.09f, pointable.MaxPointingRange),
                         hand.PointingLayerMask, QueryTriggerInteraction.Collide) && hit.collider == collider,
-                $"A stock controller ray did not hit the {name} arrow");
+                $"A stock controller ray did not hit {control.name}");
 
             var input = hand.Input;
             var previous = hand.CurrentPointable;

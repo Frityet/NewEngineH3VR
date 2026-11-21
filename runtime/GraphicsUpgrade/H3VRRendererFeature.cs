@@ -33,6 +33,7 @@ namespace NativeH3VR.GraphicsUpgrade
         sealed class CompositionPass : ScriptableRenderPass
         {
             static readonly int GlowTexture = Shader.PropertyToID("_H3VRGlowTexture");
+            static readonly int BloomKernel = Shader.PropertyToID("_H3VRBloomKernel");
             static readonly int Look = Shader.PropertyToID("_H3VRLook");
             static readonly int Exposure = Shader.PropertyToID("_H3VRExposure");
             static readonly Vector4 Identity = new Vector4(1, 1, 0, 0);
@@ -44,6 +45,7 @@ namespace NativeH3VR.GraphicsUpgrade
                 internal Material material;
                 internal int pass;
                 internal Vector4 look;
+                internal Vector4 kernel;
                 internal float exposure;
                 internal StockColorGrading.Binding grading;
             }
@@ -82,15 +84,25 @@ namespace NativeH3VR.GraphicsUpgrade
                 if (bloom)
                 {
                     // One sixteenth as many pixels. Preserve texture-array slices for single-pass XR.
+                    var size = desc.CalculateFinalDimensions();
                     desc.sizeMode = TextureSizeMode.Explicit;
-                    desc.width = Mathf.Max(1, (camera.cameraTargetDescriptor.width + 3) / 4);
-                    desc.height = Mathf.Max(1, (camera.cameraTargetDescriptor.height + 3) / 4);
+                    desc.width = Mathf.Max(1, (size.x + 3) / 4);
+                    desc.height = Mathf.Max(1, (size.y + 3) / 4);
                     desc.name = "H3VR emissive highlights";
                     var highlights = graph.CreateTexture(desc);
-                    using var extract = graph.AddRasterRenderPass<Draw>("H3VR | Extract highlights", out var data);
-                    SetDraw(extract, data, source, highlights, 0);
-                    data.look = look;
-                    extract.SetGlobalTextureAfterPass(highlights, GlowTexture);
+                    using (var extract = graph.AddRasterRenderPass<Draw>("H3VR | Extract highlights", out var data))
+                    {
+                        SetDraw(extract, data, source, highlights, 0);
+                        data.look = look;
+                    }
+                    desc.name = "H3VR filtered highlights";
+                    var filtered = graph.CreateTexture(desc);
+                    using (var filter = graph.AddRasterRenderPass<Draw>("H3VR | Filter highlights", out var data))
+                    {
+                        SetDraw(filter, data, highlights, filtered, 3);
+                        data.kernel = GraphicsOptions.BloomKernel;
+                        filter.SetGlobalTextureAfterPass(filtered, GlowTexture);
+                    }
                 }
 
                 using (var combine = graph.AddRasterRenderPass<Draw>("H3VR | Compose player view", out var data))
@@ -113,7 +125,8 @@ namespace NativeH3VR.GraphicsUpgrade
                 builder.SetRenderAttachment(target, 0, AccessFlags.WriteAll);
                 builder.SetRenderFunc(static (Draw data, RasterGraphContext context) =>
                 {
-                    data.material.SetVector(Look, data.look);
+                    if (data.pass == 3) data.material.SetVector(BloomKernel, data.kernel);
+                    else data.material.SetVector(Look, data.look);
                     if (data.pass == 1 || data.pass == 2)
                     {
                         data.material.SetFloat(Exposure, data.exposure);
