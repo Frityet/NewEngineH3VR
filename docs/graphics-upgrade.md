@@ -115,7 +115,9 @@ The analysis checks the active renderer, gameplay phase, objective, both submitt
 
 For a connected headset, add `--headset` to the session command and use a separate output root. When MacVR Home owns the panel, also pass `--headset-home`. The witness checks that Home selected the running game and records the headset period, input tracking flags, actual eye size and game-side frame timings. The Home compositor owns final presentation in this mode.
 
-Northest Dakota’s SnowGround meshes use the original Alloy/Weighted Blend material, a non-directional lightmap and a baked shadow mask. The URP bridge now fades realtime directional shadows into that mask, following the recovered Steam lighting path. At the same opening Take pose, the cargo container’s shadow was 91–92 display-luma levels darker than nearby snow in Steam and 126–127 in Built-in. The earlier URP draw differed by less than one level. Loading the corrected receiver as a QA shader in the signed URP player gave 125–126 levels in both Balanced and Quality. The first Hold capture also shows restored shadows from the rock and upright cover.
+Northest Dakota’s SnowGround meshes use the original Alloy/Weighted Blend material, a non-directional lightmap and a baked shadow mask. The URP bridge fades realtime directional shadows into that mask, following the recovered Steam lighting path. At the same opening Take pose, the cargo container’s shadow was 91–92 display-luma levels darker than nearby snow in Steam and 126–127 in Unity 6.7 Built-in. The earlier URP player showed less than one level of contrast. In the installed URP player the shadow measured 125.55 and 125.73 levels in the left and right eyes on Balanced, and 125.57 and 126.14 on Quality. The Steam capture has a softer shadow edge.
+
+At the first Hold on sequence 1, the tree casts a shadow on snow 49–52 m from the observer. Quality includes that footprint. Balanced uses a 30 m shadow range with a 1024-pixel atlas. To include the tree with the other Balanced settings, select **Balanced** and set **Graphics Options → Shadow distance** to **60 m**. Changing just this control in the same frozen Hold restored 57 and 63 levels of contrast in the two eyes, against 71 and 68 in Built-in. Returning to 30 m removed the footprint again. Three short timing windows gave overlapping GPU times for the two ranges.
 
 Institution uses its own scene color profile. In an earlier Quality test, a custom Neutral curve retained more shadow detail than ACES on the same camera pose. Balanced and Quality now follow the game’s active profile by default. The Graphics Options tone-mapping control can override it.
 
@@ -125,17 +127,30 @@ The M5 Max ran the signed players with synthetic MacVR at 1440 × 1600 per eye a
 
 | Map | Phase | Optimized built-in | URP Balanced | URP Quality |
 | --- | --- | ---: | ---: | ---: |
-| Classic Hallways | Opening Take | 80.5 / 1.63 / 5.17 | 86.9 / 1.27 / 8.54 | 87.9 / 1.39 / 9.57 |
-| Classic Hallways | First Hold | 71.7 / 1.29 / 6.46 | 72.2 / 1.44 / 6.99 | 75.9 / 1.70 / 7.68 |
-| Northest Dakota | Opening Take | 87.0 / 1.65 / 8.07 | 85.5 / 1.51 / 8.00 | 85.0 / 1.61 / 8.98 |
-| Northest Dakota | First Hold | 79.1 / 1.46 / 7.49 | 73.4 / 1.47 / 7.61 | 78.7 / 1.92 / 8.95 |
-| Institution | Opening Take | 72.9 / 0.89 / 6.83 | 76.0 / 0.97 / 7.06 | 76.6 / 1.02 / 7.59 |
-| Institution | First Hold | 76.1 / 1.47 / 6.99 | 73.4 / 1.46 / 7.32 | 78.1 / 1.39 / 8.18 |
+| Classic Hallways | Opening Take | 80.5 / 1.63 / 5.17 | 87.2 / 1.24 / 7.03 | 88.8 / 1.41 / 8.27 |
+| Classic Hallways | First Hold | 71.7 / 1.29 / 6.46 | 72.2 / 1.38 / 7.75 | 76.7 / 1.52 / 7.32 |
+| Northest Dakota | Opening Take | 87.0 / 1.65 / 8.07 | 85.3 / 1.57 / 6.36 | 85.2 / 1.70 / 7.00 |
+| Northest Dakota | First Hold | 79.1 / 1.46 / 7.49 | 71.0 / 1.68 / 7.08 | 75.2 / 1.68 / 7.63 |
+| Institution | Opening Take | 72.9 / 0.89 / 6.83 | 77.0 / 0.93 / 7.00 | 81.5 / 1.00 / 8.39 |
+| Institution | First Hold | 76.1 / 1.47 / 6.99 | 73.8 / 1.39 / 6.87 | 74.8 / 1.42 / 8.00 |
 
-The analysis covers 14,557 completed stereo pairs in 54 gameplay windows from 27 sessions. The process monitor observed zero concurrent H3VR players during these windows. First Hold windows recorded 3–4 active objective NPCs. Timing uses a simulated headset.
+The analysis covers 14,562 completed stereo pairs in 54 gameplay windows from 27 sessions. Nine Built-in sessions use the unchanged signed player from the preceding sweep. Both URP presets were recaptured after the lightmapped snow fix. The process monitor observed zero concurrent H3VR players during these windows. First Hold windows recorded 3–4 active objective NPCs. Timing uses a simulated headset.
 
-The longest gap between compositor completions was 45.3 ms during the Built-in opening Take on Classic Hallways, sequence 0.
-
-The host check excluded nine preliminary attempts with recorded Unity build activity. It checks one second on each side of each measured window. A separate three-second check recorded nearby activity for one selected session.
+The longest sampled gap between compositor completions was 67.8 ms in Northest Dakota’s first Hold on Balanced, sequence 0. Across the benchmark history, nine preliminary attempts overlapped Unity build activity and were excluded. None of the 27 selected sessions had sampled Unity build activity within one second of a measured window.
 
 A historical Balanced run recorded a 502.6 ms Institution opening Take gap on sequence 0 and 68.2 FPS during its first Hold on sequence 3. Those runs used the earlier presets. The cause remains undetermined.
+
+### Connected Valve Index results
+
+The same M5 Max ran all three renderers with a Valve Index connected to MacVR Home at 120.02 Hz and its saved 150% render setting, 1764 × 1960 per eye. Each cell gives game-submitted stereo pairs per second and p95 Unity GPU time in milliseconds. Each renderer ran the opening Take and first Hold once per map on sequence 0.
+
+| Map | Phase | Unity 6.7 Built-in | URP Balanced | URP Quality |
+| --- | --- | ---: | ---: | ---: |
+| Classic Hallways | Opening Take | 118.5 / 8.42 | 120.0 / 7.85 | 120.0 / 9.75 |
+| Classic Hallways | First Hold | 119.9 / 7.51 | 119.9 / 9.33 | 120.0 / 8.71 |
+| Northest Dakota | Opening Take | 118.9 / 5.41 | 120.1 / 4.59 | 119.6 / 5.10 |
+| Northest Dakota | First Hold | 120.0 / 6.53 | 120.0 / 5.51 | 119.9 / 5.55 |
+| Institution | Opening Take | 118.2 / 4.20 | 119.6 / 7.25 | 119.6 / 6.92 |
+| Institution | First Hold | 119.9 / 4.57 | 120.1 / 6.77 | 119.9 / 7.26 |
+
+The game submitted 4,860 stereo pairs across 18 measured windows. MacVR Home owned the display and selected the running game at both ends of each window. The measurements cover submission to Home. Physical panel scanout and controller play were outside this test.
