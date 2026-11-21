@@ -100,6 +100,8 @@ namespace NativeH3VR.QA
                 .Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries);
             if (selection.Length == 0) throw new ArgumentException("Choose at least one scene");
             bool fullSweep = Array.IndexOf(selection, "*") >= 0;
+            bool exactSceneBindings = fullSweep ||
+                Environment.GetEnvironmentVariable("NATIVEH3VR_SWATCH_EXACT_SCENES") == "1";
             float deadline = Time.realtimeSinceStartup + 150;
             while (SceneManager.GetActiveScene().name != "MainMenu3")
             {
@@ -109,13 +111,16 @@ namespace NativeH3VR.QA
             yield return new WaitForSecondsRealtime(3);
             string bundles = Environment.GetEnvironmentVariable("NATIVEH3VR_SWATCH_BUNDLES");
             if (!string.IsNullOrEmpty(bundles)) yield return CaptureBundles(output, bundles);
-            if (fullSweep)
+            if (exactSceneBindings)
             {
                 // Keep resource-only assets distinct from actual scene bindings.
-                yield return Capture("resources", output, Resources.LoadAll<Material>(""), new MaterialBindings());
+                if (fullSweep)
+                    yield return Capture("resources", output, Resources.LoadAll<Material>(""), new MaterialBindings());
                 for (int index = 0; index < SceneManager.sceneCountInBuildSettings; index++)
                 {
-                    yield return CaptureScene(index, output);
+                    string name = Path.GetFileNameWithoutExtension(SceneUtility.GetScenePathByBuildIndex(index));
+                    if (fullSweep || Array.IndexOf(selection, name) >= 0)
+                        yield return CaptureScene(index, output);
                 }
                 yield break;
             }
@@ -140,6 +145,7 @@ namespace NativeH3VR.QA
         {
             string path = SceneUtility.GetScenePathByBuildIndex(index);
             string name = Path.GetFileNameWithoutExtension(path);
+            Debug.Log("NATIVEH3VR_SWATCH_SCENE_BEGIN " + name);
             if (SceneManager.GetActiveScene().buildIndex != index)
             {
                 yield return SceneManager.LoadSceneAsync(index);
@@ -156,6 +162,7 @@ namespace NativeH3VR.QA
             foreach (var root in scene.GetRootGameObjects())
                 bindings.AddHierarchy(root);
             yield return Capture(name, output, bindings.All, bindings);
+            Debug.Log("NATIVEH3VR_SWATCH_SCENE_COMPLETE " + name);
         }
 
         private sealed class MaterialBindings
@@ -464,14 +471,15 @@ namespace NativeH3VR.QA
 #endif
                 RenderSettings.reflectionIntensity = oldIntensity;
                 Time.timeScale = previousTimeScale;
-                cam.targetTexture = null;
                 cam.enabled = false;
-                target.Release();
+                cam.targetTexture = null;
+                if (RenderTexture.active == target) RenderTexture.active = null;
                 Destroy(target);
                 Destroy(root);
                 Destroy(reflection);
                 Destroy(mesh);
             }
+            yield return null;
         }
 
         private static void Save(RenderTexture source, string file)
