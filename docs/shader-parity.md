@@ -14,6 +14,8 @@ python3 -m venv .local/shader-audit-venv
 
 Check each inventory's `errors` before comparing counts. An unresolved `unity default resources` reference can point to data provided by the engine executable. A candidate's presence in the bundle establishes serialized coverage. GPU parity requires captures with the pass's actual inputs, including mesh attributes, pipeline lighting, probes, blend state and auxiliary textures.
 
+The inventory records material tag overrides and each pass's depth-write and color-blend settings. `materialSurfaces` compares the effective render type and queue of uniquely matched materials. A named blend property refers to the corresponding saved material float. This check identified stock smoke and debris that Unity's package upgrader moved from the transparent queue to an opaque, depth-writing pass.
+
 To check the baked lighting shipped in a player, run the following against the same two Data directories. The check follows every scene's color, direction and shadowmask slots, hashes the bound GPU texture blocks and compares dimensions, format, mip count, color space and lightmap encoding. It reads the compact player archive in place.
 
 ```sh
