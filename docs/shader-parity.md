@@ -55,6 +55,8 @@ The original FX manager serializes the scope postprocess shader directly and its
 
 `OpticBlitWitness.cs` runs the same deterministic source and overlay textures through all eight passes with the overlay keyword on and off. Compile it against retail with the Roslyn references above plus `UnityEngine.VR.dll`. Bootstrap `NativeH3VR.QA.OpticBlitWitness` and set `NATIVEH3VR_OPTIC_BLIT_WITNESS` to a private Windows output directory. For a Unity 6.7 test fixture, add the authored witness to a scene and put the privately migrated shader at `Assets/Resources/Optics.shader`. Use the same environment variable with the local player output path. The witness records pipeline, graphics API, color space, indexed pass names, frame time and linear RGBA readbacks.
 
+In a full converted game, run `tests/GraphicsUpgrade/run.py --optics` with the usual `--app`, `--runtime`, `--launcher` and `--out` arguments. This resolves the shader from the game's active scope postprocess material. Check the recorded shader and night-vision parameters in `inputs.txt` when pairing the 16 images with their retail references. The signal-to-noise setting changes the rendered grain.
+
 `RetailThermalWitness.cs` loads the stock handheld thermal camera from the game item database. It captures the ordinary view, raw sensor, processed lens texture and ordinary reset using the camera's own targets. Compile it with the retail references above, bootstrap `NativeH3VR.QA.RetailThermalWitness` and set `NATIVEH3VR_THERMAL_WITNESS` to a private output directory. For a converted player, run `tests/GraphicsUpgrade/run.py --thermal` with the player, runtime, launcher and output paths. The witness exits after writing `thermal.json`.
 
 ## Whole-game material sweep

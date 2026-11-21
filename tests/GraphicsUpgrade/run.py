@@ -45,6 +45,7 @@ def main():
     modes.add_argument("--profile", action="store_true", help="Capture and time the three URP presets")
     modes.add_argument("--swatches", action="store_true", help="Render stock materials with controlled lighting")
     modes.add_argument("--thermal", action="store_true", help="Capture a stocked handheld thermal sensor and display")
+    modes.add_argument("--optics", action="store_true", help="Read all eight stock optic passes with the overlay off and on")
     parser.add_argument("--swatch-bundles", nargs="?", const="1", metavar="BUNDLE,...",
                         help="Include materials from all stock asset bundles or a comma-separated subset")
     parser.add_argument("--builtin", action="store_true", help="Profile the original Built-in renderer")
@@ -100,6 +101,8 @@ def main():
         witness = "MaterialSwatches"
     if args.thermal:
         witness = "RetailThermalWitness"
+    if args.optics:
+        witness = "OpticBlitWitness"
     manifest = {"schemaVersion": 2, "id": package.name, "unityVersion": settings["unityVersion"],
                 "buildTarget": "StandaloneOSX", "hostBuildSha256": digest(receipt),
                 "assemblies": [{"file": assembly, "sha256": digest(package / assembly)}],
@@ -108,6 +111,12 @@ def main():
 
     launch = ["dotnet", str(launcher), "run", "--app", str(app), "--runtime", str(runtime),
               "--mods-dir", str(package.parent), "--state-dir", str(out / "state"), "--synthetic"]
+    if args.optics:
+        env = dict(os.environ, NATIVEH3VR_OPTIC_BLIT_WITNESS=str(out))
+        subprocess.run([*launch, "--log-file", str(out / "optics.log"), "--timeout", "220"], env=env, check=True)
+        if not (out / "inputs.txt").is_file() or not (out / "passes.txt").is_file() or len(list(out.glob("*.png"))) != 16:
+            raise RuntimeError(f"Optic pass witness did not finish all 16 readbacks. Inspect {out / 'optics.log'}")
+        return
     if args.thermal:
         env = dict(os.environ, NATIVEH3VR_THERMAL_WITNESS=str(out))
         subprocess.run([*launch, "--log-file", str(out / "thermal.log"), "--timeout", "180"],

@@ -22,8 +22,12 @@ namespace NativeH3VR.QA
 
         public static void Initialize()
         {
-            if (string.IsNullOrEmpty(Environment.GetEnvironmentVariable(OutputVariable)) ||
-                FindObjectOfType<OpticBlitWitness>()) return;
+            if (string.IsNullOrEmpty(Environment.GetEnvironmentVariable(OutputVariable))) return;
+#if UNITY_6000_0_OR_NEWER
+            if (FindAnyObjectByType<OpticBlitWitness>()) return;
+#else
+            if (FindObjectOfType<OpticBlitWitness>()) return;
+#endif
             var host = new GameObject("Stock optic pass witness");
             DontDestroyOnLoad(host);
             host.AddComponent<OpticBlitWitness>();
@@ -33,13 +37,15 @@ namespace NativeH3VR.QA
         {
             string output = Environment.GetEnvironmentVariable(OutputVariable);
             Directory.CreateDirectory(output);
-#if UNITY_6000_0_OR_NEWER
+#if UNITY_6000_0_OR_NEWER && !NATIVEH3VR_GAME_WITNESS
             yield return null;
 #else
             while (SceneManager.GetActiveScene().name != "MainMenu3") yield return null;
             yield return new WaitForSecondsRealtime(5);
+#if !UNITY_6000_0_OR_NEWER
             // The fixture uses a monoscopic source texture in every player.
             UnityEngine.VR.VRSettings.enabled = false;
+#endif
 #endif
             Time.captureFramerate = 90;
             yield return null;
@@ -79,10 +85,11 @@ namespace NativeH3VR.QA
 
         private static Material Prepare(Texture2D input, Texture2D overlay)
         {
-#if UNITY_6000_0_OR_NEWER
+#if UNITY_6000_0_OR_NEWER && !NATIVEH3VR_GAME_WITNESS
             var shader = Resources.Load<Shader>("Optics");
 #else
-            var shader = PIPScope.GetPostProcessMaterial().shader;
+            var actual = PIPScope.GetPostProcessMaterial();
+            var shader = actual ? actual.shader : null;
 #endif
             if (!shader || !shader.isSupported)
                 throw new InvalidOperationException("Missing or unsupported stock optic postprocess.");
@@ -151,6 +158,13 @@ namespace NativeH3VR.QA
                     new[] { Application.unityVersion, SystemInfo.graphicsDeviceType.ToString(), pipeline,
                         QualitySettings.activeColorSpace.ToString(), string.Join(", ", PassNames),
                         Time.deltaTime.ToString("R", System.Globalization.CultureInfo.InvariantCulture) });
+                File.WriteAllLines(Path.Combine(output, "inputs.txt"), new[]
+                {
+                    "shader=" + material.shader.name,
+                    "size=" + Size,
+                    "nightVisionSNR=" + material.GetFloat("_NightVisionSNR").ToString("R", System.Globalization.CultureInfo.InvariantCulture),
+                    "nightVisionHalo=" + material.GetFloat("_NightVisionHalo").ToString("R", System.Globalization.CultureInfo.InvariantCulture)
+                });
             }
             finally
             {
