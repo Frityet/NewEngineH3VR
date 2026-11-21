@@ -157,10 +157,17 @@ In the earlier Balanced player, marking each group covered its entire reference 
 
 For the live snow shadow regression, use pose-matched Northest profile captures at 1440 × 1600 per eye. The Built-in reference and URP candidate must use the same sequence seed and observer pose. Seed 0 checks the opening cargo shadow. Seed 1 also checks the first Hold tree shadow. The report records both eyes, the footprint and adjacent lit snow, and hashes of the source images.
 
+The seed 1 tree shadow falls about 49–52 m from the captured observer. Balanced defaults to a 30 m shadow distance, so use its ordinary capture to check the opening cargo shadow. For the Hold check, start from Balanced and select a 60 m Shadow Distance in Graphics Options before capturing the same Hold view. Keep the other Balanced settings and camera pose fixed. The capture's `-asset.txt` records the active distance. Quality already defaults to 60 m.
+
 ```sh
-uv run tests/ShaderParity/check_northest_snow.py "$BUILTIN_CAPTURE" "$URP_CAPTURE" \
-  --seed 1 --mode balanced --out "$SNOW_JSON"
+uv run tests/ShaderParity/check_northest_snow.py "$BUILTIN_CAPTURE" "$BALANCED_30M_CAPTURE" \
+  --seed 1 --mode balanced --phase take --out "$TAKE_JSON"
+
+uv run tests/ShaderParity/check_northest_snow.py "$BUILTIN_CAPTURE" "$BALANCED_60M_CAPTURE" \
+  --seed 1 --mode balanced --phase hold --out "$HOLD_JSON"
 ```
+
+Repeat the Hold at 30 m to check that the distant footprint falls below the same strict threshold after restoring the default. Retain the result alongside the 60 m positive control. The source-side checker uses the same contrast and pose limits at both distances.
 
 ## Game cameras and view fades
 
