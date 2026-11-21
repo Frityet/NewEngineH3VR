@@ -119,17 +119,21 @@ Institution uses its own scene color profile. In an earlier Quality test, a cust
 
 ### Measured Take & Hold results
 
-The M5 Max ran both signed players with synthetic MacVR at 1440 × 1600 per eye and a 90 Hz target. Each entry gives delivered stereo frames per second followed by p95 CPU milliseconds for both eye renders and submission. Each map and phase pools three stock route sequences.
+The M5 Max ran the signed players with synthetic MacVR at 1440 × 1600 per eye and a 90 Hz target. Each cell gives delivered stereo FPS, p95 stereo CPU milliseconds and p95 Unity GPU milliseconds. Each map and phase pools three stock route sequences. Stereo CPU covers both eye renders and submission. Unity GPU comes from Frame Timing Manager.
 
 | Map | Phase | Optimized built-in | URP Balanced | URP Quality |
 | --- | --- | ---: | ---: | ---: |
-| Classic Hallways | Opening Take | 90.0 / 0.97 | 90.0 / 0.97 | 90.0 / 1.08 |
-| Classic Hallways | First Hold | 90.0 / 1.24 | 90.0 / 1.60 | 90.0 / 1.29 |
-| Northest Dakota | Opening Take | 90.0 / 1.89 | 90.0 / 1.58 | 90.0 / 1.86 |
-| Northest Dakota | First Hold | 90.0 / 1.48 | 90.0 / 1.50 | 90.0 / 1.97 |
-| Institution | Opening Take | 90.0 / 0.97 | 85.1 / 0.96 | 90.0 / 1.07 |
-| Institution | First Hold | 90.0 / 1.33 | 81.3 / 1.28 | 90.0 / 1.62 |
+| Classic Hallways | Opening Take | 80.5 / 1.63 / 5.17 | 86.9 / 1.27 / 8.54 | 87.9 / 1.39 / 9.57 |
+| Classic Hallways | First Hold | 71.7 / 1.29 / 6.46 | 72.2 / 1.44 / 6.99 | 75.9 / 1.70 / 7.68 |
+| Northest Dakota | Opening Take | 87.0 / 1.65 / 8.07 | 85.5 / 1.51 / 8.00 | 85.0 / 1.61 / 8.98 |
+| Northest Dakota | First Hold | 79.1 / 1.46 / 7.49 | 73.4 / 1.47 / 7.61 | 78.7 / 1.92 / 8.95 |
+| Institution | Opening Take | 72.9 / 0.89 / 6.83 | 76.0 / 0.97 / 7.06 | 76.6 / 1.02 / 7.59 |
+| Institution | First Hold | 76.1 / 1.47 / 6.99 | 73.4 / 1.46 / 7.32 | 78.1 / 1.39 / 8.18 |
 
-The analysis includes 14,573 completed stereo pairs across 54 short gameplay windows. The process monitor observed no second H3VR player during any selected window. The timings cover the opening Take and the first live hacking wave on a simulated headset.
+The analysis covers 14,557 completed stereo pairs in 54 gameplay windows from 27 sessions. The process monitor observed zero concurrent H3VR players during these windows. First Hold windows recorded 3–4 active objective NPCs. Timing uses a simulated headset.
 
-All three renderers delivered 90 FPS on Classic Hallways and Northest Dakota. On Institution, Balanced recorded a 502.6 ms gap between compositor completions during the opening Take on sequence 0. During the first Hold on sequence 3 it delivered 68.2 FPS, with a longest gap of 41.3 ms. The other two Balanced Hold sequences delivered 90 FPS. The captures identify the stalls but do not establish their cause.
+The longest gap between compositor completions was 45.3 ms during the Built-in opening Take on Classic Hallways, sequence 0.
+
+The host check excluded nine preliminary attempts with recorded Unity build activity. It checks one second on each side of each measured window. A separate three-second check recorded nearby activity for one selected session.
+
+A historical Balanced run recorded a 502.6 ms Institution opening Take gap on sequence 0 and 68.2 FPS during its first Hold on sequence 3. Those runs used the earlier presets. The cause remains undetermined.
