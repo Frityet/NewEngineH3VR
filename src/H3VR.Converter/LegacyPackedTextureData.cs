@@ -29,7 +29,8 @@ internal static class LegacyPackedTextureData
         @"^  m_ShaderKeywords:[^\r\n]*\b_SMOOTHNESS_TEXTURE_ALBEDO_CHANNEL_A\b", Line);
 
     internal sealed record PackedTexture(int Width, int Height, int Mips, int FilterMode, int Aniso, float MipBias,
-        int Wrap, byte[] Bytes);
+        int Wrap, byte[] Bytes, int ColorSpace = 0, bool IgnoreMipmapLimit = true);
+    internal sealed record StockTexture(string Name, string File, long PathId, string Sha256, int UsageMode, int ColorSpace);
     private sealed record MaterialBinding(string Path, string Text, Match Reference);
 
     internal static int Stage(string source, string assets, string classDatabase)
@@ -72,23 +73,11 @@ internal static class LegacyPackedTextureData
         Directory.CreateDirectory(output);
         var manager = new AssetsManager();
         manager.LoadClassPackage(classDatabase);
-        var texture = ReadSource(manager, source);
+        var texture = ReadSource(manager, source, new(SourceName, SourceFile, SourceId, SourceSha256, NormalDxt5, 0));
         string alias = SourceName + "_StockPackedData";
         string guid = Convert.ToHexStringLower(SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(
             "NativeH3VR.StockPackedTexture:" + SourceSha256)))[..32];
-        string asset = Path.Combine(output, alias + ".asset");
-        File.WriteAllText(asset, TextureYaml(alias, texture));
-        File.WriteAllText(asset + ".meta", $$"""
-            fileFormatVersion: 2
-            guid: {{guid}}
-            NativeFormatImporter:
-              externalObjects: {}
-              mainObjectFileID: 2800000
-              userData:
-              assetBundleName:
-              assetBundleVariant:
-
-            """);
+        WriteNativeTexture(output, alias, guid, texture);
         foreach (MaterialBinding binding in bindings)
         {
             var originalGuid = binding.Reference.Groups["guid"];
@@ -101,24 +90,42 @@ internal static class LegacyPackedTextureData
         return bindings.Count;
     }
 
+    internal static void WriteNativeTexture(string directory, string name, string guid, PackedTexture texture)
+    {
+        Directory.CreateDirectory(directory);
+        string asset = Path.Combine(directory, name + ".asset");
+        File.WriteAllText(asset, TextureYaml(name, texture));
+        File.WriteAllText(asset + ".meta", $$"""
+            fileFormatVersion: 2
+            guid: {{guid}}
+            NativeFormatImporter:
+              externalObjects: {}
+              mainObjectFileID: 2800000
+              userData:
+              assetBundleName:
+              assetBundleVariant:
+
+            """);
+    }
+
     internal static bool IsExportedCopy(string texture, string original) =>
         texture == original || Regex.IsMatch(texture, "^" + Regex.Escape(original) + @"_\d+$", RegexOptions.CultureInvariant);
 
-    private static PackedTexture ReadSource(AssetsManager manager, string root)
+    internal static PackedTexture ReadSource(AssetsManager manager, string root, StockTexture original)
     {
         try
         {
-            string source = SafeFiles.Inside(root, SourceFile);
+            string source = SafeFiles.Inside(root, original.File);
             var file = manager.LoadAssetsFile(source, false);
             PlayerEnlighten.RequireVersion(manager, file, SteamVersion);
-            var info = file.file.GetAssetInfo(SourceId);
+            var info = file.file.GetAssetInfo(original.PathId);
             if (info is null || info.GetTypeId(file.file) != (int)AssetClassID.Texture2D)
-                throw new InvalidDataException($"Stock mask texture is absent from {SourceFile}.");
+                throw new InvalidDataException($"Stock texture is absent from {original.File}.");
             var texture = manager.GetBaseField(file, info);
-            if (texture["m_Name"].AsString != SourceName || texture["m_TextureFormat"].AsInt != Dxt5 ||
-                texture["m_LightmapFormat"].AsInt != NormalDxt5 || texture["m_ColorSpace"].AsInt != 0 ||
+            if (texture["m_Name"].AsString != original.Name || texture["m_TextureFormat"].AsInt != Dxt5 ||
+                texture["m_LightmapFormat"].AsInt != original.UsageMode || texture["m_ColorSpace"].AsInt != original.ColorSpace ||
                 texture["m_ImageCount"].AsInt != 1 || texture["m_TextureDimension"].AsInt != 2)
-                throw new InvalidDataException($"Unexpected stock DXT5nm metadata for {SourceName}.");
+                throw new InvalidDataException($"Unexpected stock BC3 metadata for {original.Name}.");
             int width = texture["m_Width"].AsInt;
             int height = texture["m_Height"].AsInt;
             int mips = texture["m_MipCount"].AsInt;
@@ -128,18 +135,18 @@ internal static class LegacyPackedTextureData
             {
                 var stream = texture["m_StreamData"];
                 string resource = stream["path"].AsString;
-                if (resource != SourceFile + ".resS" || stream["size"].AsUInt != size)
-                    throw new InvalidDataException($"Unexpected stream extent for {SourceName}.");
+                if (resource != original.File + ".resS" || stream["size"].AsUInt != size)
+                    throw new InvalidDataException($"Unexpected stream extent for {original.Name}.");
                 using var read = File.OpenRead(SafeFiles.Inside(root, resource));
                 read.Position = checked((long)stream["offset"].AsULong);
                 data = new byte[size];
                 read.ReadExactly(data);
             }
-            if (data.Length != size || !Convert.ToHexStringLower(SHA256.HashData(data)).Equals(SourceSha256, StringComparison.Ordinal))
-                throw new InvalidDataException($"Stock packed texture payload changed for {SourceName}.");
+            if (data.Length != size || !Convert.ToHexStringLower(SHA256.HashData(data)).Equals(original.Sha256, StringComparison.Ordinal))
+                throw new InvalidDataException($"Stock BC3 texture payload changed for {original.Name}.");
             var sampling = texture["m_TextureSettings"];
             return new PackedTexture(width, height, mips, sampling["m_FilterMode"].AsInt,
-                sampling["m_Aniso"].AsInt, sampling["m_MipBias"].AsFloat, sampling["m_WrapMode"].AsInt, data);
+                sampling["m_Aniso"].AsInt, sampling["m_MipBias"].AsFloat, sampling["m_WrapMode"].AsInt, data, original.ColorSpace);
         }
         finally
         {
@@ -187,7 +194,7 @@ internal static class LegacyPackedTextureData
           m_MipCount: {{texture.Mips}}
           m_IsReadable: 0
           m_IsPreProcessed: 0
-          m_IgnoreMipmapLimit: 1
+          m_IgnoreMipmapLimit: {{(texture.IgnoreMipmapLimit ? 1 : 0)}}
           m_MipmapLimitGroupName:
           m_StreamingMipmaps: 0
           m_StreamingMipmapsPriority: 0
@@ -204,7 +211,7 @@ internal static class LegacyPackedTextureData
             m_WrapV: {{texture.Wrap}}
             m_WrapW: {{texture.Wrap}}
           m_LightmapFormat: 0
-          m_ColorSpace: 0
+          m_ColorSpace: {{texture.ColorSpace}}
           m_PlatformBlob:
           image data: {{texture.Bytes.Length}}
           _typelessdata: {{Convert.ToHexStringLower(texture.Bytes)}}

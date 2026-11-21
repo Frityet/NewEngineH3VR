@@ -9,6 +9,8 @@ internal static class LegacyPackedTextureDataTests
         ("packed mask companions preserve every BC3 mip block", MipExtents),
         ("packed mask companions use exact linear BC3 data and stock sampling", NativeAsset),
         ("only exact and numbered recovered copies match the stock texture identity", ExportedCopies),
+        ("stock additive sign textures keep sRGB sampling and complete BC3 mips", SignTexture),
+        ("stock additive sign migration rebinds only its exact main texture", SignBinding),
     ];
 
     private static void MipExtents()
@@ -40,6 +42,42 @@ internal static class LegacyPackedTextureDataTests
         {
             if (!yaml.Contains(required, StringComparison.Ordinal)) throw new Exception($"Missing {required}.");
         }
+    }
+
+    private static void SignTexture()
+    {
+        const int mips = 11;
+        if (LegacyPackedTextureData.MipBytes(1024, 256, mips) != 349_584)
+            throw new Exception("Unexpected stock sign mip extent.");
+        var texture = new LegacyPackedTextureData.PackedTexture(8, 8, 4, 1, 1, 0, 0, new byte[112],
+            ColorSpace: 1, IgnoreMipmapLimit: false);
+        string yaml = LegacyPackedTextureData.TextureYaml("FixtureSign", texture);
+        foreach (string field in new[] { "m_ColorSpace: 1", "m_IgnoreMipmapLimit: 0", "m_TextureFormat: 12", "m_MipCount: 4" })
+            if (!yaml.Contains(field, StringComparison.Ordinal)) throw new Exception("Missing " + field);
+    }
+
+    private static void SignBinding()
+    {
+        const string stock = "25fd9307a0847d644aa971888b915ff0";
+        const string derived = "63a14f95b23c4a0e0b8ad8b62049063ae";
+        const string shader = "a93930d1adfa66c45b9aa2fd5bf93c02";
+        string source = $$"""
+            Material:
+              m_Name: TAH_TouchToBegin
+              m_Shader: {fileID: 4800000, guid: {{shader}}, type: 3}
+              m_SavedProperties:
+                m_TexEnvs:
+                  _MainTex:
+                    m_Texture: {fileID: 2800000, guid: {{stock}}, type: 3}
+                    m_Scale: {x: 4, y: 1}
+                    m_Offset: {x: 0, y: 0}
+            """.ReplaceLineEndings("\r\n");
+        string expected = source.Replace(stock + ", type: 3", derived + ", type: 2", StringComparison.Ordinal);
+        if (LegacySignTextureMips.RewriteBinding(source, "TAH_TouchToBegin", stock, derived) != expected)
+            throw new Exception("Rebinding changed more than the original main texture reference.");
+        foreach (string unrelated in new[] { expected, source.Replace(shader, stock), source.Replace("_MainTex", "_SpecTex") })
+            if (LegacySignTextureMips.RewriteBinding(unrelated, "TAH_TouchToBegin", stock, derived) is not null)
+                throw new Exception("The sign migration accepted an unrelated binding.");
     }
 
     private static void ExportedCopies()

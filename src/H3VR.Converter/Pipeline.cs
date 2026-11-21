@@ -317,10 +317,14 @@ public sealed partial class Pipeline(string repository, ConversionConfig config)
             var report = new ProjectMigration(config, candidate).Run();
             if (config.RestoresSteamLighting)
             {
-                int packedBindings = LegacyPackedTextureData.Stage(config.GameData, Path.Combine(candidate, "Assets"),
-                    PlayerEnlighten.RequireClassDatabase(config.CacheDirectory(repository)));
+                string assets = Path.Combine(candidate, "Assets");
+                string classDatabase = PlayerEnlighten.RequireClassDatabase(config.CacheDirectory(repository));
+                int packedBindings = LegacyPackedTextureData.Stage(config.GameData, assets, classDatabase);
                 if (packedBindings > 0)
                     Console.WriteLine($"Preserved stock BC3 mip chains for {packedBindings} Alloy mask bindings.");
+                int signBindings = LegacySignTextureMips.Stage(config.GameData, assets, classDatabase);
+                if (signBindings > 0)
+                    Console.WriteLine($"Preserved stock BC3 mip chains for {signBindings} Take & Hold sign bindings.");
             }
             LocalAssets.Stage(config, candidate);
             var convexJournal = await LegacyConvexAssetMigration.StageAsync(repository, config, candidate, cancellation);
