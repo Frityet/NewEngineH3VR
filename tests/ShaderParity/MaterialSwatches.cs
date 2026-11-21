@@ -18,6 +18,7 @@ namespace NativeH3VR.QA
         private const int SampleMask = 1 << SampleLayer;
         private const string Prefix = "H3VR shader comparison ";
         private static readonly Vector3 Origin = new Vector3(512f, 512f, 512f);
+        private HashSet<string> completedScopes;
 #if UNITY_6000_0_OR_NEWER
         private AssetBundle candidateBundle;
         private Shader candidateShader;
@@ -103,6 +104,9 @@ namespace NativeH3VR.QA
 
         private IEnumerator Run(string output)
         {
+            completedScopes = new HashSet<string>(
+                (Environment.GetEnvironmentVariable("NATIVEH3VR_SWATCH_COMPLETED_SCOPES") ?? "")
+                    .Split(new[] { '\n' }, StringSplitOptions.RemoveEmptyEntries), StringComparer.Ordinal);
 #if UNITY_6000_0_OR_NEWER
             var candidatePath = Environment.GetEnvironmentVariable("NATIVEH3VR_SWATCH_CANDIDATE_BUNDLE");
             if (!string.IsNullOrEmpty(candidatePath))
@@ -139,12 +143,12 @@ namespace NativeH3VR.QA
             if (exactSceneBindings)
             {
                 // Keep resource-only assets distinct from actual scene bindings.
-                if (fullSweep)
+                if (fullSweep && !completedScopes.Contains("resources"))
                     yield return Capture("resources", output, Resources.LoadAll<Material>(""), new MaterialBindings());
                 for (int index = 0; index < SceneManager.sceneCountInBuildSettings; index++)
                 {
                     string name = Path.GetFileNameWithoutExtension(SceneUtility.GetScenePathByBuildIndex(index));
-                    if (fullSweep || Array.IndexOf(selection, name) >= 0)
+                    if ((fullSweep || Array.IndexOf(selection, name) >= 0) && !completedScopes.Contains(name))
                         yield return CaptureScene(index, output);
                 }
                 yield break;
@@ -153,6 +157,7 @@ namespace NativeH3VR.QA
             var resourceMaterials = Resources.LoadAll<Material>("");
             foreach (string scene in selection)
             {
+                if (completedScopes.Contains(scene)) continue;
                 if (scene != SceneManager.GetActiveScene().name)
                 {
                     if (!Application.CanStreamedLevelBeLoaded(scene)) throw new ArgumentException("Unknown scene " + scene);
@@ -362,8 +367,11 @@ namespace NativeH3VR.QA
                     if (surface.shader.name == replacedFamily) index.candidateDraws++;
             }
 #endif
-            File.WriteAllText(Path.Combine(output, scene + ".json"), JsonConvert.SerializeObject(index));
-            if (pages == 0) yield break;
+            if (pages == 0)
+            {
+                PublishIndex(output, index);
+                yield break;
+            }
 
             var root = new GameObject(Prefix + "stage");
             root.transform.position = Origin - Vector3.forward * 8;
@@ -537,6 +545,15 @@ namespace NativeH3VR.QA
 #endif
             }
             yield return null;
+            PublishIndex(output, index);
+        }
+
+        private static void PublishIndex(string output, PageIndex index)
+        {
+            string path = Path.Combine(output, index.scene + ".json");
+            string temporary = path + ".part";
+            File.WriteAllText(temporary, JsonConvert.SerializeObject(index));
+            File.Move(temporary, path);
         }
 
 #if UNITY_6000_0_OR_NEWER

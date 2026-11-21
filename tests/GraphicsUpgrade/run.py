@@ -13,6 +13,56 @@ def digest(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def completed_swatch_scopes(out):
+    scopes = set()
+    for path in out.glob("*.json"):
+        if path.name in ("candidate-shader.json", "swatches-retries.json"):
+            continue
+        index = json.loads(path.read_text())
+        if index["scene"] != path.stem:
+            raise RuntimeError(f"Unexpected material chart scope in {path}")
+        for page in range(index["pages"]):
+            image = out / f"{path.stem}-{page:03}.png"
+            with image.open("rb") as stream:
+                if stream.read(8) != b"\x89PNG\r\n\x1a\n":
+                    raise RuntimeError(f"Invalid material chart PNG {image}")
+                stream.seek(-12, os.SEEK_END)
+                if stream.read(12) != b"\0\0\0\0IEND\xaeB\x60\x82":
+                    raise RuntimeError(f"Incomplete material chart PNG {image}")
+        scopes.add(path.stem)
+    return scopes
+
+
+def run_swatches(launch, env, out, timeout):
+    log = out / "swatches.log"
+    completed = None
+    retries = []
+    for attempt in range(1, 9):
+        result = subprocess.run([*launch, "--log-file", str(log), "--timeout", str(timeout)], env=env)
+        if result.returncode == 0:
+            if not (out / "swatches-complete.txt").is_file():
+                raise RuntimeError(f"Material swatches did not complete. Inspect {log}")
+            completed_swatch_scopes(out)
+            return
+        # Retry only Unity's observed Metal present assertion. Managed errors,
+        # timeouts, and other native failures still fail the original command.
+        if (result.returncode != 134 or attempt == 8 or not log.is_file()
+                or "A command encoder is already encoding to this command buffer"
+                not in log.read_text(errors="replace") or (out / "swatches-failed.txt").exists()):
+            result.check_returncode()
+        scopes = completed_swatch_scopes(out)
+        if scopes == completed:
+            result.check_returncode()
+        completed = scopes
+        archive = out / f"swatches-present-failure-{attempt:02}.log"
+        log.rename(archive)
+        retries.append({"log": archive.name, "completedScopes": sorted(completed)})
+        (out / "swatches-retries.json").write_text(json.dumps(retries, indent=2) + "\n")
+        # An assertion after the quit receipt still needs a clean player exit.
+        (out / "swatches-complete.txt").unlink(missing_ok=True)
+        env = dict(env, NATIVEH3VR_SWATCH_COMPLETED_SCOPES="\n".join(sorted(completed)))
+
+
 def check_timings(timing, unity_trace, minimum_samples=80):
     profile = json.loads(timing.read_text())
     for metric in ("unity_eye_render_cpu", "unity_metal_command_buffer", "macvr_gpu_completion_interval"):
@@ -132,6 +182,7 @@ def main():
         scenes = ["*"] if args.scene == ["*"] else list(dict.fromkeys(["MainMenu3", *args.scene]))
         env = dict(os.environ, NATIVEH3VR_SHADER_SWATCHES=str(out), NATIVEH3VR_SWATCH_SCENES=",".join(scenes),
                    NATIVEH3VR_SWATCH_BUNDLES=args.swatch_bundles or "")
+        env.pop("NATIVEH3VR_SWATCH_COMPLETED_SCOPES", None)
         if args.swatch_replacement:
             path, family, shader = args.swatch_replacement
             bundle = Path(path).resolve()
@@ -141,10 +192,7 @@ def main():
                      "hostBuildSha256": digest(receipt)}
             (out / "candidate-shader.json").write_text(json.dumps(proof, indent=2))
         timeout = 7200 if "*" in scenes or args.swatch_bundles else 240 + 90 * len(scenes)
-        subprocess.run([*launch, "--log-file", str(out / "swatches.log"), "--timeout", str(timeout)],
-                       env=env, check=True)
-        if not (out / "swatches-complete.txt").is_file():
-            raise RuntimeError(f"Material swatches did not complete. Inspect {out / 'swatches.log'}")
+        run_swatches(launch, env, out, timeout)
         return
     if args.profile:
         env = dict(os.environ, NATIVEH3VR_GRAPHICS_PROFILE_WITNESS=str(out),

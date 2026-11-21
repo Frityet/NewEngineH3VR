@@ -85,6 +85,7 @@ namespace NativeH3VR.QA
                 ordered.Sort(StringComparer.OrdinalIgnoreCase);
                 foreach (string name in ordered)
                 {
+                    if (completedScopes.Contains("bundle-" + name)) continue;
                     string[] dependencies = manifestNames.Contains(name) ? manifest.GetAllDependencies(name) : new string[0];
                     yield return CaptureBundle(directory, name, dependencies, output);
                     yield return Resources.UnloadUnusedAssets();
