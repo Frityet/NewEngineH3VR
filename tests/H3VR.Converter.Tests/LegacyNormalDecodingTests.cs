@@ -9,7 +9,25 @@ internal static class LegacyNormalDecodingTests
         ("recovered normal decode reads Unity RG or AG without changing other channel uses", RewriteNormal),
         ("recovered normal decode keeps the tangent normal for detail, terrain and layered materials", RewriteLayeredNormals),
         ("recovered normal decode requires the sampled register and leaves alpha masks alone", KeepUnmatchedSource),
+        ("recovered DXT5 normal coordinates survive transparent-colour dilation", PreserveNormalCoordinates),
     ];
+
+    private static void PreserveNormalCoordinates()
+    {
+        const string source = "TextureImporter:\n  textureFormat: 12\n  alphaIsTransparency: 1\n  textureType: 1\n  textureShape: 1\n";
+        const string flag = "alphaIsTransparency: 1";
+        foreach (var format in new[] { "12", "29" })
+        {
+            var input = source.Replace("textureFormat: 12", $"textureFormat: {format}");
+            var expected = input.Replace(flag, "alphaIsTransparency: 0");
+            Check(LegacyNormalTextureImport.PreserveCoordinates(input), expected);
+            Check(LegacyNormalTextureImport.PreserveCoordinates(expected), expected);
+            Check(LegacyNormalTextureImport.PreserveCoordinates(input.ReplaceLineEndings("\r\n")), expected.ReplaceLineEndings("\r\n"));
+        }
+        foreach (var other in new[] { source.Replace("textureType: 1", "textureType: 0"),
+            source.Replace("textureFormat: 12", "textureFormat: 4"), source.Replace("textureShape: 1", "textureShape: 2") })
+            Check(LegacyNormalTextureImport.PreserveCoordinates(other), other);
+    }
 
     private static void RewriteNormal()
     {

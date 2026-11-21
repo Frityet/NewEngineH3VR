@@ -74,6 +74,12 @@ uv run tests/ShaderParity/compare_swatches.py --stock "$RETAIL_SWATCHES" \
 
 The comparator checks visible material coverage, near-black pixels and error-shader magenta. It pairs materials by their texture recipe or a one-to-one renderer and material-slot path. The report identifies generated defaults, numbered-texture candidates, conflicting slots and unmatched rows. A numbered texture name alone cannot establish texture identity. A dark surface in both players is recorded as authored or shared darkness.
 
+### Texture channels
+
+Some opaque materials store roughness or masks in texture alpha. Unity's transparent-colour dilation can then overwrite visible colour in texels whose alpha happens to be zero. On the Friendly 45 pine, the original material's median RGB was (15, 14, 11). Reimport with dilation produced (95, 100, 56). Preserving the original colour gave (14, 15, 11). The converter identifies the verified material and texture usages before configuring the importer.
+
+In the recovered DXT5 normal PNGs, red and green contain the tangent coordinates. The PNG alpha comes from the red channel of the packed Steam texture. Treating it as coverage changed both tangent coordinates in the editor import. On a 1,024-sample Metal grid of the Dumple normal map, mean X/Y errors fell from 24.06/23.91 to 0.12/0.04 on a 0–255 scale. On the block normal map they fell from 12.22/13.30 to 0.46/0.43. Both checks read the original compressed game texture and the actual Unity 6.7 GPU import.
+
 ### Two-sided materials
 
 The original Direct3D programs distinguish the front and back of leaves, paper targets and other two-sided materials. Some recovered fragment programs tested the signed `VFACE` value as a boolean. That made both windings take the front-facing branch. During conversion these programs now use the boolean `SV_IsFrontFace` input. Where the original instruction combines the face mask with another flag, the converter reconstructs its full 32 bits. The migration applies on all graphics APIs.
