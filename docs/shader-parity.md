@@ -80,6 +80,10 @@ The original Direct3D programs distinguish the front and back of leaves, paper t
 
 On a fixed quad using Friendly 45's original birch frond material and textures, the Steam player produced median front and back RGB values of (90, 87, 82) and (36, 34, 32). With the recovered shader, both sides measured (99, 95, 92) on Metal. The corrected back measured (35, 33, 32). The correction preserved every front-facing pixel and the cutout coverage in the Metal fixture. The matching leaf test changed all 1,192 covered back-facing pixels. A separate float-target test checked both windings and the exact bit pattern on Windows D3D11 and macOS Metal.
 
+### Shared sky projection
+
+The toolbox prefab and two Grillhouse projection volumes reference the same outdoor sky material. Unity invokes the prefab's edit-mode callbacks during a batch import. In a full conversion these callbacks overwrote the sky's box extents of approximately (105951, 77375, 104094) with the toolbox preview's (2, 2, 2). The managed migration guards the edit-time material writes during a batch import. A Unity 6.7 test exercised both original callbacks using the Steam material. It reproduced the overwrite in the batch editor, retained the outdoor projection after migration and verified that both callbacks still updated the projection during play.
+
 ## Raised Take & Hold cover
 
 The stock steel barriers use a fully metallic Alloy material. Their room reflections provide most of the visible surface detail. The manual stereo renderer on macOS tests the stock probe bounds against the two submitted eye frusta. On Unity-managed cameras, the game uses Unity's culling group. The importer restores the Steam baked probe textures and scene lighting during a full player conversion.

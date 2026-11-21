@@ -89,6 +89,8 @@ foreach (var filename in keep)
         log.Add(new { caller = LegacyTextMesh.Retarget(module), target = "Unity TextGenerator vertex count" });
     if (filename == "Assembly-CSharp")
     {
+        if (StockSkyboxProjection.ProtectBatchImport(module, New("UnityEngine.Application", "get_isBatchMode", 0)))
+            log.Add(new { caller = "CynBoxProjectionVolume", target = "Preserve shared sky projection while importing prefabs in batch mode" });
         StockCameraAllocations.Apply(module, shim.MainModule.GetType("NativeH3VR.CameraRenderScratch"), log);
         int targetCalls = StockTargetRendering.Apply(module, shim.MainModule.GetType("NativeH3VR.LegacyTargetRendering"));
         if (targetCalls != 0)
