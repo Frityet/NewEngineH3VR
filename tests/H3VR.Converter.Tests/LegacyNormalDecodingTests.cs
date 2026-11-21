@@ -10,6 +10,7 @@ internal static class LegacyNormalDecodingTests
         ("recovered normal decode keeps the tangent normal for detail, terrain and layered materials", RewriteLayeredNormals),
         ("recovered normal decode requires the sampled register and leaves alpha masks alone", KeepUnmatchedSource),
         ("recovered DXT5 normal coordinates survive transparent-colour dilation", PreserveNormalCoordinates),
+        ("uncompressed original colour textures keep their default platform encoding", PreserveUncompressedColors),
     ];
 
     private static void PreserveNormalCoordinates()
@@ -20,13 +21,42 @@ internal static class LegacyNormalDecodingTests
         {
             var input = source.Replace("textureFormat: 12", $"textureFormat: {format}");
             var expected = input.Replace(flag, "alphaIsTransparency: 0");
-            Check(LegacyNormalTextureImport.PreserveCoordinates(input), expected);
-            Check(LegacyNormalTextureImport.PreserveCoordinates(expected), expected);
-            Check(LegacyNormalTextureImport.PreserveCoordinates(input.ReplaceLineEndings("\r\n")), expected.ReplaceLineEndings("\r\n"));
+            Check(LegacyTextureImport.PreserveStockFormat(input), expected);
+            Check(LegacyTextureImport.PreserveStockFormat(expected), expected);
+            Check(LegacyTextureImport.PreserveStockFormat(input.ReplaceLineEndings("\r\n")), expected.ReplaceLineEndings("\r\n"));
         }
         foreach (var other in new[] { source.Replace("textureType: 1", "textureType: 0"),
             source.Replace("textureFormat: 12", "textureFormat: 4"), source.Replace("textureShape: 1", "textureShape: 2") })
-            Check(LegacyNormalTextureImport.PreserveCoordinates(other), other);
+            Check(LegacyTextureImport.PreserveStockFormat(other), other);
+    }
+
+    private static void PreserveUncompressedColors()
+    {
+        const string source = """
+            TextureImporter:
+              textureFormat: 3
+              alphaIsTransparency: 1
+              textureType: 0
+              textureShape: 1
+              platformSettings:
+              - buildTarget: DefaultTexturePlatform
+                maxTextureSize: 128
+                textureFormat: -1
+                textureCompression: 2
+              - buildTarget: Standalone
+                textureFormat: 4
+                textureCompression: 1
+            """;
+        foreach (var format in new[] { "3", "4", "5" })
+        {
+            var original = source.Replace("textureFormat: 3", $"textureFormat: {format}");
+            var repaired = original.Replace("textureCompression: 2", "textureCompression: 0");
+            Check(LegacyTextureImport.PreserveStockFormat(original), repaired);
+            Check(LegacyTextureImport.PreserveStockFormat(repaired), repaired);
+        }
+        foreach (var other in new[] { source.Replace("textureFormat: 3", "textureFormat: 12"),
+            source.Replace("textureFormat: -1", "textureFormat: 25"), source.Replace("textureType: 0", "textureType: 1") })
+            Check(LegacyTextureImport.PreserveStockFormat(other), other);
     }
 
     private static void RewriteNormal()

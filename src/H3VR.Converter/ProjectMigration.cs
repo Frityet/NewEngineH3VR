@@ -97,8 +97,8 @@ public sealed class ProjectMigration(ConversionConfig config, string candidate)
             Console.WriteLine($"Preserved stock RGB in {preservedAlphaTextures} data-alpha textures.");
         if (config.RecoveredProject is null)
         {
-            int normals = LegacyNormalTextureImport.Apply(assets);
-            if (normals > 0) Console.WriteLine($"Preserved tangent coordinates in {normals} recovered normal maps.");
+            int imports = LegacyTextureImport.Apply(assets);
+            if (imports > 0) Console.WriteLine($"Preserved stock texture encoding on {imports} recovered textures.");
         }
         var recoveredGuids = recovered.Select(r => r.Guid).Where(g => !string.IsNullOrEmpty(g)).ToHashSet(StringComparer.Ordinal);
         var referenceCounts = new Dictionary<string, int>(); var unresolved = new HashSet<string>();

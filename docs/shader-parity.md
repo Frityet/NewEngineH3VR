@@ -80,6 +80,8 @@ Some opaque materials store roughness or masks in texture alpha. Unity's transpa
 
 In the recovered DXT5 normal PNGs, red and green contain the tangent coordinates. The PNG alpha comes from the red channel of the packed Steam texture. Treating it as coverage changed both tangent coordinates in the editor import. On a 1,024-sample Metal grid of the Dumple normal map, mean X/Y errors fell from 24.06/23.91 to 0.12/0.04 on a 0–255 scale. On the block normal map they fell from 12.22/13.30 to 0.46/0.43. Both checks read the original compressed game texture and the actual Unity 6.7 GPU import.
 
+The original Farout rim effect samples an uncompressed RGB24 noise texture. Block compression changed its sampled colour by a mean of 28.36 levels in linear rendering. Restoring uncompressed import reduced the error to 0.015 levels across all 4,096 texels. The same default-platform rule preserves original uncompressed RGB24, RGBA32 and ARGB32 colour textures. Platform-specific import overrides retain their settings.
+
 ### Two-sided materials
 
 The original Direct3D programs distinguish the front and back of leaves, paper targets and other two-sided materials. Some recovered fragment programs tested the signed `VFACE` value as a boolean. That made both windings take the front-facing branch. During conversion these programs now use the boolean `SV_IsFrontFace` input. Where the original instruction combines the face mask with another flag, the converter reconstructs its full 32 bits. The migration applies on all graphics APIs.
