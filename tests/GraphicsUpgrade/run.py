@@ -51,6 +51,8 @@ def main():
     parser.add_argument("--scene", action="append", default=[], help="Also capture a named stock scene (repeatable)")
     parser.add_argument("--tnh", metavar="MAP", help="Profile one stock Take & Hold map from a fresh session")
     parser.add_argument("--inspect-cover", action="store_true", help="Diagnose the raised steel cover at the first Hold")
+    parser.add_argument("--inspect-take-material", metavar="NAME", action="append", default=[],
+                        help="Mark an exact material name or prefix* in the opening Take and capture lighting controls (repeatable)")
     parser.add_argument("--tnh-seed", type=int, metavar="ID", help="Stock Take & Hold point sequence ID (default 0)")
     parser.add_argument("--tnh-observer-from", type=Path, metavar="HOLD_STATE_JSON",
                         help="Replay the stock floor marker and heading from an earlier Hold capture")
@@ -70,6 +72,9 @@ def main():
         parser.error("--preset requires --tnh")
     if args.inspect_cover and not args.tnh:
         parser.error("--inspect-cover requires --tnh")
+    if args.inspect_take_material and (not args.tnh or any(
+            not name.rstrip("*") or "\n" in name or "*" in name[:-1] for name in args.inspect_take_material)):
+        parser.error("--inspect-take-material requires --tnh and a name or prefix with an optional trailing *")
     if args.tnh_seed is not None and (not args.tnh or args.tnh_seed < 0):
         parser.error("--tnh-seed requires --tnh and a nonnegative sequence ID")
     if args.tnh_observer_from and (not args.tnh or not args.tnh_observer_from.is_file()):
@@ -123,6 +128,7 @@ def main():
                    NATIVEH3VR_GRAPHICS_PROFILE_SCENE=",".join(args.scene),
                    NATIVEH3VR_GRAPHICS_PROFILE_TNH=args.tnh or "",
                    NATIVEH3VR_COVER_WITNESS=str(int(args.inspect_cover)),
+                   NATIVEH3VR_TAKE_MATERIALS="\n".join(args.inspect_take_material),
                    NATIVEH3VR_GRAPHICS_PROFILE_TNH_SEED=str(args.tnh_seed or 0),
                    NATIVEH3VR_GRAPHICS_PROFILE_TNH_OBSERVER=str(args.tnh_observer_from.resolve()) if args.tnh_observer_from else "",
                    NATIVEH3VR_GRAPHICS_PROFILE_PRESET=args.preset or "")

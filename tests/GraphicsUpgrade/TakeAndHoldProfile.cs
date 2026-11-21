@@ -112,6 +112,9 @@ namespace NativeH3VR.QA
                 (markerIndex, replayDirection) = LoadHoldObserver(observerFile, selected, manager, hold);
             yield return Sample(scene, "take-" + variant, true, preset, TakeAndHoldPairs,
                 RecordLiveWindow(selected, manager, TNH_Phase.Take, 0f, "take-" + variant));
+            string materialNames = Environment.GetEnvironmentVariable("NATIVEH3VR_TAKE_MATERIALS");
+            if (!string.IsNullOrEmpty(materialNames))
+                yield return InspectTakeMaterials(scene, variant, preset, materialNames.Split('\n'));
 
             var marker = hold.SpawnPoints_Turrets[markerIndex];
             var towardNode = hold.GetSystemNodeCoreTransform().position - marker.position;

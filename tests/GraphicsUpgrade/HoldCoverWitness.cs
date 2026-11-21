@@ -14,7 +14,7 @@ namespace NativeH3VR.QA
     {
         private const string CoverMaterial = "mtl_destructibleBarriers";
 
-        private sealed class CoverDraw
+        private sealed class MaterialDraw
         {
             internal Renderer renderer;
             internal Material[] original;
@@ -28,7 +28,7 @@ namespace NativeH3VR.QA
             format = texture.graphicsFormat.ToString(), texture.mipmapCount
         };
 
-        private static object InspectCover(CoverDraw draw)
+        private static object DescribeDraw(MaterialDraw draw)
         {
             var r = draw.renderer;
             var probes = new List<ReflectionProbeBlendInfo>();
@@ -63,7 +63,7 @@ namespace NativeH3VR.QA
 
         private IEnumerator InspectHoldCover(string name)
         {
-            var covers = new List<CoverDraw>();
+            var covers = new List<MaterialDraw>();
             foreach (var wall in FindObjectsByType<TNH_DestructibleBarrier>())
                 foreach (var r in wall.GetComponentsInChildren<Renderer>())
                 {
@@ -73,7 +73,7 @@ namespace NativeH3VR.QA
                         .Where(i => materials[i] && materials[i].name.StartsWith(CoverMaterial, StringComparison.Ordinal))
                         .ToArray();
                     if (indices.Length != 0)
-                        covers.Add(new CoverDraw { renderer = r, original = materials, slots = indices });
+                        covers.Add(new MaterialDraw { renderer = r, original = materials, slots = indices });
                 }
             Require(covers.Count != 0, "No raised steel cover renderers at this stock Hold");
             var sceneProbes = Resources.FindObjectsOfTypeAll<ReflectionProbe>()
@@ -92,7 +92,7 @@ namespace NativeH3VR.QA
                     loadedCubemaps = Resources.FindObjectsOfTypeAll<Cubemap>().Select(TextureInfo),
                     lights = FindObjectsByType<Light>().Where(l => l.enabled).Select(l => new { l.name, type = l.type.ToString(),
                         l.intensity, position = VectorText(l.transform.position), l.range }),
-                    covers = covers.Select(InspectCover).ToArray() }, Formatting.Indented));
+                    covers = covers.Select(DescribeDraw).ToArray() }, Formatting.Indented));
             float previousTime = Time.timeScale;
             var copies = new Dictionary<Material, Material>();
             try
@@ -128,7 +128,7 @@ namespace NativeH3VR.QA
                     yield return new WaitForEndOfFrame();
                     if (mode == "active-probes")
                         File.WriteAllText(Path.Combine(output, name + "-probe-control.json"),
-                            JsonConvert.SerializeObject(covers.Select(InspectCover).ToArray(), Formatting.Indented));
+                            JsonConvert.SerializeObject(covers.Select(DescribeDraw).ToArray(), Formatting.Indented));
                     for (int eye = 0; eye < 2; eye++)
                     {
                         var previous = RenderTexture.active;
