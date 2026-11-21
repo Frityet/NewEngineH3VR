@@ -32,7 +32,7 @@ internal static class GraphicsUpgradeProject
 
     internal static bool IsEditorSource(string path) => Path.GetFileName(path) is
         "GraphicsUpgradeConfiguration.cs" or "GraphicsUpgradeMaterials.cs" or "GraphicsUpgradeThermalShaders.cs"
-        or "LegacyVertexLightBridge.cs";
+        or "LegacyVertexLightBridge.cs" or "ThermalPackageVariants.cs";
 
     internal static bool IsOptionalSource(string relativePath) =>
         relativePath.StartsWith(RuntimeSource + "/", StringComparison.Ordinal) ||

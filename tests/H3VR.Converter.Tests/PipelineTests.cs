@@ -24,7 +24,43 @@ public static class PipelineTests
         yield return ("cold extraction receipt tracks provenance maps", ColdReceiptTracksMaps);
         yield return ("shared extraction reuses verified bytes and rejects source mutations", SharedExtractionRejectsChanges);
         yield return ("URP receipt refresh tracks generated defaults while preserving input files", GeneratedUrpDefaults);
+        yield return ("stock thermal proof rejects changed lightmap bindings and permits runtime integration", StockThermalProof);
         yield return ("successful editor receipt records named shader upgrades and keeps other hashes", ShaderUpgradeReceipt);
+    }
+
+    private static void StockThermalProof()
+    {
+        using var fixture = new Fixture();
+        var config = fixture.Config() with { GraphicsUpgrade = true, RecoveredProject = null, BuildProbe = false };
+        Check(StockThermalVariantProof.SupportsStockData(config, StockThermalVariantProof.StockData),
+            "the certified stock input should be eligible");
+        Check(!StockThermalVariantProof.SupportsStockData(config, new string('0', 64)),
+            "a different stock input must retain the full domain");
+        Check(!StockThermalVariantProof.SupportsStockData(config with { RecoveredProject = fixture.Workspace },
+            StockThermalVariantProof.StockData), "an external recovery must retain the full domain");
+
+        var known = Path.Combine(fixture.Workspace, "runtime-integration.json");
+        Write(known, "{\"Files\":[{\"Destination\":\"Assets/OpenXRProvider/NativeStereoRenderer.cs\"}]}");
+        Check(StockThermalVariantProof.SupportsStockData(config with { IntegrationManifest = known },
+            StockThermalVariantProof.StockData), "the known native integration contains no rendering data");
+        Write(known, "{\"Files\":[{\"Destination\":\"Assets/OpenXRProvider/UnknownScene.prefab\"}]}");
+        Check(!StockThermalVariantProof.SupportsStockData(config with { IntegrationManifest = known },
+            StockThermalVariantProof.StockData), "an unrecognized integration asset must keep the entire domain");
+
+        string portable = StockThermalVariantProof.Fingerprint(new[] { ("a0", "leaf"), ("a\\x", "nested") });
+        Check(portable == SafeFiles.HashText("a/x\0nested\0a0\0leaf\0"),
+            "portable proof must normalize separators before sorting colliding prefixes");
+
+        var project = Path.Combine(fixture.Workspace, "staged");
+        var material = Path.Combine(project, "Assets", "Sample.mat");
+        Write(material, "stock material");
+        Write(material + ".meta", "guid: original");
+        var baseline = StockThermalVariantProof.AssetIdentity(project);
+        Write(material + ".meta", "guid: relinked");
+        Check(StockThermalVariantProof.AssetIdentity(project) != baseline, "changed importer identity was ignored");
+        Write(material + ".meta", "guid: original");
+        Write(Path.Combine(project, "Assets", "UnknownAsset.prefab"), "new renderer recipe");
+        Check(StockThermalVariantProof.AssetIdentity(project) != baseline, "added renderer recipe was ignored");
     }
 
     private static void WorkspaceLockBoundary()

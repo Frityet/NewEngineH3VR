@@ -16,7 +16,7 @@ public sealed partial class Pipeline(string repository, ConversionConfig config)
     public static readonly string[] Steps = ["extract", "managed", "project", "validate", "build"];
     private string Receipts => Path.Combine(config.Workspace, ".conversion");
 
-    private string GameFingerprint()
+    private string GameFingerprint(out string stockDataFingerprint)
     {
         using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
         void Add(string value) => hash.AppendData(Encoding.UTF8.GetBytes(value + "\n"));
@@ -29,7 +29,15 @@ public sealed partial class Pipeline(string repository, ConversionConfig config)
         Add(Path.GetFullPath(config.GameDirectory));
         Add(config.RecoveredProject is null ? "internal-recovery" : Path.GetFullPath(config.RecoveredProject));
         // Hash actual input bytes. File timestamps alone miss replacements with preserved dates.
-        Tree(config.GameData);
+        var stockData = new List<(string Path, string ContentHash)>();
+        foreach (var path in SafeFiles.Files(config.GameData).Order(StringComparer.Ordinal))
+        {
+            string contentHash = SafeFiles.Hash(path);
+            Add(Path.GetFullPath(path));
+            Add(contentHash);
+            stockData.Add((Path.GetRelativePath(config.GameData, path), contentHash));
+        }
+        stockDataFingerprint = StockThermalVariantProof.Fingerprint(stockData);
         foreach (var file in Directory.GetFiles(config.GameDirectory).Where(p => p.EndsWith(".json", StringComparison.OrdinalIgnoreCase) || Path.GetFileName(p).Equals("steam_api64.dll", StringComparison.OrdinalIgnoreCase)).Order(StringComparer.Ordinal)) FileInput(file);
         if (config.RecoveredProject is not null) Tree(config.RecoveredProject);
         return Convert.ToHexStringLower(hash.GetHashAndReset());
@@ -116,7 +124,7 @@ public sealed partial class Pipeline(string repository, ConversionConfig config)
         }
     }
 
-    internal string FingerprintForTests(string step) => Fingerprint(step, GameFingerprint());
+    internal string FingerprintForTests(string step) => Fingerprint(step, GameFingerprint(out _));
 
     public static void Status(ConversionConfig config)
     {
@@ -153,7 +161,7 @@ public sealed partial class Pipeline(string repository, ConversionConfig config)
         if (through is not ("extract" or "managed")) GraphicsUpgradeProject.RequireWorkspaceMode(config);
         using var sourceLease = OpenExtractionLease();
         Console.WriteLine("Fingerprinting local inputs before conversion/resume…");
-        var gameFingerprint = GameFingerprint();
+        var gameFingerprint = GameFingerprint(out var stockDataFingerprint);
         var sharedExtraction = sourceLease is null ? null : VerifySharedExtraction(Fingerprint("extract", gameFingerprint), cancellation);
         foreach (var step in Steps)
         {
@@ -198,9 +206,9 @@ public sealed partial class Pipeline(string repository, ConversionConfig config)
                 {
                     "extract" => await Extract(cancellation),
                     "managed" => await Managed(cancellation),
-                    "project" => await Prepare(cancellation),
-                    "validate" => await Editor(false, cancellation),
-                    "build" => await Editor(true, cancellation),
+                    "project" => await Prepare(stockDataFingerprint, cancellation),
+                    "validate" => await Editor(false, stockDataFingerprint, cancellation),
+                    "build" => await Editor(true, stockDataFingerprint, cancellation),
                     _ => throw new InvalidOperationException()
                 };
                 SafeFiles.AtomicJson(receiptFile, new StepReceipt(step, fingerprint, DateTimeOffset.UtcNow,
@@ -307,7 +315,7 @@ public sealed partial class Pipeline(string repository, ConversionConfig config)
         File.Move(final, game, true); File.Copy(backend, Path.Combine(managed, "NativeH3VR.Platform.dll"));
     }
 
-    private async Task<List<string>> Prepare(CancellationToken cancellation)
+    private async Task<List<string>> Prepare(string stockDataFingerprint, CancellationToken cancellation)
     {
         if (Directory.Exists(config.Project)) throw new IOException("Unrecorded project exists. Inspect it before using a fresh workspace.");
         var candidate = Path.Combine(config.Workspace, "project-candidate-" + Guid.NewGuid().ToString("N"));
@@ -348,7 +356,15 @@ public sealed partial class Pipeline(string repository, ConversionConfig config)
             plan["project"] = Path.GetFullPath(config.Project);
             File.Delete(temporaryPlan);
             List<string> graphicsEvidence = config.GraphicsUpgrade ? await ConfigureGraphicsUpgrade(candidate, cancellation) : [];
+            string? stockAssetIdentity = StockThermalVariantProof.SupportsStockData(config, stockDataFingerprint)
+                ? StockThermalVariantProof.AssetIdentity(candidate) : null;
             Directory.Move(candidate, config.Project);
+            if (stockAssetIdentity is not null)
+            {
+                var proof = Path.Combine(Receipts, StockThermalVariantProof.Marker);
+                File.WriteAllText(proof, stockAssetIdentity + "\n");
+                graphicsEvidence.Add(proof);
+            }
             var reportPath = Path.Combine(Receipts, "project-migration.json");
             SafeFiles.AtomicJson(reportPath, report with { Project = config.Project });
             var planPath = Path.Combine(Receipts, "bundle-plan.json"); SafeFiles.AtomicJson(planPath, plan);
@@ -391,7 +407,7 @@ public sealed partial class Pipeline(string repository, ConversionConfig config)
         return [report, log];
     }
 
-    private async Task<List<string>> Editor(bool build, CancellationToken cancellation)
+    private async Task<List<string>> Editor(bool build, string stockDataFingerprint, CancellationToken cancellation)
     {
         var name = build ? "build" : "validation";
         var run = name + "-" + DateTime.UtcNow.ToString("yyyyMMdd-HHmmss") + "-" + Guid.NewGuid().ToString("N")[..8];
@@ -413,6 +429,15 @@ public sealed partial class Pipeline(string repository, ConversionConfig config)
         if (config.BuildTarget == "StandaloneOSX") editorArguments = [.. editorArguments, "-force-metal"];
         if (config.BuildProbe) editorArguments = [.. editorArguments, "-h3vrBuildProbe"];
         if (config.GraphicsUpgrade) editorArguments = [.. editorArguments, "-h3vrGraphicsUpgrade"];
+        string stockProof = Path.Combine(Receipts, StockThermalVariantProof.Marker);
+        bool verified = StockThermalVariantProof.SupportsStockData(config, stockDataFingerprint) &&
+            File.Exists(stockProof) && File.ReadAllText(stockProof).Trim() == StockThermalVariantProof.AssetIdentity(config.Project);
+        if (build && config.GraphicsUpgrade)
+        {
+            if (verified) editorArguments = [.. editorArguments, StockThermalVariantProof.BuildFlag];
+            Console.WriteLine(verified ? "Verified stock thermal twin variant budget." :
+                "Keeping full thermal twin shader variants because the stock asset proof did not match.");
+        }
         await Processes.Run(config.UnityEditor, editorArguments, repository, cancellation: cancellation);
         if (!File.Exists(report)) throw new InvalidDataException("Unity did not produce the expected report. Inspect " + logfile);
         using var document = JsonDocument.Parse(File.ReadAllText(report));
@@ -420,7 +445,7 @@ public sealed partial class Pipeline(string repository, ConversionConfig config)
         if (Regex.IsMatch(File.ReadAllText(logfile), @"(?im)^.*(?:error CS\d+|Shader error|Compute shader error|Build completed with a result of 'Failed'|Unable to update following assemblies)"))
             throw new InvalidDataException("Compiler failures were found in " + logfile);
         var shaderUpgrades = Path.Combine(Receipts, run + "-shader-upgrades.json");
-        RefreshEditorSettingsReceipt(logfile, shaderUpgrades);
+        RefreshEditorSettingsReceipt(logfile, shaderUpgrades, !build && verified ? stockProof : null);
         if (build)
         {
             var evidence = new List<string> { report, logfile, shaderUpgrades };
@@ -507,7 +532,7 @@ public sealed partial class Pipeline(string repository, ConversionConfig config)
         return diagnosticPath;
     }
 
-    private void RefreshEditorSettingsReceipt(string logfile, string shaderUpgrades)
+    private void RefreshEditorSettingsReceipt(string logfile, string shaderUpgrades, string? verifiedStockProof)
     {
         // Only an accepted Unity run may refresh settings that Unity serializes on
         // import. Unrecorded external changes are checked before launching the editor.
@@ -523,6 +548,12 @@ public sealed partial class Pipeline(string repository, ConversionConfig config)
             foreach (var file in SafeFiles.Files(root)) files[file] = SafeFiles.Hash(file);
         if (config.GraphicsUpgrade)
             GraphicsUpgradeProject.RefreshGeneratedDefaults(config.Project, config.Export, files);
+        if (verifiedStockProof is not null)
+        {
+            // The accepted validation run can create the converter's XR settings assets.
+            File.WriteAllText(verifiedStockProof, StockThermalVariantProof.AssetIdentity(config.Project) + "\n");
+            files[verifiedStockProof] = SafeFiles.Hash(verifiedStockProof);
+        }
         var upgrades = ImportShaderUpgrades(config.Project, files, File.ReadLines(logfile));
         SafeFiles.AtomicJson(shaderUpgrades, upgrades);
         SafeFiles.AtomicJson(path, receipt with { Files = files });

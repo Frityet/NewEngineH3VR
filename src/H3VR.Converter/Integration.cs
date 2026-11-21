@@ -61,6 +61,15 @@ public static class Integration
     private sealed record FileEntry(string Source, string Destination, string Sha256);
     private sealed record Manifest(int SchemaVersion, string UnityVersion, string BuildTarget, string XrBackend, string? Provider, List<FileEntry> Files);
 
+    internal static bool KeepsStockAssetBindings(string? manifestPath)
+    {
+        if (manifestPath is null) return true;
+        var manifest = JsonSerializer.Deserialize<Manifest>(File.ReadAllText(manifestPath), ConversionConfig.Json);
+        var allowed = RequiredMetalFiles().ToHashSet(StringComparer.Ordinal);
+        return manifest?.Files is { } files &&
+            files.All(entry => allowed.Contains(entry.Destination.Replace('\\', '/')));
+    }
+
     /// <summary>Apply explicitly supplied, hash-pinned OpenXR provider files to a project candidate.</summary>
     public static void Apply(string manifestPath, string candidate, string buildTarget, string unityVersion = ConversionConfig.TargetVersion)
     {
