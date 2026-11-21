@@ -3,6 +3,7 @@
 
 float _H3VRStockMainLightAlpha;
 float4 _H3VRStockAdditionalLights[MAX_VISIBLE_LIGHTS];
+float _H3VRSpecularFiltering;
 
 float StockFresnelAttenuation(float cosine)
 {
@@ -15,8 +16,24 @@ float StockSpecularVisibility(float occlusion, float normalDotView)
     return saturate(sum * sum + occlusion - 1.0);
 }
 
+float StockFilteredRoughness(float roughness, float3 normal, bool hasSpecular)
+{
+    float strength = saturate(_H3VRSpecularFiltering);
+    UNITY_BRANCH
+    if (strength == 0.0 || !hasSpecular)
+        return roughness;
+
+    // Filter the final shading normal so both geometric and tangent-space
+    // variation contribute. Alloy remaps perceptual roughness before squaring it.
+    float perceptual = 0.05 + 0.95 * roughness;
+    float smoothness = GeometricNormalFiltering(1.0 - perceptual, normal,
+        0.125 * strength, 0.16 * strength);
+    return clamp((0.95 - smoothness) / 0.95, roughness, 1.0);
+}
+
 float3 StockDirectLight(Light light, float3 normal, float3 viewDirection,
-    float3 diffuse, float3 reflectivity, float roughness, float occlusion, bool specularHighlights,
+    float3 diffuse, float3 reflectivity, float diffuseRoughness, float specularRoughness,
+    float occlusion, bool specularHighlights,
     bool reflectedAxis, float lightAlpha, float angularRadius)
 {
     float normalDotLight = saturate(dot(normal, light.direction));
@@ -32,13 +49,13 @@ float3 StockDirectLight(Light light, float3 normal, float3 viewDirection,
     float lightDotHalf = saturate(dot(areaLightDirection, halfDirection));
     float lightDotHalfSquared = lightDotHalf * lightDotHalf;
 
-    float retroReflection = roughness + 2.0 * lightDotHalfSquared - 0.5;
+    float retroReflection = diffuseRoughness + 2.0 * lightDotHalfSquared - 0.5;
     float diffuseScattering = (1.0 + StockFresnelAttenuation(normalDotLight) * retroReflection) *
         (1.0 + StockFresnelAttenuation(normalDotView) * retroReflection);
     float3 response = diffuse * diffuseScattering;
     if (specularHighlights && lightAlpha > 0.0)
     {
-        float alpha = 0.05 + 0.95 * roughness;
+        float alpha = 0.05 + 0.95 * specularRoughness;
         alpha *= alpha;
         float alphaSquared = alpha * alpha;
         float normalDotHalf = saturate(dot(normal, halfDirection));
@@ -80,6 +97,8 @@ URP_LIGHT_ACCUM4 StockEvaluateLighting(InputData inputData, SurfaceData surface,
     const bool receiveShadows = true;
     const bool transparent = false;
     float3 diffuse = surface.albedo;
+    float specularRoughness = StockFilteredRoughness(roughness, inputData.normalWS,
+        specularHighlights || useReflections);
     half4 shadowMask = CalculateShadowMask(inputData);
     AmbientOcclusionFactor ao = CreateAmbientOcclusionFactor(inputData, surface, transparent);
     uint meshLayers = GetMeshRenderingLayer();
@@ -87,10 +106,11 @@ URP_LIGHT_ACCUM4 StockEvaluateLighting(InputData inputData, SurfaceData surface,
     MixRealtimeAndBakedGI(main, inputData.normalWS, inputData.bakedGI);
 
     LightingData result = CreateLightingData(inputData, surface);
-    result.giColor = StockIndirectLight(inputData, diffuse, surface.specular, roughness, ao, useReflections);
+    result.giColor = StockIndirectLight(inputData, diffuse, surface.specular, specularRoughness, ao, useReflections);
     if (IsMatchingLightLayer(main, meshLayers))
         result.mainLightColor = StockDirectLight(main, inputData.normalWS, inputData.viewDirectionWS, diffuse,
-            surface.specular, roughness, surface.occlusion, specularHighlights, true, _H3VRStockMainLightAlpha, 0.1 * abs(_H3VRStockMainLightAlpha));
+            surface.specular, roughness, specularRoughness, surface.occlusion, specularHighlights,
+            true, _H3VRStockMainLightAlpha, 0.1 * abs(_H3VRStockMainLightAlpha));
 
 #if defined(_ADDITIONAL_LIGHTS)
     uint count = GetAdditionalLightsCount();
@@ -101,7 +121,7 @@ URP_LIGHT_ACCUM4 StockEvaluateLighting(InputData inputData, SurfaceData surface,
         Light other = GetAdditionalLight(lightIndex, inputData, shadowMask, ao, receiveShadows, transparent);
         if (IsMatchingLightLayer(other, meshLayers))
             result.additionalLightsColor += StockDirectLight(other, inputData.normalWS, inputData.viewDirectionWS, diffuse,
-                surface.specular, roughness, surface.occlusion, specularHighlights,
+                surface.specular, roughness, specularRoughness, surface.occlusion, specularHighlights,
                 true, _H3VRStockAdditionalLights[lightIndex].x,
                 0.1 * abs(_H3VRStockAdditionalLights[lightIndex].x));
     }
@@ -131,7 +151,7 @@ URP_LIGHT_ACCUM4 StockEvaluateLighting(InputData inputData, SurfaceData surface,
                 angularRadius = abs(lightAlpha) * stockLight.z * rsqrt(distanceSquared);
             }
             result.additionalLightsColor += StockDirectLight(other, inputData.normalWS, inputData.viewDirectionWS, diffuse,
-                surface.specular, roughness, surface.occlusion, specularHighlights, directional || spherical,
+                surface.specular, roughness, specularRoughness, surface.occlusion, specularHighlights, directional || spherical,
                 lightAlpha, angularRadius);
         }
     LIGHT_LOOP_END
