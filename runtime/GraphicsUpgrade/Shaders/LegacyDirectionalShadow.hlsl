@@ -30,15 +30,15 @@ float StockShadowCompare(float2 uv, float depth)
     return _MainLightShadowmapTexture.SampleCmpLevelZero(sampler_LinearClampCompare, uv, depth);
 }
 
-float StockShadowStrength(float3 positionWS, bool singleTap)
+float StockShadowStrength(float3 positionWS, bool singleTap, float bakedOcclusion)
 {
     if (!(_MAIN_LIGHT_SHADOWS || _MAIN_LIGHT_SHADOWS_CASCADE))
-        return 1.0;
+        return bakedOcclusion;
 
     float3 cameraDelta = positionWS - _WorldSpaceCameraPos;
     float fade = saturate(dot(cameraDelta, cameraDelta) * _MainLightShadowParams.z + _MainLightShadowParams.w);
     if (fade >= 1.0)
-        return 1.0;
+        return bakedOcclusion;
 
     int cascade = 0;
     if (_MAIN_LIGHT_SHADOWS_CASCADE)
@@ -51,12 +51,12 @@ float StockShadowStrength(float3 positionWS, bool singleTap)
         bool4 inside = distances < _CascadeShadowSplitSphereRadii;
         cascade = inside.x ? 0 : inside.y ? 1 : inside.z ? 2 : inside.w ? 3 : 4;
         if (cascade == 4)
-            return 1.0;
+            return bakedOcclusion;
     }
 
     float3 shadow = mul(_MainLightWorldToShadow[cascade], float4(positionWS, 1.0)).xyz;
     if (shadow.z <= 0.0 || shadow.z >= 1.0)
-        return 1.0;
+        return bakedOcclusion;
 
     float filtered = 0.0;
     float quality = singleTap ? 0.0 : _MainLightShadowParams.y;
@@ -88,11 +88,21 @@ float StockShadowStrength(float3 positionWS, bool singleTap)
         filtered = StockShadowCompare(shadow.xy, shadow.z);
     }
 
-    return lerp(1.0, filtered, _MainLightShadowParams.x * (1.0 - fade));
+    return lerp(lerp(1.0, filtered, _MainLightShadowParams.x), bakedOcclusion, fade);
+}
+
+float StockShadowStrength(float3 positionWS, float bakedOcclusion)
+{
+    return StockShadowStrength(positionWS, false, bakedOcclusion);
+}
+
+float StockShadowStrength(float3 positionWS, bool singleTap)
+{
+    return StockShadowStrength(positionWS, singleTap, 1.0);
 }
 
 float StockShadowStrength(float3 positionWS)
 {
-    return StockShadowStrength(positionWS, false);
+    return StockShadowStrength(positionWS, false, 1.0);
 }
 #endif

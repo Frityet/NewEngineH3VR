@@ -306,23 +306,17 @@ namespace H3VRConverter
             if (end < 0)
                 return source;
             string forward = source.Substring(start, end - start);
-            if (forward.Contains(LegacyDirectionalShadow))
-                return source;
-
+            bool hasBridge = forward.Contains(LegacyDirectionalShadow);
             string prefix = "Assets/NativeH3VRShaderPrograms/" + shaderGuid + "/pass-0-";
             string adaptedForward = AddLegacyShadowTerms(forward);
-            bool adapted = adaptedForward != forward;
+            bool adapted = hasBridge || adaptedForward != forward;
             foreach (Match include in Regex.Matches(forward, "#include \"(" + Regex.Escape(prefix) + "[0-9]+\\.cginc)\""))
             {
                 string path = include.Groups[1].Value;
                 if (!File.Exists(path))
                     continue;
                 string program = File.ReadAllText(path);
-                if (program.Contains(" * StockShadowStrength("))
-                {
-                    adapted = true;
-                    continue;
-                }
+                adapted |= program.Contains("StockShadowStrength(");
                 string migrated = AddLegacyShadowTerms(program);
                 if (migrated == program)
                     continue;
@@ -336,7 +330,9 @@ namespace H3VRConverter
 
             string bridge = "\n#pragma dynamic_branch _ _MAIN_LIGHT_SHADOWS _MAIN_LIGHT_SHADOWS_CASCADE" +
                 "\n#include \"" + LegacyDirectionalShadow + "\"";
-            return source.Substring(0, start) + adaptedForward.Insert(passStart.Length, bridge) + source.Substring(end);
+            if (!hasBridge)
+                adaptedForward = adaptedForward.Insert(passStart.Length, bridge);
+            return source.Substring(0, start) + adaptedForward + source.Substring(end);
         }
 
         private static string AddLegacyShadowTerms(string program)
@@ -349,9 +345,14 @@ namespace H3VRConverter
         private static string AddLegacyShadowTerm(Match branch)
         {
             string keywords = branch.Groups["keywords"].Value;
-            if (!keywords.Contains("!defined(SHADOWS_SCREEN)") || !keywords.Contains("!defined(LIGHTMAP_ON)") ||
-                !keywords.Contains("!defined(SHADOWS_SHADOWMASK)") || !keywords.Contains("!defined(LIGHTMAP_SHADOW_MIXING)") ||
-                !keywords.Contains("!defined(UNITY_SINGLE_PASS_STEREO)"))
+            if (!keywords.Contains("!defined(SHADOWS_SCREEN)") || !keywords.Contains("!defined(UNITY_SINGLE_PASS_STEREO)"))
+                return branch.Value;
+
+            if (!keywords.Contains("defined(LIGHTMAP_ON)") || !keywords.Contains("defined(SHADOWS_SHADOWMASK)"))
+                return branch.Value;
+            bool lightmapped = !keywords.Contains("!defined(LIGHTMAP_ON)");
+            bool shadowMask = !keywords.Contains("!defined(SHADOWS_SHADOWMASK)");
+            if (!lightmapped && (shadowMask || !keywords.Contains("!defined(LIGHTMAP_SHADOW_MIXING)")))
                 return branch.Value;
 
             string body = branch.Groups["body"].Value;
@@ -364,6 +365,22 @@ namespace H3VRConverter
             if (!direct.Success || index != direct.Groups["color"].Index ||
                 body.LastIndexOf(light, StringComparison.Ordinal) != index)
                 return branch.Value;
+            if (shadowMask)
+            {
+                // Recovered masked programs feed the selected baked channel into direct
+                // lighting. The stock screen receiver fades between realtime and that channel.
+                var occlusion = Regex.Matches(body,
+                    @"(?m)^[ \t]*(?<sample>tmp\d+) = unity_ShadowMask\.Sample\([^\r\n]+\)\.xyzw;\r?\n" +
+                    @"[ \t]*tmp\d+\.[xyzw] = (?<value>saturate\(dot\(\k<sample>, unity_OcclusionMaskSelector\)\));");
+                if (occlusion.Count != 1)
+                    return branch.Value;
+
+                var baked = occlusion[0].Groups["value"];
+                int bakedOffset = branch.Groups["body"].Index - branch.Index + baked.Index;
+                return branch.Value.Remove(bakedOffset, baked.Length)
+                    .Insert(bakedOffset, "StockShadowStrength(" + position + ", " + baked.Value + ")");
+            }
+
             string expression = "(" + light + " * StockShadowStrength(" + position + "))";
             int relative = branch.Groups["body"].Index - branch.Index + index;
             return branch.Value.Remove(relative, light.Length).Insert(relative, expression);
