@@ -47,6 +47,11 @@ public static class ProjectMigrationTests
         const string direct = "33333333333333333333333333333333";
         const string cutout = "44444444444444444444444444444444";
         const string unknown = "55555555555555555555555555555555";
+        const string unlitShader = "4c0e43de6cb357741af885c85c8ae8e5";
+        const string unlitOpaque = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        const string unlitPremult = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+        const string unlitFade = "cccccccccccccccccccccccccccccccc";
+        const string unlitMixed = "dddddddddddddddddddddddddddddddd";
 
         string Importer(string guid) => $"""
             fileFormatVersion: 2
@@ -82,9 +87,16 @@ public static class ProjectMigrationTests
         f.WriteCandidate("Assets/Material/OtherUse.mat", Material(alloy, "_ALPHATEST_ON", 1, "_MainTex", shared));
         f.WriteCandidate("Assets/Material/Cutout.mat", Material(alloy, "_ALPHATEST_ON " + roughness, 0, "_MainTex", cutout));
         f.WriteCandidate("Assets/Material/Unknown.mat", Material(unknown, roughness, 0, "_MainTex", unknown));
+        f.WriteCandidate("Assets/Material/UnlitOpaque.mat", Material(unlitShader, "", 0, "_MainTex", unlitOpaque));
+        f.WriteCandidate("Assets/Material/UnlitPremult.mat", Material(unlitShader, "_ALPHAPREMULTIPLY_ON", 3, "_MainTex", unlitPremult));
+        f.WriteCandidate("Assets/Material/UnlitFade.mat", Material(unlitShader, "_ALPHABLEND_ON", 2, "_MainTex", unlitFade)
+            .Replace("_SrcBlend: 1", "_SrcBlend: 5").Replace("_DstBlend: 0", "_DstBlend: 10"));
+        f.WriteCandidate("Assets/Material/UnlitSharedOpaque.mat", Material(unlitShader, "", 0, "_MainTex", unlitMixed));
+        f.WriteCandidate("Assets/Material/UnlitSharedCutout.mat", Material(unlitShader, "_ALPHATEST_ON", 1, "_MainTex", unlitMixed));
         f.WriteCandidate("Assets/Material/Direct.mat", Material(alloy, "", 0, "_SpecTex", direct));
         f.WriteCandidate("Assets/UI.prefab", $"  m_Sprite: {{fileID: 21300000, guid: {direct}, type: 3}}");
-        string[] textures = [pine, packed, ao, detail, sharedOpaque, shared, direct, cutout, unknown];
+        string[] textures =
+            [pine, packed, ao, detail, sharedOpaque, shared, direct, cutout, unknown, unlitOpaque, unlitPremult, unlitFade, unlitMixed];
         foreach (string guid in textures)
             f.WriteCandidate($"Assets/Texture2D/{guid}.png.meta", Importer(guid));
 
@@ -93,15 +105,16 @@ public static class ProjectMigrationTests
         {
             [alloy] = LegacyTextureAlpha.ReadDataShader("""Shader "Alloy/Core" {""") ?? "",
             [prototyping] = LegacyTextureAlpha.ReadDataShader("""Shader "Alloy/Prototyping" {""") ?? "",
-            [carPaint] = LegacyTextureAlpha.ReadDataShader("""Shader "Alloy/Car Paint" {""") ?? ""
+            [carPaint] = LegacyTextureAlpha.ReadDataShader("""Shader "Alloy/Car Paint" {""") ?? "",
+            [unlitShader] = LegacyTextureAlpha.ReadDataShader("""Shader "Alloy/Unlit" {""") ?? ""
         };
         Check(LegacyTextureAlpha.ReadDataShader("""Shader "Alloy/Core (Camera Relative)" {""") is null,
             "unverified shader families must be excluded");
-        Check(LegacyTextureAlpha.Apply(assets, shaders) == 5, "expected the exclusive opaque albedo, packed, detail, and occlusion textures");
+        Check(LegacyTextureAlpha.Apply(assets, shaders) == 6, "expected the exclusive opaque albedo, packed, detail, and occlusion textures");
         foreach (string guid in textures)
         {
             string expected = Importer(guid);
-            if (guid is pine or packed or ao or detail or sharedOpaque) expected = expected.Replace("alphaIsTransparency: 1", "alphaIsTransparency: 0");
+            if (guid is pine or packed or ao or detail or sharedOpaque or unlitOpaque) expected = expected.Replace("alphaIsTransparency: 1", "alphaIsTransparency: 0");
             Check(File.ReadAllText(Path.Combine(assets, "Texture2D", guid + ".png.meta")) == expected,
                 "unexpected importer changes for " + guid);
         }

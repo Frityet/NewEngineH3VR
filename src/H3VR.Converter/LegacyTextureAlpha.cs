@@ -6,7 +6,7 @@ internal static class LegacyTextureAlpha
 {
     private const RegexOptions Options = RegexOptions.CultureInvariant | RegexOptions.Multiline;
     private static readonly Regex GuidField = new(@"^guid: (?<guid>[a-f0-9]{32})\r?$", Options);
-    private static readonly Regex ShaderName = new("^Shader[\t ]+\"(?<name>Alloy/(?:Core|Oriented/Core|Prototyping|Car Paint))\"", Options);
+    private static readonly Regex ShaderName = new("^Shader[\t ]+\"(?<name>Alloy/(?:Core|Oriented/Core|Prototyping|Car Paint|Unlit))\"", Options);
     private static readonly Regex Shader = new(@"^  m_Shader: \{fileID: 4800000, guid: (?<guid>[a-f0-9]{32}), type: 3\}\r?$", Options);
     private static readonly Regex Keywords = new(@"^  m_ShaderKeywords: *(?<keywords>[^\r\n]*)", Options);
     private static readonly Regex Opaque = new(@"^      (?:- )?_Mode: 0\r?$", Options);
@@ -95,15 +95,15 @@ internal static class LegacyTextureAlpha
     private static bool IsDataSlot(string shader, string slot, HashSet<string> keywords) => slot switch
     {
         // Opaque draws read albedo RGB even where source alpha is zero.
-        "_MainTex" => shader is "Alloy/Core" or "Alloy/Car Paint" or "Alloy/Prototyping",
+        "_MainTex" => shader is "Alloy/Core" or "Alloy/Car Paint" or "Alloy/Prototyping" or "Alloy/Unlit",
         "_SpecTex" => shader is "Alloy/Core" or "Alloy/Car Paint",
         "_OrientedMainTex" => shader == "Alloy/Oriented/Core",
         "_OrientedMaterialMap" => shader == "Alloy/Oriented/Core",
         "_AoMap" => shader == "Alloy/Prototyping",
-        "_DetailAlbedoMap" => shader != "Alloy/Oriented/Core" && keywords.Contains("_DETAIL_MULX2"),
-        "_TeamColorMaskMap" => shader != "Alloy/Oriented/Core" && keywords.Contains("_TEAMCOLOR_ON"),
+        "_DetailAlbedoMap" => (shader is "Alloy/Core" or "Alloy/Car Paint" or "Alloy/Prototyping") && keywords.Contains("_DETAIL_MULX2"),
+        "_TeamColorMaskMap" => (shader is "Alloy/Core" or "Alloy/Car Paint" or "Alloy/Prototyping") && keywords.Contains("_TEAMCOLOR_ON"),
         // RGB effect data remains RGB if the material enables its emission pass at runtime.
-        "_IncandescenceMap" => shader != "Alloy/Oriented/Core",
+        "_IncandescenceMap" => shader is "Alloy/Core" or "Alloy/Car Paint" or "Alloy/Prototyping",
         _ => false
     };
 }
