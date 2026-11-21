@@ -8,6 +8,7 @@ using UnityEngine;
 using UnityEngine.Rendering;
 using UnityEngine.SceneManagement;
 using Valve.VR;
+using Valve.Newtonsoft.Json;
 
 namespace NativeH3VR.QA
 {
@@ -16,6 +17,7 @@ namespace NativeH3VR.QA
         private NativeStereoRenderer stereo;
         private string output;
         private bool builtIn;
+        private bool headset;
 
         public static void Initialize()
         {
@@ -30,6 +32,7 @@ namespace NativeH3VR.QA
             if (string.IsNullOrEmpty(output))
                 yield break;
             builtIn = Environment.GetEnvironmentVariable("NATIVEH3VR_GRAPHICS_PROFILE_BUILTIN") == "1";
+            headset = Environment.GetEnvironmentVariable("NATIVEH3VR_GRAPHICS_PROFILE_HEADSET") == "1";
 
             var pending = new Stack<IEnumerator>();
             pending.Push(Run());
@@ -171,6 +174,7 @@ namespace NativeH3VR.QA
                 new List<(int frame, ulong timestamp, double duration)>(profilePairs * 8);
             ulong previousTimestamp = 0;
             recordState?.Invoke("begin");
+            if (headset) RecordHardwareSample(name, "begin");
             int firstFrame = Time.frameCount + 1;
             ulong start = stereo.CompletedFrames;
             // Keep the full frame sample even when a live scene takes longer to submit it.
@@ -206,7 +210,8 @@ namespace NativeH3VR.QA
                         timings.WriteLine(FormattableString.Invariant($"{frame},{timestamp},{duration:R}"));
             }
 
-            VerifyControllers(name);
+            if (headset) RecordHardwareSample(name, "end");
+            else VerifyControllers(name);
             yield return new WaitForEndOfFrame();
             Require(!stereo.SuspendSceneRendering, "Scene rendering is suspended for " + name);
             var position = stereo.TrackingOrigin.TransformPoint(stereo.LatestFrame.head.Position);
@@ -256,6 +261,33 @@ namespace NativeH3VR.QA
                     material.GetFloat("_DetailT") == 1 && material.GetFloat("_DetailAlbedoMapUV") == detailUV &&
                     material.GetTexture("_DetailAlbedoMap"),
                 "Warehouse receiver lost its native lighting or stock detail layer: " + materialName);
+        }
+
+        private void RecordHardwareSample(string sample, string edge)
+        {
+            int status = NativeTracking.Read(out var tracking);
+            var frame = stereo.LatestFrame;
+            var hands = FindObjectsByType<FVRViveHand>();
+            var devices = new List<object>(3);
+            for (uint role = 1; role <= 3; role++)
+            {
+                var device = tracking.Role(role);
+                var source = role == 2 ? SteamVR_Input_Sources.LeftHand : SteamVR_Input_Sources.RightHand;
+                var hand = role != 1 ? Array.Find(hands, item => item.HandSource == source && item.Pose != null) : null;
+                var pose = hand ? hand.Pose[source] : null;
+                devices.Add(new {
+                    role, device.name, device.flags, device.buttons, device.touches,
+                    connected = (device.flags & NativeTracking.Connected) != 0,
+                    tracked = (device.flags & (NativeTracking.PoseValid | NativeTracking.PoseTracked)) ==
+                              (NativeTracking.PoseValid | NativeTracking.PoseTracked),
+                    inputCurrent = (device.flags & NativeTracking.InputCurrent) != 0,
+                    stockPoseActive = pose?.active, stockPoseValid = pose?.poseIsValid,
+                    stockDeviceIndex = pose?.trackedDeviceIndex,
+                });
+            }
+            File.WriteAllText(Path.Combine(output, sample + "-hardware-" + edge + ".json"),
+                JsonConvert.SerializeObject(new { status, frame.displayPeriod, frame.focused,
+                    completedPairs = stereo.CompletedFrames, devices }, Formatting.Indented));
         }
 
         private void VerifyControllers(string sample)

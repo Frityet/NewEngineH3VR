@@ -63,12 +63,14 @@ def run_swatches(launch, env, out, timeout):
         env = dict(env, NATIVEH3VR_SWATCH_COMPLETED_SCOPES="\n".join(sorted(completed)))
 
 
-def check_timings(timing, unity_trace, minimum_samples=80):
+def check_timings(timing, unity_trace, minimum_samples=80, headset=False):
     profile = json.loads(timing.read_text())
     for metric in ("unity_eye_render_cpu", "unity_metal_command_buffer", "macvr_gpu_completion_interval"):
         sample = profile["timings"][metric]
         if not sample or sample["samples"] < minimum_samples:
             raise RuntimeError(f"Too few paired stereo samples for {metric} in {timing}")
+    if headset and profile["native_display_gpu_completions"] < minimum_samples:
+        raise RuntimeError(f"Too few native display GPU completions in {timing}")
     start, end = profile["window_display_start_ns"], profile["window_display_end_ns"]
     with unity_trace.open(newline="") as file:
         skipped = [int(row["stereo_skipped"]) for row in csv.DictReader(file)
@@ -81,7 +83,8 @@ def check_timings(timing, unity_trace, minimum_samples=80):
         "unity_metal_command_buffer": "Metal command buffer containing the Unity OpenXR plugin event",
         "macvr_metal_gpu": "MacVR compositor command buffer",
         "macvr_gpu_completion_interval": "Monotonic elapsed time between completed compositor callbacks",
-        "macvr_missed_wait_slots": "Synthetic runtime wait slots missed within the profile window",
+        "macvr_missed_wait_slots": ("MacVR-reported wait slots missed within the profile window"
+                                   if headset else "Synthetic runtime wait slots missed within the profile window"),
         "unity_stereo_skipped": "Change in the Unity OpenXR bridge's skipped-frame counter within the profile window",
     }
     timing.write_text(json.dumps(profile, indent=2) + "\n")
@@ -105,6 +108,7 @@ def main():
     parser.add_argument("--builtin", action="store_true", help="Profile the original Built-in renderer")
     parser.add_argument("--scene", action="append", default=[], help="Also capture a named stock scene (repeatable)")
     parser.add_argument("--tnh", metavar="MAP", help="Profile one stock Take & Hold map from a fresh session")
+    parser.add_argument("--headset", action="store_true", help="Profile Take & Hold through the physical headset")
     parser.add_argument("--tnh-take-only", action="store_true", help="Finish after the opening Take capture")
     parser.add_argument("--inspect-cover", action="store_true", help="Diagnose the raised steel cover at the first Hold")
     parser.add_argument("--inspect-take-material", metavar="NAME", action="append", default=[],
@@ -130,6 +134,8 @@ def main():
         parser.error("--preset requires --tnh")
     if args.inspect_cover and not args.tnh:
         parser.error("--inspect-cover requires --tnh")
+    if args.headset and (not args.tnh or args.inspect_cover or args.inspect_take_material):
+        parser.error("--headset requires --tnh and cannot be combined with the material or cover controls")
     if args.tnh_take_only and (not args.tnh or args.inspect_cover):
         parser.error("--tnh-take-only requires --tnh and cannot be combined with --inspect-cover")
     if args.inspect_take_material and (not args.tnh or any(
@@ -168,7 +174,7 @@ def main():
     (package / "native-mod.json").write_text(json.dumps(manifest, indent=2))
 
     launch = ["dotnet", str(launcher), "run", "--app", str(app), "--runtime", str(runtime),
-              "--mods-dir", str(package.parent), "--state-dir", str(out / "state"), "--synthetic"]
+              "--mods-dir", str(package.parent), "--state-dir", str(out / "state"), "--headset" if args.headset else "--synthetic"]
     if args.vertex_particles:
         env = dict(os.environ, NATIVEH3VR_VERTEX_PARTICLE_WITNESS=str(out),
                    NATIVEH3VR_EXPECT_STOCK_VERTEX_PARTICLES="1")
@@ -209,6 +215,7 @@ def main():
     if args.profile:
         env = dict(os.environ, NATIVEH3VR_GRAPHICS_PROFILE_WITNESS=str(out),
                    NATIVEH3VR_GRAPHICS_PROFILE_BUILTIN=str(int(args.builtin)),
+                   NATIVEH3VR_GRAPHICS_PROFILE_HEADSET=str(int(args.headset)),
                    NATIVEH3VR_GRAPHICS_PROFILE_SCENE=",".join(args.scene),
                    NATIVEH3VR_GRAPHICS_PROFILE_TNH=args.tnh or "",
                    NATIVEH3VR_GRAPHICS_PROFILE_TNH_TAKE_ONLY=str(int(args.tnh_take_only)),
@@ -236,7 +243,7 @@ def main():
                 subprocess.run(["dotnet", str(launcher), "profile", "--unity", str(out / "unity.csv"),
                                 "--openxr", str(out / "openxr.csv"), "--warmup-seconds", "0", "--unity-frames",
                                 *frames.read_text().split()], stdout=file, check=True)
-            check_timings(timing, out / "unity.csv", 240 if args.tnh else 80)
+            check_timings(timing, out / "unity.csv", 240 if args.tnh else 80, args.headset)
         print(out)
         return
 
