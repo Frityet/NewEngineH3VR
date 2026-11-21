@@ -171,7 +171,7 @@ public sealed record ConversionConfig
     internal bool RestoresSteamLighting => RecoveredProject is null && !BuildProbe;
 
     internal bool NeedsClassDatabase(string through) =>
-        through == "build" && RestoresSteamLighting || PreparesShaders(through);
+        through is ("project" or "validate" or "build") && RestoresSteamLighting || PreparesShaders(through);
 
     internal void RequireColdRecovery(string through)
     {
