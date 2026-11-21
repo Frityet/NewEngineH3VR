@@ -11,6 +11,7 @@ internal static class LegacyPackedTextureDataTests
         ("only exact and numbered recovered copies match the stock texture identity", ExportedCopies),
         ("stock additive sign textures keep sRGB sampling and complete BC3 mips", SignTexture),
         ("stock additive sign migration rebinds only its exact main texture", SignBinding),
+        ("stock plinth warning migration requires premultiplied material state", WarningBinding),
     ];
 
     private static void MipExtents()
@@ -84,6 +85,33 @@ internal static class LegacyPackedTextureDataTests
         foreach (string unrelated in new[] { expected, source.Replace(shader, stock), source.Replace("_MainTex", "_SpecTex") })
             if (LegacySignTextureMips.RewriteBinding(unrelated, "TAH_TouchToBegin", stock, derived, new HashSet<string> { shader }) is not null)
                 throw new Exception("The sign migration accepted an unrelated binding.");
+    }
+
+    private static void WarningBinding()
+    {
+        const string shader = "4c0e43de6cb357741af885c85c8ae8e5";
+        const string stock = "11111111111111111111111111111111";
+        const string derived = "98811fc73d3ed644ce25032f2da236646";
+        const string name = "MG_4Plinth_Warning1";
+        var shaders = new HashSet<string> { shader };
+        string source = $$"""
+            Material:
+              m_Name: {{name}}
+              m_Shader: {fileID: 4800000, guid: {{shader}}, type: 3}
+              m_ShaderKeywords: _ALPHAPREMULTIPLY_ON
+              m_SavedProperties:
+                m_TexEnvs:
+                  _MainTex:
+                    m_Texture: {fileID: 2800000, guid: {{stock}}, type: 3}
+                m_Floats:
+                  _DstBlend: 10
+                  _SrcBlend: 1
+            """;
+        if (LegacySignTextureMips.RewriteBinding(source, name, stock, derived, shaders, premultiplied: true) is null)
+            throw new Exception("Premultiplied warning was not bound.");
+        foreach (string other in new[] { source.Replace("_ALPHAPREMULTIPLY_ON", "_ALPHABLEND_ON"), source.Replace("_DstBlend: 10", "_DstBlend: 0") })
+            if (LegacySignTextureMips.RewriteBinding(other, name, stock, derived, shaders, premultiplied: true) is not null)
+                throw new Exception("Changed warning blend mode was accepted.");
     }
 
     private static void ExportedCopies()
