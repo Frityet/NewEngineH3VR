@@ -32,6 +32,13 @@ def capture(root, bindings):
                 "filter": settings.m_FilterMode, "aniso": settings.m_Aniso, "bias": settings.m_MipBias,
                 "wrap": wrap, "bytes": len(payload), "sha256": sha256(payload).hexdigest(),
             }
+            if type(texture).__name__ == "Cubemap":
+                face_size = texture.m_CompleteImageSize
+                if texture.m_ImageCount != 6 or len(payload) != 6 * face_size or not face_size:
+                    raise ValueError(f"Invalid cubemap face extents in {binding}")
+                view = memoryview(payload)
+                result[binding]["faceSha256"] = [sha256(view[i:i + face_size]).hexdigest()
+                                                  for i in range(0, len(payload), face_size)]
     return result
 
 
