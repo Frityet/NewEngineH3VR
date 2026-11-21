@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Compare the baked textures actually bound to each scene in two private Unity players."""
 from argparse import ArgumentParser
-from contextlib import ExitStack
+from contextlib import ExitStack, contextmanager
 from functools import lru_cache
 from hashlib import sha256
 import json
@@ -10,7 +10,7 @@ from pathlib import Path
 import UnityPy
 from UnityPy.helpers.TypeTreeNode import TypeTreeNode
 
-from inventory import STOCK_PARSE_BLOB, parse_67_blob
+from inventory import parse_67_blob
 from player_archive import PlayerArchive
 
 
@@ -18,10 +18,14 @@ TEXTURE_FIELDS = ("m_Width", "m_Height", "m_TextureFormat", "m_MipCount", "m_Col
 MAPS = ("m_Lightmap", "m_DirLightmap", "m_ShadowMask")
 
 
-def survey(root):
+@contextmanager
+def open_player_data(root):
     with ExitStack() as stack:
         bundle = root / "data.unity3d"
         archive = PlayerArchive(stack.enter_context(bundle.open("rb"))) if bundle.is_file() else None
+        previous = TypeTreeNode.__dict__["parse_blob"]
+        TypeTreeNode.parse_blob = classmethod(parse_67_blob)
+        stack.callback(setattr, TypeTreeNode, "parse_blob", previous)
 
         def read(name, offset=0, size=None):
             if archive and name in archive.members:
@@ -34,12 +38,21 @@ def survey(root):
         def serialized(name):
             return UnityPy.Environment().load_file(read(name), name=name)
 
-        def texture(owner, pointer):
+        def read_texture(owner, pointer):
             name = Path(owner.externals[pointer.file_id - 1].path).name if pointer.file_id else owner.name
             obj = serialized(name).objects[pointer.path_id].read()
             data = obj.m_StreamData
             payload = (read(Path(data.path).name, data.offset, data.size)
                        if data and data.size else bytes(obj.image_data))
+            return obj, payload
+
+        yield serialized, read_texture
+
+
+def survey(root):
+    with open_player_data(root) as (serialized, read_texture):
+        def texture(owner, pointer):
+            obj, payload = read_texture(owner, pointer)
             return {"fields": {field: getattr(obj, field, None) for field in TEXTURE_FIELDS},
                     "bytes": len(payload), "sha256": sha256(payload).hexdigest()}
 
@@ -65,11 +78,7 @@ def main():
     parser.add_argument("--player", type=Path, required=True, help="Converted player Data directory")
     parser.add_argument("--out", type=Path, required=True)
     args = parser.parse_args()
-    TypeTreeNode.parse_blob = classmethod(parse_67_blob)
-    try:
-        stock, player = (survey(root) for root in (args.stock, args.player))
-    finally:
-        TypeTreeNode.parse_blob = classmethod(STOCK_PARSE_BLOB)
+    stock, player = (survey(root) for root in (args.stock, args.player))
     differences = []
     matched = 0
     for scene in sorted(stock.keys() | player.keys()):

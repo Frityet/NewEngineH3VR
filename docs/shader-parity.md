@@ -24,6 +24,19 @@ To check the baked lighting shipped in a player, run the following against the s
 
 In the Unity 6.7 Built-in build of Steam build 25002541, all 72 bound textures across 46 scenes matched their retail payloads and metadata. They comprised 65 color lightmaps, four directional lightmaps and three shadowmasks.
 
+The floating Take & Hold lettering uses authored mipmaps. Regenerating them from the largest image brightened the red lettering at a distance. Two premultiplied warning panels in Room 4 Plinths also depend on their original RGB values in transparent texels. The converter reads these four BC3 textures from the local Steam game and binds the full original mip chains to the corresponding materials. A fifth texture supplies the packed material mask for SilverBulletCrater. The following check follows the named material slots in the cooked player and compares every byte, mip count, color space and sampler setting.
+
+```sh
+.local/shader-audit-venv/bin/python tests/ShaderParity/compare_material_mips.py \
+  --stock "$stock/h3vr_Data" --player "$builtin_app/Contents/Resources/Data" \
+  --binding sharedassets18.assets/TAH_TouchToBegin/_MainTex \
+  --binding sharedassets18.assets/TAH_HoldPoint/_MainTex \
+  --binding sharedassets12.assets/MG_4Plinth_Warning1/_MainTex \
+  --binding sharedassets12.assets/MG_4Plinth_Warning2/_MainTex \
+  --binding sharedassets16.assets/SilverBulletCrater/_SpecTex \
+  --out .local/shader-parity/steam-vs-builtin-material-mips.json
+```
+
 ## Retail first Hold reference
 
 Use a private full copy of the Steam game on a system where the retail Windows player can render. The witness uses the stock sequence and equipment settings, enters the Classic Hallways lobby, starts the first Hold and turns the headset toward the nearest active steel cover. It records the original mesh renderers, material assignments, scene reflection probes and per-cover probe selection. The witness writes `take.json` and `hold.json` into an isolated output directory. The retail game continues rendering for eight seconds after writing `hold.json` so a stereo capture can be taken. The gameplay state uses a custom health option to keep score submission disabled.
