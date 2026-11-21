@@ -6,15 +6,14 @@ outside version control. This does not export code or test GPU rendering.
 """
 from argparse import ArgumentParser
 from collections import Counter, defaultdict
-from io import BytesIO
 import json
 from pathlib import Path
-from struct import unpack, unpack_from
+from struct import unpack_from
 
 import UnityPy
-from UnityPy.enums import CompressionFlags
-from UnityPy.helpers.CompressionHelper import DECOMPRESSION_MAP
 from UnityPy.helpers.TypeTreeNode import TypeTreeNode
+
+from player_archive import PlayerArchive
 
 
 SHADER_TYPES = ("Shader", "ComputeShader")
@@ -39,49 +38,11 @@ def parse_67_blob(cls, reader, version):
 
 
 def unityfs9(stream):
-    """Read the Unity 6.7 block table, which includes a physical offset per block."""
-    def c_string(reader):
-        result = bytearray()
-        while byte := reader.read(1):
-            if byte == b"\0":
-                return result.decode()
-            result.extend(byte)
-        raise ValueError("unterminated UnityFS string")
-
-    def decompress(data, size, flags):
-        codec = CompressionFlags(flags & 0x3F)
-        decoded = DECOMPRESSION_MAP[codec](data, size) if codec else data
-        if len(decoded) != size:
-            raise ValueError("unexpected UnityFS block size")
-        return decoded
-
-    stream.seek(12)
-    c_string(stream)
-    c_string(stream)
-    archive_size, compressed, decoded, flags = unpack(">QIII", stream.read(20))
-    offset = (stream.tell() + 15) & ~15
-    stream.seek(archive_size - compressed if flags & 0x80 else offset)
-    metadata = BytesIO(decompress(stream.read(compressed), decoded, flags))
-    if not flags & 0x80:
-        offset = stream.tell()
-    if flags & 0x200:
-        offset = (offset + 15) & ~15
-    metadata.seek(16)
-    block_count, = unpack(">I", metadata.read(4))
-    blocks = [unpack(">IIHQ", metadata.read(18)) for _ in range(block_count)]
-    node_count, = unpack(">I", metadata.read(4))
-    nodes = []
-    for _ in range(node_count):
-        start, size, node_flags = unpack(">QQI", metadata.read(20))
-        nodes.append((c_string(metadata), start, size, node_flags))
-    payload = bytearray()
-    for decoded, compressed, flags, relative in blocks:
-        stream.seek(offset + relative)
-        payload.extend(decompress(stream.read(compressed), decoded, flags))
+    archive = PlayerArchive(stream)
     env = UnityPy.Environment()
-    for name, start, size, flags in nodes:
+    for name, (_, _, flags) in archive.members.items():
         if flags & 4:
-            env.load_file(bytes(payload[start:start + size]), name=name)
+            env.load_file(archive.read(name), name=name)
     return env
 
 

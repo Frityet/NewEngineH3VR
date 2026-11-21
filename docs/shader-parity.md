@@ -14,6 +14,16 @@ python3 -m venv .local/shader-audit-venv
 
 Check each inventory's `errors` before comparing counts. An unresolved `unity default resources` reference can point to data provided by the engine executable. A candidate's presence in the bundle establishes serialized coverage. GPU parity requires captures with the pass's actual inputs, including mesh attributes, pipeline lighting, probes, blend state and auxiliary textures.
 
+To check the baked lighting shipped in a player, run the following against the same two Data directories. The check follows every scene's color, direction and shadowmask slots, hashes the bound GPU texture blocks and compares dimensions, format, mip count, color space and lightmap encoding. It reads the compact player archive in place.
+
+```sh
+.local/shader-audit-venv/bin/python tests/ShaderParity/compare_baked_lighting.py \
+  --stock "$stock/h3vr_Data" --player "$builtin_app/Contents/Resources/Data" \
+  --out .local/shader-parity/steam-vs-builtin-lightmaps.json
+```
+
+In the Unity 6.7 Built-in build of Steam build 25002541, all 72 bound textures across 46 scenes matched their retail payloads and metadata. They comprised 65 color lightmaps, four directional lightmaps and three shadowmasks.
+
 ## Retail first Hold reference
 
 Use a private full copy of the Steam game on a system where the retail Windows player can render. The witness uses the stock sequence and equipment settings, enters the Classic Hallways lobby, starts the first Hold and turns the headset toward the nearest active steel cover. It records the original mesh renderers, material assignments, scene reflection probes and per-cover probe selection. The witness writes `take.json` and `hold.json` into an isolated output directory. The retail game continues rendering for eight seconds after writing `hold.json` so a stereo capture can be taken. The gameplay state uses a custom health option to keep score submission disabled.
@@ -61,6 +71,12 @@ uv run tests/ShaderParity/compare_swatches.py --stock "$RETAIL_SWATCHES" \
 ```
 
 The comparator checks visible material coverage, near-black pixels and error-shader magenta. It pairs materials by their texture recipe or a one-to-one renderer and material-slot path. The report identifies generated defaults, numbered-texture candidates, conflicting slots and unmatched rows. A numbered texture name alone cannot establish texture identity. A dark surface in both players is recorded as authored or shared darkness.
+
+### Two-sided materials
+
+The original Direct3D programs distinguish the front and back of leaves, paper targets and other two-sided materials. Some recovered fragment programs tested the signed `VFACE` value as a boolean. That made both windings take the front-facing branch. During conversion these programs now use the boolean `SV_IsFrontFace` input. Where the original instruction combines the face mask with another flag, the converter reconstructs its full 32 bits. The migration applies on all graphics APIs.
+
+On a fixed quad using Friendly 45's original birch frond material and textures, the Steam player produced median front and back RGB values of (90, 87, 82) and (36, 34, 32). With the recovered shader, both sides measured (99, 95, 92) on Metal. The corrected back measured (35, 33, 32). The correction preserved every front-facing pixel and the cutout coverage in the Metal fixture. The matching leaf test changed all 1,192 covered back-facing pixels. A separate float-target test checked both windings and the exact bit pattern on Windows D3D11 and macOS Metal.
 
 ## Raised Take & Hold cover
 
