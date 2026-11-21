@@ -287,7 +287,35 @@ namespace NativeH3VR.QA
             }
             File.WriteAllText(Path.Combine(output, sample + "-hardware-" + edge + ".json"),
                 JsonConvert.SerializeObject(new { status, frame.displayPeriod, frame.focused,
-                    completedPairs = stereo.CompletedFrames, devices }, Formatting.Indented));
+                    completedPairs = stereo.CompletedFrames, realtimeSeconds = Time.realtimeSinceStartupAsDouble,
+                    homeOwnsPlayerView = HomeOwnsPlayerView(),
+                    devices }, Formatting.Indented));
+        }
+
+        private static bool HomeOwnsPlayerView()
+        {
+            string control = Environment.GetEnvironmentVariable("VI_HOME_CONTROL_DIR");
+            if (string.IsNullOrEmpty(control))
+            {
+                string state = Environment.GetEnvironmentVariable("VR_STATE_DIR");
+                if (string.IsNullOrEmpty(state))
+                    return false;
+                control = Path.Combine(state, "home");
+            }
+
+            // Read the owner's public status file. The reported PID must be
+            // this signed player to avoid accepting another running client.
+            try
+            {
+                string[] status = File.ReadAllLines(Path.Combine(control, "runtime.txt"));
+                using var process = System.Diagnostics.Process.GetCurrentProcess();
+                string owner = "active_pid=" + process.Id;
+                return Array.Exists(status, line => line == "mode=app") && Array.Exists(status, line => line == owner);
+            }
+            catch (IOException)
+            {
+                return false;
+            }
         }
 
         private void VerifyControllers(string sample)
