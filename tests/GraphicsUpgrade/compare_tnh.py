@@ -157,7 +157,19 @@ def verify_profile(path, stem, mode):
                 "mainLightShadowmapResolution": 512 * factor, "maxAdditionalLightsCount": 2 * factor}
     require(all(math.isclose(float(actual[key]), number, abs_tol=0.001) for key, number in expected.items())
             and actual["supportsHDR"].lower() == "true", f"Unexpected {mode} pipeline settings")
-    return {"pipeline": asset, **expected, "supportsHDR": True}
+    profile = {"pipeline": asset, **expected, "supportsHDR": True}
+    selection_path = path / "graphics-selection.json"
+    if selection_path.is_file():
+        selection = json.loads(selection_path.read_text())
+        require(isinstance(selection, dict) and selection.get("mode") == mode
+                and selection.get("preset") == (1 if mode == "balanced" else 2),
+                f"Recorded graphics preset does not match {mode}")
+        choices = selection.get("choices")
+        require(isinstance(choices, dict) and choices.get("Preset") == mode.title()
+                and all(isinstance(value, str) for value in choices.values()),
+                f"Invalid graphics option values for {mode}")
+        profile["graphicsOptions"] = choices
+    return profile
 
 
 def pose_delta(reference, candidate):
