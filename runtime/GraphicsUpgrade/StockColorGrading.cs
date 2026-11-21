@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Reflection;
 using UnityEngine;
 using UnityEngine.Rendering;
+using UnityEngine.Rendering.PostProcessing;
 
 namespace NativeH3VR.GraphicsUpgrade
 {
@@ -82,15 +83,13 @@ namespace NativeH3VR.GraphicsUpgrade
 
             try
             {
+                if (!camera.TryGetComponent<PostProcessLayer>(out var layer) || !layer.isActiveAndEnabled) return;
                 if (!initialized)
                 {
                     initialized = true;
-                    access = StockAccess.Find();
+                    access = new StockAccess();
                 }
                 if (access == null) return;
-
-                var layer = camera.GetComponent(access.LayerType) as Behaviour;
-                if (!layer || !layer.isActiveAndEnabled) return;
 
                 if (!Cameras.TryGetValue(camera, out var state))
                 {
@@ -128,144 +127,170 @@ namespace NativeH3VR.GraphicsUpgrade
             }
         }
 
-        // Retail post-processing classes are defined in the imported game assembly.
-        // Resolve its runtime API once so the optional renderer has no dependency on a mod assembly.
         sealed class StockAccess
         {
-            const string Prefix = "UnityEngine.Rendering.PostProcessing.";
-            const BindingFlags Instance = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
-            const BindingFlags Static = BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic;
+            const BindingFlags Internal = BindingFlags.Instance | BindingFlags.NonPublic;
             static readonly int StockLut3D = Shader.PropertyToID("_Lut3D");
             static readonly int StockLut2D = Shader.PropertyToID("_Lut2D");
             static readonly int StockExposure = Shader.PropertyToID("_PostExposure");
 
-            internal readonly Type LayerType;
-            readonly Type gradingType;
-            readonly PropertyInfo managerInstance, textureLerperInstance, bundleSettings, bundleRenderer;
-            readonly PropertyInfo contextCommand, contextResources, contextFactory, sheetProperties;
-            readonly MethodInfo updateSettings, getBundle, contextReset, getSheet, beginLerp, endLerp, renderGrade, releaseSheets;
-            readonly FieldInfo resources, resourceShaders, uberShader, contextUber, effectEnabled, gradingMode;
-            readonly (FieldInfo parameter, FieldInfo value)[] values;
-            readonly FieldInfo splineSamples;
-            readonly object gradeContext, gradeFactory;
+            readonly FieldInfo resources = typeof(PostProcessLayer).GetField("m_Resources", Internal);
+            readonly FieldInfo contextUber = typeof(PostProcessRenderContext).GetField("uberSheet", Internal);
+            readonly FieldInfo splineSamples = typeof(Spline).GetField("cachedData", Internal);
 
-            internal static StockAccess Find()
+            readonly Action<PostProcessManager, PostProcessLayer> updateSettings =
+                Bind<Action<PostProcessManager, PostProcessLayer>>(typeof(PostProcessManager), "UpdateSettings",
+                    typeof(PostProcessLayer));
+            readonly Func<PostProcessLayer, Type, PostProcessBundle> getBundle =
+                Bind<Func<PostProcessLayer, Type, PostProcessBundle>>(typeof(PostProcessLayer), "GetBundle",
+                    typeof(Type));
+            readonly Func<PostProcessBundle, PostProcessEffectRenderer> getRenderer =
+                Bind<Func<PostProcessBundle, PostProcessEffectRenderer>>(
+                    typeof(PostProcessBundle).GetProperty("renderer", Internal).GetGetMethod(true));
+            readonly Action<PostProcessRenderContext, PostProcessResources> setResources =
+                Bind<Action<PostProcessRenderContext, PostProcessResources>>(
+                    typeof(PostProcessRenderContext).GetProperty(nameof(PostProcessRenderContext.resources)).GetSetMethod(true));
+            readonly Action<PostProcessRenderContext, PropertySheetFactory> setFactory =
+                Bind<Action<PostProcessRenderContext, PropertySheetFactory>>(
+                    typeof(PostProcessRenderContext).GetProperty(nameof(PostProcessRenderContext.propertySheets)).GetSetMethod(true));
+
+            readonly Action<PostProcessRenderContext> beginLerp;
+            readonly Action endLerp;
+            readonly PostProcessRenderContext gradeContext = new();
+            readonly PropertySheetFactory gradeFactory = new();
+
+            static T Bind<T>(Type owner, string name, params Type[] parameters) where T : Delegate =>
+                Bind<T>(owner.GetMethod(name, Internal, null, parameters, null));
+
+            static T Bind<T>(MethodInfo method) where T : Delegate => (T)method.CreateDelegate(typeof(T));
+
+            internal StockAccess()
             {
-                foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
-                    if (assembly.GetType(Prefix + "PostProcessLayer") is Type layer)
-                        return new StockAccess(layer);
-                return null;
+                // TextureLerper is internal in the retail game assembly; close its delegates once.
+                setFactory(gradeContext, gradeFactory);
+                var type = typeof(PostProcessLayer).Assembly.GetType(typeof(PostProcessLayer).Namespace + ".TextureLerper", true);
+                var lerper = type.GetProperty("instance", BindingFlags.Static | BindingFlags.NonPublic).GetValue(null);
+                beginLerp = (Action<PostProcessRenderContext>)type.GetMethod("BeginFrame", Internal)
+                    .CreateDelegate(typeof(Action<PostProcessRenderContext>), lerper);
+                endLerp = (Action)type.GetMethod("EndFrame", Internal).CreateDelegate(typeof(Action), lerper);
             }
 
-            StockAccess(Type layer)
-            {
-                LayerType = layer;
-                var assembly = layer.Assembly;
-                Type Get(string name) => assembly.GetType(Prefix + name, true);
-                gradingType = Get("ColorGrading");
-                var manager = Get("PostProcessManager");
-                var lerper = Get("TextureLerper");
-                var bundle = Get("PostProcessBundle");
-                var context = Get("PostProcessRenderContext");
-                var sheetFactory = Get("PropertySheetFactory");
-                managerInstance = manager.GetProperty("instance", Static);
-                textureLerperInstance = lerper.GetProperty("instance", Static);
-                bundleSettings = bundle.GetProperty("settings", Instance);
-                bundleRenderer = bundle.GetProperty("renderer", Instance);
-                contextCommand = context.GetProperty("command", Instance);
-                contextResources = context.GetProperty("resources", Instance);
-                contextFactory = context.GetProperty("propertySheets", Instance);
-                sheetProperties = Get("PropertySheet").GetProperty("properties", Instance);
-                updateSettings = manager.GetMethod("UpdateSettings", Instance);
-                getBundle = layer.GetMethod("GetBundle", Instance, null, new[] { typeof(Type) }, null);
-                contextReset = context.GetMethod("Reset", Instance);
-                getSheet = sheetFactory.GetMethod("Get", Instance, null, new[] { typeof(Shader) }, null);
-                releaseSheets = sheetFactory.GetMethod("Release", Instance);
-                beginLerp = lerper.GetMethod("BeginFrame", Instance);
-                endLerp = lerper.GetMethod("EndFrame", Instance);
-                renderGrade = Get("ColorGradingRenderer").GetMethod("Render", Instance);
-                resources = layer.GetField("m_Resources", Instance);
-                resourceShaders = Get("PostProcessResources").GetField("shaders", Instance);
-                uberShader = resourceShaders.FieldType.GetField("uber", Instance);
-                contextUber = context.GetField("uberSheet", Instance);
-                effectEnabled = gradingType.GetField("enabled", Instance);
-                gradingMode = gradingType.GetField("gradingMode", Instance);
-                splineSamples = Get("Spline").GetField("cachedData", Instance);
-                var fields = new List<(FieldInfo, FieldInfo)>();
-                foreach (var parameter in gradingType.GetFields(BindingFlags.Instance | BindingFlags.Public))
-                    if (parameter.FieldType.GetField("value", Instance) is FieldInfo value) fields.Add((parameter, value));
-                values = fields.ToArray();
-                gradeContext = Activator.CreateInstance(context);
-                gradeFactory = Activator.CreateInstance(sheetFactory);
-            }
+            internal void Release() => gradeFactory.Release();
 
-            internal void Release() => releaseSheets.Invoke(gradeFactory, null);
-
-            internal bool Update(Behaviour layer, CommandBuffer command, int previousHash, Binding previous,
+            internal bool Update(PostProcessLayer layer, CommandBuffer command, int previousHash, Binding previous,
                 out int hash, out Binding result)
             {
                 hash = 0;
                 result = default;
-                var stockResources = resources.GetValue(layer) as UnityEngine.Object;
-                if (!stockResources) return false;
+                if (layer.breakBeforeColorGrading || !(resources.GetValue(layer) is PostProcessResources stockResources) ||
+                    !stockResources || !stockResources.shaders.uber) return false;
 
-                var shader = uberShader.GetValue(resourceShaders.GetValue(stockResources)) as Shader;
-                if (!shader) return false;
-                var sheet = getSheet.Invoke(gradeFactory, new object[] { shader });
-                var properties = (MaterialPropertyBlock)sheetProperties.GetValue(sheet);
-                // Use the stock context only to blend grading and bake its lookup texture.
-                contextReset.Invoke(gradeContext, null);
-                contextCommand.SetValue(gradeContext, command);
-                contextResources.SetValue(gradeContext, stockResources);
-                contextFactory.SetValue(gradeContext, gradeFactory);
-                contextUber.SetValue(gradeContext, sheet);
-
-                var lerper = textureLerperInstance.GetValue(null);
-                beginLerp.Invoke(lerper, new[] { gradeContext });
+                // This context is private to volume texture blending and LUT baking.
+                // Its stock Reset allocates a fresh user-data dictionary unused by either.
+                gradeContext.command = command;
+                if (gradeContext.resources != stockResources)
+                    setResources(gradeContext, stockResources);
+                beginLerp(gradeContext);
                 try
                 {
-                    updateSettings.Invoke(managerInstance.GetValue(null), new object[] { layer });
-                    var bundle = getBundle.Invoke(layer, new object[] { gradingType });
-                    var settings = bundleSettings.GetValue(bundle);
-                    if (!(bool)effectEnabled.FieldType.GetField("value", Instance).GetValue(effectEnabled.GetValue(settings)))
-                        return false;
+                    updateSettings(PostProcessManager.instance, layer);
+                    var bundle = getBundle(layer, typeof(ColorGrading));
+                    var settings = (ColorGrading)bundle.settings;
+                    if (!settings.IsEnabledAndSupported(gradeContext)) return false;
 
-                    hash = Hash(settings);
-                    if (hash == previousHash && previous.Texture &&
+                    hash = HashCode.Combine(Hash(settings), stockResources, bundle);
+                    // TextureLerper can write new blended pixels into a reused render texture.
+                    // Re-evaluate such inputs even when their identity and scalar settings are unchanged.
+                    bool dynamicLut = settings.gradingMode.value == GradingMode.External
+                        ? settings.externalLut.value is RenderTexture
+                        : settings.gradingMode.value == GradingMode.LowDefinitionRange &&
+                          settings.ldrLut.value is RenderTexture;
+                    if (!dynamicLut && hash == previousHash && previous.Texture &&
                         (!(previous.Texture is RenderTexture baked) || baked.IsCreated()))
                     {
                         result = previous;
                         return false;
                     }
 
+                    var sheet = gradeFactory.Get(stockResources.shaders.uber);
+                    var properties = sheet.properties;
                     properties.Clear();
-                    renderGrade.Invoke(bundleRenderer.GetValue(bundle), new[] { gradeContext });
+                    sheet.ClearKeywords();
+                    contextUber.SetValue(gradeContext, sheet);
+                    getRenderer(bundle).Render(gradeContext);
                     var texture3D = properties.GetTexture(StockLut3D);
-                    var texture2D = properties.GetTexture(StockLut2D);
-                    int mode = texture3D ? 1 : Convert.ToInt32(gradingMode.FieldType.GetField("value", Instance)
-                        .GetValue(gradingMode.GetValue(settings))) == 0 ? 3 : 2;
-                    var texture = texture3D ? texture3D : texture2D;
+                    var texture = texture3D ? texture3D : properties.GetTexture(StockLut2D);
+                    int mode = texture3D ? 1 : settings.gradingMode.value == GradingMode.LowDefinitionRange ? 3 : 2;
                     if (texture && (mode == 1 ? texture.dimension == TextureDimension.Tex3D : texture.dimension == TextureDimension.Tex2D))
                         result = new Binding(texture, mode, mode == 3 ? 1f : properties.GetFloat(StockExposure));
                     return texture;
                 }
-                finally { endLerp.Invoke(lerper, null); }
+                finally
+                {
+                    endLerp();
+                    gradeContext.command = null;
+                }
             }
 
-            int Hash(object settings)
+            int Hash(ColorGrading settings)
             {
                 var hash = new HashCode();
-                foreach (var (parameter, value) in values)
-                {
-                    var item = value.GetValue(parameter.GetValue(settings));
-                    if (item != null && item.GetType() == splineSamples.DeclaringType)
-                    {
-                        if (splineSamples.GetValue(item) is float[] samples)
-                            foreach (var sample in samples) hash.Add(sample);
-                    }
-                    else hash.Add(item);
-                }
+                hash.Add((int)settings.gradingMode.value);
+                hash.Add((int)settings.tonemapper.value);
+                AddTexture(ref hash, settings.externalLut.value);
+                AddTexture(ref hash, settings.ldrLut.value);
+                hash.Add(settings.toneCurveToeStrength.value);
+                hash.Add(settings.toneCurveToeLength.value);
+                hash.Add(settings.toneCurveShoulderStrength.value);
+                hash.Add(settings.toneCurveShoulderLength.value);
+                hash.Add(settings.toneCurveShoulderAngle.value);
+                hash.Add(settings.toneCurveGamma.value);
+                hash.Add(settings.temperature.value);
+                hash.Add(settings.tint.value);
+                hash.Add(settings.colorFilter.value);
+                hash.Add(settings.hueShift.value);
+                hash.Add(settings.saturation.value);
+                hash.Add(settings.brightness.value);
+                hash.Add(settings.postExposure.value);
+                hash.Add(settings.contrast.value);
+                hash.Add(settings.mixerRedOutRedIn.value);
+                hash.Add(settings.mixerRedOutGreenIn.value);
+                hash.Add(settings.mixerRedOutBlueIn.value);
+                hash.Add(settings.mixerGreenOutRedIn.value);
+                hash.Add(settings.mixerGreenOutGreenIn.value);
+                hash.Add(settings.mixerGreenOutBlueIn.value);
+                hash.Add(settings.mixerBlueOutRedIn.value);
+                hash.Add(settings.mixerBlueOutGreenIn.value);
+                hash.Add(settings.mixerBlueOutBlueIn.value);
+                hash.Add(settings.lift.value);
+                hash.Add(settings.gamma.value);
+                hash.Add(settings.gain.value);
+                // The stock blend writes sampled curves. Hash their contents so in-place
+                // keyframe edits and local volume weight changes invalidate the baked LUT.
+                AddCurve(ref hash, settings.masterCurve.value);
+                AddCurve(ref hash, settings.redCurve.value);
+                AddCurve(ref hash, settings.greenCurve.value);
+                AddCurve(ref hash, settings.blueCurve.value);
+                AddCurve(ref hash, settings.hueVsHueCurve.value);
+                AddCurve(ref hash, settings.hueVsSatCurve.value);
+                AddCurve(ref hash, settings.satVsSatCurve.value);
+                AddCurve(ref hash, settings.lumVsSatCurve.value);
                 return hash.ToHashCode();
+            }
+
+            static void AddTexture(ref HashCode hash, Texture texture)
+            {
+                if (!texture) return;
+                hash.Add(texture.GetEntityId());
+                hash.Add(texture.updateCount);
+            }
+
+            void AddCurve(ref HashCode hash, Spline curve)
+            {
+                if (splineSamples.GetValue(curve) is not float[] samples) return;
+                uint contents = 2166136261u;
+                foreach (float sample in samples) contents = unchecked((contents ^ (uint)sample.GetHashCode()) * 16777619u);
+                hash.Add(contents);
             }
         }
     }
