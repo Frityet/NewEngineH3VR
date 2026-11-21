@@ -71,6 +71,7 @@ dotnet run --project tools/UnityMetalCli -c Release -- run \
 - `--synthetic` uses a fake headset. Use `--headset` for a real one.
 - Put `--state-dir` and the log, trace, profile and capture outputs under the checkout's `.local/` directory. Unity keeps settings and saves in `--state-dir`.
 - The launcher checks the runtime and the app signature first. It points only this process at MacVR, through `XR_RUNTIME_JSON`.
+- Headset launches use MacVR’s saved headset calibration, room setup and render resolution. Set `VR_STATE_DIR` to select a custom MacVR state directory. Synthetic runs use their own runtime state under `--state-dir`.
 - Steam gets the real H3VR app ID and does its own startup and ownership checks.
 
 ### With mods

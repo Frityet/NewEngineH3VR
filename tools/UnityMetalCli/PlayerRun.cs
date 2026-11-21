@@ -86,6 +86,15 @@ internal static class PlayerRun
             // Synthetic tracking uses no broker. A relative endpoint stays under the player's working directory.
             environment["VR_TRACKING_SOCKET"] = "tracking-" + Path.GetRandomFileName() + ".sock";
         }
+        else if (!environment.ContainsKey("VR_STATE_DIR") && string.IsNullOrEmpty(Environment.GetEnvironmentVariable("VR_STATE_DIR")))
+        {
+            // MacVR normally resolves calibration from the user's Application Support directory.
+            // Resolve it before the isolated Unity preferences redirect the child's home.
+            string support = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+            string current = Path.Combine(support, "MacVR");
+            environment["VR_STATE_DIR"] = new[] { current, Path.Combine(support, "Virtual Reality"), Path.Combine(support, "IndexMac") }
+                .FirstOrDefault(Directory.Exists) ?? current;
+        }
         if (player.Stock)
         {
             environment["SteamAppId"] = "450540";
