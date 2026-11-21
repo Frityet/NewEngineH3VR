@@ -89,6 +89,14 @@ The comparator checks visible material coverage, near-black pixels and error-sha
 
 To repeat a chart with a candidate shader before rebuilding the player, add `--swatch-replacement "$BUNDLE" "$SOURCE_SHADER" "$CANDIDATE_SHADER"`. Use a local shader bundle built for the player's target. The witness renders copies of the affected chart materials with their original properties, keywords and queues. The output records the bundle hash, player hash and number of candidate draws per scope.
 
+### Alloy material response
+
+For Steam build 25002541 the chart covers 46 scenes, the shared Resources set and 18 bundles. The original Windows player provides the Direct3D 11 reference. Broad changes in brightness need a second capture at matched view direction, light position and animation time. A reflective surface near the edge of an orthographic chart can show a different highlight from the same surface in a headset.
+
+The URP Stock PBR shader preserves the packed Alloy channels, the roughness of the reflected environment, the angular size of the sun and the stock attenuation of local lights. In a centered comparison on 7,845 interior pixels, the mean absolute luminance error fell from 51.22 to 2.72 levels for the P210 barrel and from 22.84 to 1.30 for the Grenade Skee Ball side. The same comparison on the steel Hold cover went from 9.45 to 4.39 levels. These errors use an 8-bit display scale.
+
+A spotlight in Indoor Range and a green glow stick gave separate checks on the recovered light falloff. At the original distances of 1.91 m and 0.51 m, their mean absolute luminance errors fell from 68.31 to 2.45 and from 78.77 to 1.16 levels. Turning off each light supplied a dark reference for that capture.
+
 ### Texture channels
 
 Some opaque materials store roughness or masks in texture alpha. Unity's transparent-colour dilation can then overwrite visible colour in texels whose alpha happens to be zero. On the Friendly 45 pine, the original material's median RGB was (15, 14, 11). Reimport with dilation produced (95, 100, 56). Preserving the original colour gave (14, 15, 11). The converter identifies the verified material and texture usages before configuring the importer.
