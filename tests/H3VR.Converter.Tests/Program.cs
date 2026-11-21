@@ -12,12 +12,21 @@ var cases = new List<(string Name, Action Run)>
         foreach (var name in new[] { "WFX/Transparent Diffuse", "WFX/Transparent Specular" })
         {
             var source = $"Shader \"{name}\" {{\r\n// {legacy}\r\n\t{legacy} // stock fallback\r\n}}";
-            var updated = ProjectMigration.UpdateLegacyParticleFallback(source);
+            var updated = ProjectMigration.UpdateLegacyShaderFallback(source);
             Check(updated == source.Replace("\t" + legacy, "\t" + current), "changed more than the fallback directive");
-            Check(ProjectMigration.UpdateLegacyParticleFallback(updated) == updated, "fallback migration is not idempotent");
+            Check(ProjectMigration.UpdateLegacyShaderFallback(updated) == updated, "fallback migration is not idempotent");
         }
         var other = $"Shader \"Custom/Particles\" {{\n{legacy}\n}}";
-        Check(ProjectMigration.UpdateLegacyParticleFallback(other) == other, "custom fallback changed");
+        Check(ProjectMigration.UpdateLegacyShaderFallback(other) == other, "custom fallback changed");
+    }),
+    ("the additive pass has no unresolved fallback", () => {
+        const string directive = "Fallback \"Transparent\"";
+        var source = $"Shader \"Hidden/SimpleAdd\" {{\r\n// {directive}\r\n\t{directive} // stock\r\n}}";
+        var repaired = ProjectMigration.UpdateLegacyShaderFallback(source);
+        Check(repaired == source.Replace("\t" + directive, "\tFallback Off"), "only the active fallback directive should change");
+        Check(ProjectMigration.UpdateLegacyShaderFallback(repaired) == repaired, "additive fallback repair must be idempotent");
+        var custom = source.Replace("Hidden/SimpleAdd", "Custom/SimpleAdd");
+        Check(ProjectMigration.UpdateLegacyShaderFallback(custom) == custom, "custom fallback changed");
     }),
     ("runtime optical effects keep named blit passes and runtime keyword variants", () => {
         const string source = """

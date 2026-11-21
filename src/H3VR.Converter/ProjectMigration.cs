@@ -303,9 +303,16 @@ public sealed class ProjectMigration(ConversionConfig config, string candidate)
     }
     private static IEnumerable<TypeDefinition> Flatten(TypeDefinition type) { yield return type; foreach (var n in type.NestedTypes) foreach (var x in Flatten(n)) yield return x; }
 
-    internal static string UpdateLegacyParticleFallback(string source)
+    internal static string UpdateLegacyShaderFallback(string source)
     {
         var header = source.AsSpan().TrimStart('\uFEFF').TrimStart();
+        // Neither the retail player nor Unity 6 has a shader named "Transparent".
+        // The actual additive pass handles every supported desktop graphics API.
+        if (header.StartsWith("Shader \"Hidden/SimpleAdd\"", StringComparison.Ordinal))
+            return Regex.Replace(source,
+                """(?im)^([ \t]*Fallback[ \t]+)"Transparent"(?=[ \t]*(?://[^\r\n]*)?\r?$)""",
+                "${1}Off", RegexOptions.CultureInvariant);
+
         if (!header.StartsWith("Shader \"WFX/Transparent Diffuse\"", StringComparison.Ordinal)
             && !header.StartsWith("Shader \"WFX/Transparent Specular\"", StringComparison.Ordinal)) return source;
         return Regex.Replace(source, "(?im)^([ \\t]*Fallback[ \\t]+)\"Particles/Alpha Blended\"(?=[ \\t]*(?://[^\\r\\n]*)?\\r?$)",
@@ -434,7 +441,7 @@ public sealed class ProjectMigration(ConversionConfig config, string candidate)
             if (File.Exists(destination)) File.Delete(destination);
             SafeFiles.Copy(source, destination);
             if (!SafeFiles.Hash(destination).Equals(sourceHash, StringComparison.Ordinal)) throw new IOException("Shader overlay changed while copying: " + relative);
-            var migrated = KeepEngineLightmapVariants(KeepOpticPostProcessPasses(UpdateLegacyParticleFallback(content)));
+            var migrated = KeepEngineLightmapVariants(KeepOpticPostProcessPasses(UpdateLegacyShaderFallback(content)));
             if (verifyGraphics) migrated = RepairVerifiedProgram(migrated);
             if (!ReferenceEquals(migrated, content)) File.WriteAllText(destination, migrated);
             // Existing recovered metadata also carries the source AssetBundle group; keep it intact when its GUID matches.
