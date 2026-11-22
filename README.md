@@ -37,6 +37,8 @@ dotnet run --project src/H3VR.Converter -c Release -- --graphics-upgrade
 
 The default output is `.local/workspace-graphics-upgrade/player/`. On the wrist menu, open **Options → Graphics Options** to select Performance, Balanced or Quality. Each rendering control also works independently. [Rendering, presets and verification](docs/graphics-upgrade.md)
 
+On macOS, `UnityMetalCli combine` packages Base, Built-in and URP in one `NativeH3VR.app`. Choose the renderer when you open the app. [One macOS app](docs/graphics-upgrade.md#one-macos-app)
+
 ## Other commands
 
 ```sh

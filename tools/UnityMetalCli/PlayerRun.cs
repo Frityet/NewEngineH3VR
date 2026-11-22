@@ -7,7 +7,8 @@ namespace UnityMetalCli;
 
 internal sealed record Launch(
     string App, string Runtime, string State, string Log, bool Synthetic, string[] PlayerArguments,
-    string? Trace = null, string? Profile = null, string? Capture = null, TimeSpan? Timeout = null, string? Mods = null);
+    string? Trace = null, string? Profile = null, string? Capture = null, TimeSpan? Timeout = null, string? Mods = null,
+    string? Renderer = null);
 
 internal static class PlayerRun
 {
@@ -15,7 +16,7 @@ internal static class PlayerRun
         ["macvr.json", "libMacVROpenXR.dylib", "libIndexCore.dylib", "libopenxr_loader.dylib"];
 
     private sealed record MacVR(string Manifest, string Loader, string Version, string Revision);
-    private sealed record Player(string Program, bool Stock, bool SupportsExternalMods);
+    internal sealed record Player(string Program, bool Stock, bool SupportsExternalMods);
 
     internal static async Task<int> RunAsync(
         Launch launch, CancellationToken cancellation, IReadOnlyDictionary<string, string?>? extraEnvironment = null)
@@ -30,7 +31,10 @@ internal static class PlayerRun
         string runtimeRoot = SafeFiles.Canonical(launch.Runtime);
         string state = SafeFiles.Canonical(launch.State);
         var runtime = VerifyRuntime(runtimeRoot);
-        Player player = await VerifyPlayerAsync(app, cancellation);
+        string profileApp = RendererPackage.Select(app, launch.Renderer);
+        if (profileApp != app)
+            await ChildProcess.CheckedAsync("/usr/bin/codesign", ["--verify", "--strict", "--ignore-resources", app], cancellation);
+        Player player = await VerifyPlayerAsync(profileApp, cancellation);
         if (!launch.Synthetic && !player.Stock)
             throw new InvalidDataException("A headset launch requires a locally imported NativeH3VR app.");
         string? mods = ResolveOptional(launch.Mods);
@@ -108,6 +112,7 @@ internal static class PlayerRun
                 throw new IOException("Run output already exists: " + output);
         }
         Console.WriteLine($"MacVR {runtime.Version} revision {runtime.Revision} from {runtime.Manifest}");
+        if (profileApp != app) Console.WriteLine($"NativeH3VR renderer: {launch.Renderer ?? "base"}");
         Console.Out.Flush();
         var result = await ChildProcess.RunAsync(player.Program,
             ["-force-metal", "-logFile", log, .. launch.PlayerArguments],
@@ -145,7 +150,7 @@ internal static class PlayerRun
             metadata.GetProperty("version").GetString()!, metadata.GetProperty("sourceRevision").GetString()!);
     }
 
-    private static async Task<Player> VerifyPlayerAsync(string app, CancellationToken cancellation)
+    internal static async Task<Player> VerifyPlayerAsync(string app, CancellationToken cancellation)
     {
         string contents = Path.Combine(app, "Contents");
         string plist = Path.Combine(contents, "Info.plist");

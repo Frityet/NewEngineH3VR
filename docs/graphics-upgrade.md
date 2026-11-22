@@ -10,6 +10,20 @@ dotnet run --project src/H3VR.Converter -c Release -- --graphics-upgrade
 
 The default graphics-upgrade workspace is `.local/workspace-graphics-upgrade`. Supply `--workspace` to use another private directory. If you already have a verified extraction from the same converter inputs, add `--reuse-extraction /path/to/workspace`. Add `--compact-player-data` to pack the player data with chunked LZ4. On macOS, launch the generated app through the MacVR launcher. [macOS launch instructions](platform-integrations.md)
 
+## One macOS app
+
+Combine three signed local builds of the same Steam and Unity versions. Base is the original player, Built-in is the updated stock renderer, and URP uses the graphics upgrade. Each mode keeps its Unity data and mod receipt. On APFS the package can share disk blocks for identical files.
+
+```sh
+dotnet run --project tools/UnityMetalCli -c Release -- combine \
+  --base "$BASE" --builtin "$BUILTIN" --urp "$URP" \
+  --output "$PWD/.local/play-combined/NativeH3VR.app"
+```
+
+Put the absolute MacVR export path in `macvr-runtime.txt` next to the app. Open the app and choose a renderer. The picker starts on URP and remembers your selection. Once in URP, use **Options → Graphics Options → Preset** to change between Balanced and Quality while the game is running. Choose Base or Built-in when you next open the app.
+
+For a scripted launch, add `--renderer base`, `--renderer builtin` or `--renderer urp` to `UnityMetalCli run`. The command defaults to Base for existing tools and Base mods. For tools that read a specific renderer's build receipt or managed assemblies, the original layouts are under `Contents/Helpers/Base.bundle`, `Contents/Helpers/BuiltIn.bundle`, and `Contents/Helpers/URP.bundle`. A mod is still tied to the receipt for its renderer.
+
 ## Graphics Options
 
 Open **Graphics Options** from the game’s options panel. **Balanced** is the initial preset. The first page controls resolution, sampling, lighting and shadows. **Effects** opens bloom, sharpening, exposure and tone mapping. **Game Settings** opens the stock controls for game quality, scene color grading, texture filtering, particle collisions and scope MSAA. Changes take effect immediately and persist across launches.

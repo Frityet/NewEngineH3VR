@@ -11,12 +11,14 @@ internal static class Program
     [
         new("build", "Build the ARM64 Metal client and write a local Unity integration manifest.",
             [PathOption("unity-editor"), PathOption("openxr-headers"), PathOption("platform"), PathOption("output"), new("unity-version", "VERSION")]),
+        new("combine", "Put three signed renderer builds into a single local NativeH3VR app.",
+            [PathOption("base"), PathOption("builtin"), PathOption("urp"), PathOption("output")]),
         new("run", "Launch a private Apple Silicon player against a verified MacVR package.",
             [
                 PathOption("app"), PathOption("runtime"), PathOption("state-dir"), PathOption("log-file"),
                 new("synthetic"), new("headset"), PathOption("trace-file", false),
                 PathOption("unity-profile-file", false), PathOption("capture-file", false), PathOption("mods-dir", false),
-                new("timeout", "SECONDS")
+                new("timeout", "SECONDS"), new("renderer", "base|builtin|urp")
             ], AllowsPlayerArguments: true),
         new("profile", "Summarize one comparable interval from Unity and MacVR frame traces.",
             [
@@ -31,7 +33,7 @@ internal static class Program
     {
         if (args.Length == 0 || args[0] is "-h" or "--help" or "help")
         {
-            Console.WriteLine("Usage: UnityMetalCli <build|run|profile|smoke> [options]");
+            Console.WriteLine("Usage: UnityMetalCli <build|combine|run|profile|smoke> [options]");
             foreach (var item in Commands)
                 Console.WriteLine($"  {item.Name,-8} {item.Description}");
             Console.WriteLine("Run a subcommand with --help for its options.");
@@ -68,6 +70,10 @@ internal static class Program
                         options["unity-editor"], options["openxr-headers"], options["platform"], options["output"],
                         options.Get("unity-version") ?? ConversionConfig.TargetVersion, cancellation.Token));
                     return 0;
+                case "combine":
+                    await RendererPackage.CombineAsync(options["base"], options["builtin"], options["urp"],
+                        options["output"], cancellation.Token);
+                    return 0;
                 case "run":
                     bool synthetic = options.Has("synthetic");
                     if (synthetic == options.Has("headset"))
@@ -75,7 +81,8 @@ internal static class Program
                     return await PlayerRun.RunAsync(new Launch(
                         options["app"], options["runtime"], options["state-dir"], options["log-file"],
                         synthetic, options.PlayerArguments, options.Get("trace-file"), options.Get("unity-profile-file"),
-                        options.Get("capture-file"), Timeout(options), options.Get("mods-dir")), cancellation.Token);
+                        options.Get("capture-file"), Timeout(options), options.Get("mods-dir"),
+                        options.Get("renderer")), cancellation.Token);
                 case "profile":
                     double warmup = options.GetSeconds("warmup-seconds", allowZero: true) ?? 2;
                     double? window = options.GetSeconds("window-seconds");

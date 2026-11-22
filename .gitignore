@@ -39,6 +39,7 @@
 !/src/**/*.csproj
 !/tools/**/*.cs
 !/tools/**/*.csproj
+!/tools/UnityMetalCli/RendererPicker.swift
 !/runtime/**/*.cs
 !/runtime/**/*.csproj
 !/runtime/GraphicsUpgrade/Shaders/*.shader

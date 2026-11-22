@@ -118,6 +118,8 @@ def main():
     parser.add_argument("--swatch-replacement", nargs=3, metavar=("BUNDLE", "MATERIAL_SHADER", "CANDIDATE_SHADER"),
                         help="Draw the named family's chart materials with a shader from a local test bundle")
     parser.add_argument("--builtin", action="store_true", help="Profile the original Built-in renderer")
+    profiles = {"base": "Base.bundle", "builtin": "BuiltIn.bundle", "urp": "URP.bundle"}
+    parser.add_argument("--renderer", choices=profiles, help="Select a renderer from a combined NativeH3VR app")
     parser.add_argument("--scene", action="append", default=[], help="Also capture a named stock scene (repeatable)")
     parser.add_argument("--tnh", metavar="MAP", help="Profile one stock Take & Hold map from a fresh session")
     parser.add_argument("--headset", action="store_true", help="Profile Take & Hold through the physical headset")
@@ -132,6 +134,9 @@ def main():
                         help="Replay the stock floor marker and heading from an earlier Hold capture")
     parser.add_argument("--preset", choices=("balanced", "quality"), help="Graphics preset for a Take & Hold session")
     args = parser.parse_args()
+    if args.builtin and args.renderer == "urp":
+        parser.error("--builtin cannot be used with --renderer urp")
+    builtin = args.builtin or args.renderer in ("base", "builtin")
     if (args.builtin or args.tnh or args.preset or args.tnh_seed is not None) and not args.profile:
         parser.error("--builtin, --tnh and --preset require --profile")
     if args.scene and not (args.profile or args.swatches):
@@ -142,8 +147,8 @@ def main():
         parser.error("--swatch-replacement requires --swatches and an existing shader bundle")
     if "*" in args.scene and (args.scene != ["*"] or not args.swatches):
         parser.error("Use --swatches --scene '*' to render all levels")
-    if args.tnh and (args.scene or args.builtin == bool(args.preset)):
-        parser.error("--tnh requires either --builtin or --preset, and cannot be used with --scene")
+    if args.tnh and (args.scene or builtin == bool(args.preset)):
+        parser.error("--tnh requires a Built-in renderer or --preset, and cannot be used with --scene")
     if args.preset and not args.tnh:
         parser.error("--preset requires --tnh")
     if args.inspect_cover and not args.tnh:
@@ -164,7 +169,8 @@ def main():
     app, runtime, launcher, out = (p.resolve() for p in (args.app, args.runtime, args.launcher, args.out))
     if out.exists():
         parser.error("--out must be a fresh directory for isolated player settings")
-    data = app / "Contents/Resources/Data"
+    profile = app / "Contents/Helpers" / profiles[args.renderer] if args.renderer else app
+    data = profile / "Contents/Resources/Data"
     receipt = data.parent / "nativeh3vr-build.json"
     settings = json.loads(receipt.read_text())
     assembly = "NativeH3VR.GraphicsOptionsWitness.dll"
@@ -191,6 +197,8 @@ def main():
 
     launch = ["dotnet", str(launcher), "run", "--app", str(app), "--runtime", str(runtime),
               "--mods-dir", str(package.parent), "--state-dir", str(out / "state"), "--headset" if args.headset else "--synthetic"]
+    if args.renderer:
+        launch += ["--renderer", args.renderer]
     if args.vertex_particles:
         env = dict(os.environ, NATIVEH3VR_VERTEX_PARTICLE_WITNESS=str(out),
                    NATIVEH3VR_EXPECT_STOCK_VERTEX_PARTICLES="1")
@@ -230,7 +238,7 @@ def main():
         return
     if args.profile:
         env = dict(os.environ, NATIVEH3VR_GRAPHICS_PROFILE_WITNESS=str(out),
-                   NATIVEH3VR_GRAPHICS_PROFILE_BUILTIN=str(int(args.builtin)),
+                   NATIVEH3VR_GRAPHICS_PROFILE_BUILTIN=str(int(builtin)),
                    NATIVEH3VR_GRAPHICS_PROFILE_HEADSET=str(int(args.headset)),
                    NATIVEH3VR_GRAPHICS_PROFILE_SCENE=",".join(args.scene),
                    NATIVEH3VR_GRAPHICS_PROFILE_TNH=args.tnh or "",

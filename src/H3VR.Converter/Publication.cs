@@ -60,6 +60,7 @@ public static class Publication
         if (path is "runtime/Platform/README.md" or "runtime/Platform/Steam/legacy_api.cpp" or
             "runtime/Platform/Fmod/bridge.cpp" or "runtime/Platform/Fmod/fmod-output.cpp" or
             "runtime/UnityMetal/MetalOpenXR.h" or "runtime/UnityMetal/MetalOpenXR.mm" or
+            "tools/UnityMetalCli/RendererPicker.swift" or
             "tests/GraphicsUpgrade/run.py" or "tests/GraphicsUpgrade/measure.py" or "tests/GraphicsUpgrade/compare_tnh.py" or
             "tests/ShaderParity/inventory.py" or "tests/ShaderParity/player_archive.py" or
             "tests/ShaderParity/compare_baked_lighting.py" or "tests/ShaderParity/compare_material_mips.py" or
