@@ -30,7 +30,8 @@ internal static class RendererPackage
         return profile;
     }
 
-    internal static async Task CombineAsync(string original, string builtin, string urp, string output, CancellationToken cancellation)
+    internal static async Task CombineAsync(string original, string builtin, string urp, string output, bool shareAssets,
+        CancellationToken cancellation)
     {
         if (!OperatingSystem.IsMacOS()) throw new PlatformNotSupportedException("Combining macOS players requires macOS.");
         string repository = IntegrationBuild.SourceRoot();
@@ -79,6 +80,19 @@ internal static class RendererPackage
             long matching = 0;
             foreach (var (mode, source) in sources)
                 matching += CopyProfile(source, Profile(appPath, mode), copies, cancellation);
+
+            if (shareAssets)
+            {
+                string unity = build?.Unity ?? throw new InvalidDataException("The player receipts must identify their Unity version.");
+                if (!unity.StartsWith("6000.7.", StringComparison.Ordinal))
+                    throw new InvalidDataException("Sharing Unity archives requires Unity 6.7 players.");
+                string[] profiles = sources.Select(source => Profile(appPath, source.Mode)).ToArray();
+                string[] data = profiles.Select(profile => Path.Combine(profile, "Contents", "Resources", "Data")).ToArray();
+                long saved = await SharedUnityArchives.RepackAsync(data, unity, Path.Combine(stage, "asset-sharing"), cancellation);
+                foreach (var profile in profiles)
+                    await ChildProcess.CheckedAsync("/usr/bin/codesign", ["--force", "--sign", "-", profile], cancellation);
+                Console.WriteLine($"Shared Unity archives use {saved:N0} fewer bytes on APFS.");
+            }
 
             string contents = Path.Combine(appPath, "Contents");
             string resources = Path.Combine(contents, "Resources");

@@ -17,8 +17,10 @@ Combine three signed local builds of the same Steam and Unity versions. Base is 
 ```sh
 dotnet run --project tools/UnityMetalCli -c Release -- combine \
   --base "$BASE" --builtin "$BUILTIN" --urp "$URP" \
-  --output "$PWD/.local/play-combined/NativeH3VR.app"
+  --share-assets --output "$PWD/.local/play-combined/NativeH3VR.app"
 ```
+
+`--share-assets` also shares identical content inside Unity 6.7 player archives and asset bundles on APFS. The repacker verifies the decoded bytes and archive directory against each original and signs the result. Each renderer's archive has its own view of the shared data, so Finder's apparent file size can exceed the space allocated on disk.
 
 Put the absolute MacVR export path in `macvr-runtime.txt` next to the app. Open the app and choose a renderer. The picker starts on URP and remembers your selection. Once in URP, use **Options → Graphics Options → Preset** to change between Balanced and Quality while the game is running. Choose Base or Built-in when you next open the app.
 

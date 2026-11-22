@@ -12,7 +12,7 @@ internal static class Program
         new("build", "Build the ARM64 Metal client and write a local Unity integration manifest.",
             [PathOption("unity-editor"), PathOption("openxr-headers"), PathOption("platform"), PathOption("output"), new("unity-version", "VERSION")]),
         new("combine", "Put three signed renderer builds into a single local NativeH3VR app.",
-            [PathOption("base"), PathOption("builtin"), PathOption("urp"), PathOption("output")]),
+            [PathOption("base"), PathOption("builtin"), PathOption("urp"), PathOption("output"), new("share-assets")]),
         new("run", "Launch a private Apple Silicon player against a verified MacVR package.",
             [
                 PathOption("app"), PathOption("runtime"), PathOption("state-dir"), PathOption("log-file"),
@@ -72,7 +72,7 @@ internal static class Program
                     return 0;
                 case "combine":
                     await RendererPackage.CombineAsync(options["base"], options["builtin"], options["urp"],
-                        options["output"], cancellation.Token);
+                        options["output"], options.Has("share-assets"), cancellation.Token);
                     return 0;
                 case "run":
                     bool synthetic = options.Has("synthetic");

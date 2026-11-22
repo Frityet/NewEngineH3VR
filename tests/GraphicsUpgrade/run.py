@@ -21,6 +21,8 @@ def completed_swatch_scopes(out):
         index = json.loads(path.read_text())
         if index["scene"] != path.stem:
             raise RuntimeError(f"Unexpected material chart scope in {path}")
+        if path.stem.startswith("bundle-") and index["status"] != "ok":
+            raise RuntimeError(f"Asset bundle check failed in {path}: {index['status']}")
         for page in range(index["pages"]):
             image = out / f"{path.stem}-{page:03}.png"
             with image.open("rb") as stream:
