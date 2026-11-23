@@ -8,7 +8,7 @@ namespace UnityMetalCli;
 internal sealed record Launch(
     string App, string Runtime, string State, string Log, bool Synthetic, string[] PlayerArguments,
     string? Trace = null, string? Profile = null, string? Capture = null, TimeSpan? Timeout = null, string? Mods = null,
-    string? Renderer = null);
+    string? Renderer = null, string? RunCheckout = null);
 
 internal static class PlayerRun
 {
@@ -24,7 +24,11 @@ internal static class PlayerRun
         if (!OperatingSystem.IsMacOS())
             throw new PlatformNotSupportedException("Launching an Apple Silicon player requires macOS.");
 
-        string repository = IntegrationBuild.SourceRoot();
+        string repository = launch.RunCheckout is null
+            ? IntegrationBuild.SourceRoot()
+            : SafeFiles.Canonical(launch.RunCheckout);
+        if (!Directory.Exists(repository))
+            throw new DirectoryNotFoundException("The run checkout does not exist: " + repository);
         foreach (string output in new[] { launch.State, launch.Log, launch.Trace, launch.Profile, launch.Capture }.OfType<string>())
             SafeFiles.RequirePrivateOutput(repository, output);
         string app = SafeFiles.Canonical(launch.App);
