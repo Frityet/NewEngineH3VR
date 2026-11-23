@@ -185,6 +185,28 @@ namespace NativeH3VR
     {
         // XR providers that submit individual eye textures can use the active pipeline's render request.
         public static Action<Camera, RenderTexture> RenderEye { get; set; }
+        // This is the submitted color texture, separate from a pipeline's internal scene depth.
+        public static bool EyeTargetRequiresDepth { get; set; } = true;
+        // Temporal history follows the camera. A manual stereo provider can use a persistent
+        // render camera per eye while game scripts keep their tracked head camera.
+        public static Func<Camera, int, Camera> SelectRenderCamera { get; set; }
+        static Camera renderingCamera;
+        static Camera trackedCamera;
+
+        public static Camera SceneCameraForRender(Camera camera) =>
+            renderingCamera && camera == renderingCamera ? trackedCamera : camera;
+
+        public static void RenderTrackedEye(Camera source, int eye, RenderTexture target)
+        {
+            if (SelectRenderCamera == null) { RenderEye(source, target); return; }
+            var selected = SelectRenderCamera(source, eye);
+            var previousRender = renderingCamera;
+            var previousTracked = trackedCamera;
+            renderingCamera = selected;
+            trackedCamera = source;
+            try { RenderEye(selected, target); }
+            finally { renderingCamera = previousRender; trackedCamera = previousTracked; }
+        }
 
 #if NATIVEH3VR_METAL
         public static IMetalOpenXRPlayer Metal { get; private set; }

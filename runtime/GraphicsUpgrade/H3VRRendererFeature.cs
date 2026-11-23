@@ -10,25 +10,38 @@ namespace NativeH3VR.GraphicsUpgrade
         public Shader compositionShader;
         Material material;
         CompositionPass composition;
+        H3VRScreenEffects screenEffects;
+        H3VRCharacterShadowPass characterShadows;
 
         public override void Create()
         {
             CoreUtils.Destroy(material);
             material = compositionShader ? CoreUtils.CreateEngineMaterial(compositionShader) : null;
             composition = new CompositionPass();
+            screenEffects?.Release();
+            screenEffects = new H3VRScreenEffects();
+            characterShadows = new H3VRCharacterShadowPass();
         }
 
         public override void AddRenderPasses(ScriptableRenderer renderer, ref RenderingData renderingData)
         {
-            if (!material || renderingData.cameraData.renderType != CameraRenderType.Base ||
+            if (renderingData.cameraData.renderType != CameraRenderType.Base ||
                 !H3VREyeRendering.IsPlayerView(renderingData.cameraData.camera)) return;
-            if (GraphicsOptions.Glow == 0 && GraphicsOptions.Sharpness == 0 &&
+            var camera = renderingData.cameraData.camera;
+            if (screenEffects.Setup(camera)) renderer.EnqueuePass(screenEffects);
+            if (characterShadows.Setup(camera, GraphicsOptions.CharacterShadows ? screenEffects.GetMaterial() : null))
+                renderer.EnqueuePass(characterShadows);
+            if (!material || GraphicsOptions.Glow == 0 && GraphicsOptions.Sharpness == 0 &&
                 GraphicsOptions.Tone == 0 && GraphicsOptions.ExposureStops == 0) return;
             composition.Material = material;
             renderer.EnqueuePass(composition);
         }
 
-        protected override void Dispose(bool disposing) => CoreUtils.Destroy(material);
+        protected override void Dispose(bool disposing)
+        {
+            screenEffects?.Release();
+            CoreUtils.Destroy(material);
+        }
 
         sealed class CompositionPass : ScriptableRenderPass
         {

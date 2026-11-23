@@ -1,5 +1,8 @@
 #define XR_NO_PROTOTYPES
 #define XR_USE_GRAPHICS_API_METAL
+#include <atomic>
+#include <memory>
+#include <CommonCrypto/CommonDigest.h>
 #include <openxr/openxr.h>
 #include <openxr/openxr_platform.h>
 
@@ -147,6 +150,13 @@ struct Eye {
 
 enum class Phase { Idle, Begun, Queued, Drawing };
 
+struct GatedSlot {
+    id<MTLSharedEvent> event = nil;
+    std::array<id<MTLTexture>, 2> scratch{};
+    uint64_t value = 0;
+    bool pending = false;
+};
+
 class Session {
 public:
     Dispatch xr;
@@ -174,6 +184,11 @@ public:
     uint64_t sequence = 0, completed = 0, skipped = 0;
     uint64_t completedSequence = 0, unityGpuNs = 0, endFrameNs = 0;
     Phase phase = Phase::Idle;
+    bool gatedPacing = false;
+    unsigned gatedInFlight = 0;
+    std::atomic<bool> gatedFaultPending{false};
+    id<MTLCommandQueue> emergencyClearQueue = nil;
+    std::array<GatedSlot, 2> gatedSlots{};
     id<MTLCommandQueue> queue = nil;
     id<MTLRenderPipelineState> copyPipeline = nil;
     id<MTLTexture> sources[2] = {nil, nil};
@@ -300,6 +315,7 @@ public:
             if (!width || !height || width > v.maxImageRectWidth || height > v.maxImageRectHeight)
                 return fail("Requested eye size exceeds OpenXR stereo view limits") == 0;
 
+        gatedPacing = gatedPacing && width == 1440 && height == 1600;
         CHECK(EnumerateSwapchainFormats, session, 0, &count, nullptr);
         std::vector<int64_t> formats(count);
         CHECK(EnumerateSwapchainFormats, session, count, &count, formats.data());
@@ -309,6 +325,8 @@ public:
             XrSwapchainCreateInfo desired{};
             desired.type = XR_TYPE_SWAPCHAIN_CREATE_INFO;
             desired.usageFlags = XR_SWAPCHAIN_USAGE_COLOR_ATTACHMENT_BIT;
+            if (gatedPacing)
+                desired.usageFlags |= XR_SWAPCHAIN_USAGE_TRANSFER_SRC_BIT | XR_SWAPCHAIN_USAGE_TRANSFER_DST_BIT;
             desired.format = MTLPixelFormatRGBA8Unorm_sRGB;
             desired.sampleCount = 1;
             desired.width = width;
@@ -568,7 +586,7 @@ public:
         return true;
     }
 
-    void finish(bool rendered) {
+    bool finish(bool rendered, bool deferStats = false) {
         for (auto &eye : eyes) {
             if (!eye.ready) continue;
             XrSwapchainImageReleaseInfo release{};
@@ -599,16 +617,17 @@ public:
         end.layers = rendered ? layers : nullptr;
         const auto entered = std::chrono::steady_clock::now();
         const bool ended = check(xr.EndFrame(session, &end), "xrEndFrame");
-        if (ended && rendered) {
+        if (!deferStats && ended && rendered) {
             completed++;
             completedSequence = sequence;
             endFrameNs = std::chrono::duration_cast<std::chrono::nanoseconds>(
                 std::chrono::steady_clock::now() - entered).count();
-        } else {
+        } else if (!deferStats) {
             skipped++;
         }
         sources[0] = sources[1] = nil;
         phase = Phase::Idle;
+        return ended && rendered;
     }
 
     void destroy() {
@@ -631,6 +650,10 @@ public:
         instance = XR_NULL_HANDLE;
         queue = nil;
         copyPipeline = nil;
+        gatedPacing = false;
+        gatedFaultPending.store(false, std::memory_order_release);
+        emergencyClearQueue = nil;
+        gatedSlots = {};
         sources[0] = sources[1] = nil;
         samples = {};
         profiles = {};
@@ -645,6 +668,10 @@ Session bridge;
 std::mutex mutex;
 IUnityGraphicsMetalV2 *unityMetal = nullptr;
 dispatch_queue_t releases = nil;
+
+bool canDestroy() {
+    return bridge.closeRequested && bridge.phase == Phase::Idle && bridge.gatedInFlight == 0;
+}
 
 bool encodeEyeCopies(id<MTLCommandBuffer> commands) {
     for (unsigned i = 0; i < bridge.eyes.size(); i++) {
@@ -678,16 +705,169 @@ bool encodeEyeCopies(id<MTLCommandBuffer> commands) {
     return true;
 }
 
+enum class GatedVerdict { Pending, Stereo, Black, Failed };
+enum class GatedResult { Pending, Complete, Failed };
+
+// Each pending frame retains both inputs and both acquired swapchain images.
+// Each slot has its own event timeline, so another frame cannot open its gate.
+struct GatedFrame {
+    id<MTLSharedEvent> event = nil;
+    unsigned slot = 0;
+    uint64_t value = 0;
+    uint64_t sequence = 0;
+    id<MTLCommandQueue> clearQueue = nil;
+    std::array<id<MTLTexture>, 2> sources{}, targets{};
+    uint64_t endFrameNs = 0;
+    bool submitted = false;
+    std::atomic<GatedVerdict> verdict{GatedVerdict::Pending};
+    std::atomic<GatedResult> gateResult{GatedResult::Pending};
+    std::atomic<bool> accounted{false};
+};
+
+void reportGated(const std::shared_ptr<GatedFrame> &frame, id<MTLCommandBuffer> render) {
+    const auto verdict = frame->verdict.load();
+    const auto result = frame->gateResult.load();
+    if (verdict == GatedVerdict::Pending || result == GatedResult::Pending ||
+        frame->accounted.exchange(true, std::memory_order_acq_rel)) return;
+    bool valid = verdict == GatedVerdict::Stereo && result == GatedResult::Complete;
+    bool black = verdict == GatedVerdict::Black && result == GatedResult::Complete;
+    if (!valid) bridge.gatedFaultPending.store(true, std::memory_order_release);
+    const auto retainedFrame = frame;
+    dispatch_async(releases, ^{
+        std::lock_guard<std::mutex> guard(mutex);
+        bridge.gatedSlots[retainedFrame->slot].pending = false;
+        --bridge.gatedInFlight;
+        if (valid && retainedFrame->submitted) {
+            bridge.completed++;
+            if (retainedFrame->sequence > bridge.completedSequence) {
+                bridge.completedSequence = retainedFrame->sequence;
+                double seconds = render.GPUEndTime - render.GPUStartTime;
+                bridge.unityGpuNs = seconds > 0 && seconds < 10 ? uint64_t(seconds * 1e9) : 0;
+                bridge.endFrameNs = retainedFrame->endFrameNs;
+            }
+        } else {
+            bridge.skipped++;
+            if (!valid)
+                bridge.fail(black ? "A pipelined stereo producer failed; cleared the submitted eyes to black"
+                                  : "Pipelined stereo failed; the final frame could not be guaranteed");
+        }
+        if (canDestroy()) bridge.destroy();
+    });
+}
+
+void resolveGated(const std::shared_ptr<GatedFrame> &frame, id<MTLCommandBuffer> render, GatedVerdict verdict) {
+    if (verdict != GatedVerdict::Stereo) bridge.gatedFaultPending.store(true, std::memory_order_release);
+    frame->verdict.store(verdict);
+    // Resolve even after a failed emergency clear. This callback must never
+    // depend on the bridge lock or the blocked binding queue to signal.
+    frame->event.signaledValue = frame->value;
+    reportGated(frame, render);
+}
+
+void clearGated(const std::shared_ptr<GatedFrame> &frame, id<MTLCommandBuffer> render) {
+    id<MTLCommandBuffer> black = [frame->clearQueue commandBuffer];
+    if (!black) { resolveGated(frame, render, GatedVerdict::Failed); return; }
+    black.label = @"OpenXR emergency black";
+    bool encoded = true;
+    for (id<MTLTexture> target : frame->targets) {
+        auto pass = [MTLRenderPassDescriptor renderPassDescriptor];
+        pass.colorAttachments[0].texture = target;
+        pass.colorAttachments[0].loadAction = MTLLoadActionClear;
+        pass.colorAttachments[0].storeAction = MTLStoreActionStore;
+        pass.colorAttachments[0].clearColor = MTLClearColorMake(0, 0, 0, 1);
+        id<MTLRenderCommandEncoder> encoder = [black renderCommandEncoderWithDescriptor:pass];
+        if (!encoder) { encoded = false; break; }
+        [encoder endEncoding];
+    }
+    const auto retainedFrame = frame;
+    [black addCompletedHandler:^(id<MTLCommandBuffer> done) {
+        resolveGated(retainedFrame, render,
+                     encoded && done.status == MTLCommandBufferStatusCompleted ? GatedVerdict::Black : GatedVerdict::Failed);
+    }];
+    [black commit];
+}
+
+bool enqueueGated(id<MTLCommandBuffer> render) {
+    const auto slot = std::find_if(bridge.gatedSlots.begin(), bridge.gatedSlots.end(),
+        [](const GatedSlot &candidate) { return !candidate.pending; });
+    if (slot == bridge.gatedSlots.end()) return false;
+    id<MTLCommandBuffer> copy = [render.commandQueue commandBuffer];
+    id<MTLCommandBuffer> gate = [bridge.queue commandBuffer];
+    if (!copy || !gate) return false;
+    const auto frame = std::make_shared<GatedFrame>();
+    frame->event = slot->event;
+    frame->value = ++slot->value;
+    frame->slot = unsigned(slot - bridge.gatedSlots.begin());
+    frame->sequence = bridge.sequence;
+    for (unsigned i = 0; i < 2; i++) {
+        const auto &eye = bridge.eyes[i];
+        frame->sources[i] = bridge.sources[i];
+        frame->targets[i] = (__bridge id<MTLTexture>)eye.images[eye.index].texture;
+        if (frame->targets[i].hazardTrackingMode != MTLHazardTrackingModeTracked)
+            return false;
+    }
+    frame->clearQueue = bridge.emergencyClearQueue;
+    // A bare wait only constrains later passes in its own command buffer.
+    // A one-pixel round trip adds a tracked write dependency to each real
+    // swapchain resource before MacVR samples its corresponding texture view.
+    gate.label = @"OpenXR wait for validated stereo";
+    [gate encodeWaitForEvent:frame->event value:frame->value];
+    MTLOrigin origin = MTLOriginMake(0,0,0);
+    MTLSize pixel = MTLSizeMake(1,1,1);
+    auto blit = [gate blitCommandEncoder];
+    if (!blit) return false;
+    for (unsigned i = 0; i < 2; i++)
+        [blit copyFromTexture:frame->targets[i] sourceSlice:0 sourceLevel:0 sourceOrigin:origin sourceSize:pixel
+                   toTexture:slot->scratch[i] destinationSlice:0 destinationLevel:0 destinationOrigin:origin];
+    [blit endEncoding];
+    blit = [gate blitCommandEncoder];
+    if (!blit) return false;
+    for (unsigned i = 0; i < 2; i++)
+        [blit copyFromTexture:slot->scratch[i] sourceSlice:0 sourceLevel:0 sourceOrigin:origin sourceSize:pixel
+                   toTexture:frame->targets[i] destinationSlice:0 destinationLevel:0 destinationOrigin:origin];
+    [blit endEncoding];
+    // The scheduled callback runs only after Unity commits the producer. Commit
+    // our copy to that exact queue before another Unity render can be started.
+    copy.label = @"OpenXR stereo copy (pipelined)";
+    const bool encoded = encodeEyeCopies(copy);
+    [copy addCompletedHandler:^(id<MTLCommandBuffer> done) {
+        if (encoded && render.status == MTLCommandBufferStatusCompleted &&
+            done.status == MTLCommandBufferStatusCompleted)
+            resolveGated(frame, render, GatedVerdict::Stereo);
+        else {
+            bridge.gatedFaultPending.store(true, std::memory_order_release);
+            clearGated(frame, render);
+        }
+    }];
+    [gate addCompletedHandler:^(id<MTLCommandBuffer> done) {
+        frame->gateResult.store(done.status == MTLCommandBufferStatusCompleted ? GatedResult::Complete : GatedResult::Failed);
+        reportGated(frame, render);
+    }];
+    slot->pending = true;
+    ++bridge.gatedInFlight;
+    [copy commit];
+    [gate commit];
+    // The runtime creates its compositor buffer on the queue used for gate.
+    // It never sees these images before the producer/clear callback resolves it.
+    const auto entered = std::chrono::steady_clock::now();
+    frame->submitted = bridge.finish(true, true);
+    frame->endFrameNs = std::chrono::duration_cast<std::chrono::nanoseconds>(
+        std::chrono::steady_clock::now() - entered).count();
+    return true;
+}
+
 void copyRenderedEyes(bool renderingComplete, uint64_t unityGpuNs) {
     std::lock_guard<std::mutex> guard(mutex);
     @autoreleasepool {
         bridge.unityGpuNs = unityGpuNs;
         if (!renderingComplete) bridge.fail("Unity Metal command buffer did not complete");
-        id<MTLCommandBuffer> copy = renderingComplete && !bridge.closeRequested ? [bridge.queue commandBuffer] : nil;
+        const bool submit = renderingComplete && !bridge.closeRequested &&
+            !bridge.gatedFaultPending.load(std::memory_order_acquire);
+        id<MTLCommandBuffer> copy = submit ? [bridge.queue commandBuffer] : nil;
         if (!copy) {
-            if (renderingComplete && !bridge.closeRequested) bridge.fail("Metal eye copy buffer creation failed");
+            if (submit) bridge.fail("Metal eye copy buffer creation failed");
             bridge.finish(false);
-            if (bridge.closeRequested) bridge.destroy();
+            if (canDestroy()) bridge.destroy();
             return;
         }
         copy.label = @"OpenXR stereo copy";
@@ -697,8 +877,9 @@ void copyRenderedEyes(bool renderingComplete, uint64_t unityGpuNs) {
             dispatch_async(releases, ^{
                 std::lock_guard<std::mutex> finishGuard(mutex);
                 if (!complete) bridge.fail("Metal eye copy buffer did not complete");
-                bridge.finish(complete && encoded && !bridge.closeRequested);
-                if (bridge.closeRequested) bridge.destroy();
+                bridge.finish(complete && encoded && !bridge.closeRequested &&
+                    !bridge.gatedFaultPending.load(std::memory_order_acquire));
+                if (canDestroy()) bridge.destroy();
             });
         }];
         [copy commit];
@@ -719,11 +900,30 @@ void UNITY_INTERFACE_API draw(int eventId) {
         // Let Unity commit it and copy on our queue after its GPU work finishes.
         // Drawing keeps the source textures and swapchain images owned until then.
         bridge.phase = Phase::Drawing;
+        std::shared_ptr<bool> scheduled;
+        const bool tracked = bridge.gatedPacing &&
+            bridge.sources[0].hazardTrackingMode == MTLHazardTrackingModeTracked &&
+            bridge.sources[1].hazardTrackingMode == MTLHazardTrackingModeTracked;
+        if (tracked && commands.commandQueue == unityMetal->CommandQueue()) {
+            scheduled = std::make_shared<bool>(false);
+            const auto claim = scheduled;
+            [commands addScheduledHandler:^(id<MTLCommandBuffer> scheduledRender) {
+                dispatch_async(releases, ^{
+                    std::lock_guard<std::mutex> submissionGuard(mutex);
+                    if (!*claim && !bridge.closeRequested && !bridge.gatedFaultPending.load())
+                        *claim = enqueueGated(scheduledRender);
+                });
+            }];
+        }
         [commands addCompletedHandler:^(id<MTLCommandBuffer> done) {
             const bool complete = done.status == MTLCommandBufferStatusCompleted;
             const double seconds = done.GPUEndTime - done.GPUStartTime;
             const uint64_t gpuNs = seconds > 0 && seconds < 10 ? uint64_t(seconds * 1e9) : 0;
-            dispatch_async(releases, ^{ copyRenderedEyes(complete, gpuNs); });
+            dispatch_async(releases, ^{
+                if (scheduled && *scheduled) return;
+                if (scheduled) *scheduled = true;
+                copyRenderedEyes(complete, gpuNs);
+            });
         }];
     }
 }
@@ -744,7 +944,7 @@ extern "C" void UNITY_INTERFACE_EXPORT UNITY_INTERFACE_API UnityPluginUnload() {
     bridge.closeRequested = true;
     if (bridge.phase == Phase::Drawing) return;
     if (bridge.phase != Phase::Idle) bridge.finish(false);
-    bridge.destroy();
+    if (!bridge.gatedInFlight) bridge.destroy();
 }
 
 uint32_t nhxr_frame_size() { return sizeof(NhxrFrame); }
@@ -764,6 +964,67 @@ const char *nhxr_system_name() {
     return name.c_str();
 }
 
+static bool pinnedPacingAvailable() {
+    NSDictionary *env = NSProcessInfo.processInfo.environment;
+    if ([env[@"NATIVEH3VR_METAL_GATED_PACING"] isEqualToString:@"0"] ||
+        ![env[@"VR_OPENXR_ASYNC"] isEqualToString:@"1"] ||
+        [env[@"VR_OPENXR_SIMULATE"] isEqualToString:@"1"] ||
+        [env[@"VR_OPENXR_HEADLESS"] isEqualToString:@"1"] ||
+        ![MTLCreateSystemDefaultDevice().name isEqualToString:@"Apple M5 Max"] ||
+        [env[@"VR_OPENXR_CAPTURE"] length] || [env[@"XR_RUNTIME_JSON"] length] == 0)
+        return false;
+    NSURL *receiptURL = [NSBundle.mainBundle.resourceURL URLByAppendingPathComponent:@"nativeh3vr-build.json"];
+    NSData *receiptData = receiptURL ? [NSData dataWithContentsOfURL:receiptURL] : nil;
+    id receipt = receiptData ? [NSJSONSerialization JSONObjectWithData:receiptData options:0 error:nil] : nil;
+    if (![receipt isKindOfClass:NSDictionary.class]) return false;
+    id pipeline = receipt[@"graphicsPipeline"];
+    if (![pipeline isKindOfClass:NSString.class] || ![pipeline hasPrefix:@"URP "]) return false;
+    NSString *manifestPath = env[@"XR_RUNTIME_JSON"];
+    NSData *metadata = [NSData dataWithContentsOfFile:manifestPath];
+    id manifest = metadata ? [NSJSONSerialization JSONObjectWithData:metadata options:0 error:nil] : nil;
+    if (![manifest isKindOfClass:NSDictionary.class] || ![manifest[@"runtime"] isKindOfClass:NSDictionary.class]) return false;
+    id library = manifest[@"runtime"][@"library_path"];
+    if (![library isKindOfClass:NSString.class] ||
+        (![library isEqualToString:@"libMacVROpenXR.dylib"] && ![library isEqualToString:@"./libMacVROpenXR.dylib"]))
+        return false;
+    NSString *runtime = [[manifestPath stringByDeletingLastPathComponent] stringByAppendingPathComponent:library];
+    NSData *libraryBytes = [NSData dataWithContentsOfFile:runtime];
+    if (!libraryBytes || libraryBytes.length > 32 * 1024 * 1024) return false;
+    unsigned char expected[CC_SHA256_DIGEST_LENGTH];
+    CC_SHA256(libraryBytes.bytes, (CC_LONG)libraryBytes.length, expected);
+    NSMutableString *hash = [NSMutableString new];
+    for (unsigned char value : expected) [hash appendFormat:@"%02x", value];
+    return [hash isEqualToString:@"b0e18b7702b9374adbd9bc246151db4146eaddcc258d8c3252de3360e0920aa3"];
+}
+
+static bool retainGatedModule() {
+    // Unity can unload its plug-in while queued cleanup callbacks still own XR
+    // images. Preserve their code until process exit; resource ownership still
+    // drains through the per-frame gate and the runtime's reader fences.
+    static void *pin = []() -> void * {
+        Dl_info info{};
+        const void *anchor = reinterpret_cast<const void *>(&nhxr_frame_size);
+        return dladdr(anchor, &info) && info.dli_fname ? dlopen(info.dli_fname, RTLD_LAZY | RTLD_NODELETE) : nullptr;
+    }();
+    return pin != nullptr;
+}
+
+static bool prepareGatedSlots(id<MTLDevice> device) {
+    if (![device.name isEqualToString:@"Apple M5 Max"]) return false;
+    bridge.emergencyClearQueue = [device newCommandQueue];
+    if (!bridge.emergencyClearQueue) return false;
+    MTLTextureDescriptor *desc = [MTLTextureDescriptor
+        texture2DDescriptorWithPixelFormat:MTLPixelFormatRGBA8Unorm_sRGB width:1 height:1 mipmapped:NO];
+    desc.storageMode = MTLStorageModePrivate;
+    desc.hazardTrackingMode = MTLHazardTrackingModeTracked;
+    for (auto &slot : bridge.gatedSlots) {
+        slot.event = [device newSharedEvent];
+        for (auto &texture : slot.scratch) texture = [device newTextureWithDescriptor:desc];
+        if (!slot.event || !slot.scratch[0] || !slot.scratch[1]) return false;
+    }
+    return true;
+}
+
 int nhxr_open(const char *path, uint32_t width, uint32_t height) {
     std::lock_guard<std::mutex> guard(mutex);
     @autoreleasepool {
@@ -772,7 +1033,14 @@ int nhxr_open(const char *path, uint32_t width, uint32_t height) {
         bridge.failure = false;
         bridge.sequence = bridge.completed = bridge.skipped = 0;
         bridge.completedSequence = bridge.unityGpuNs = bridge.endFrameNs = 0;
-        if (bridge.setup(path, width, height) && bridge.poll()) return 0;
+        bridge.gatedPacing = pinnedPacingAvailable() && retainGatedModule();
+        if (bridge.setup(path, width, height) && bridge.poll()) {
+            if (bridge.gatedPacing) {
+                bridge.gatedPacing = prepareGatedSlots(bridge.queue.device);
+                std::fprintf(stderr, "NATIVEH3VR_METAL_GATED_PACING enabled=%d\n", bridge.gatedPacing);
+            }
+            return 0;
+        }
         bridge.destroy();
         return -1;
     }
@@ -782,7 +1050,8 @@ int nhxr_begin(NhxrFrame *frame) {
     std::lock_guard<std::mutex> guard(mutex);
     @autoreleasepool {
         if (!frame || !bridge.instance || bridge.failure) return -1;
-        if (bridge.phase != Phase::Idle) return 1;
+        if (bridge.phase != Phase::Idle || bridge.gatedInFlight >= bridge.gatedSlots.size() ||
+            bridge.gatedFaultPending.load(std::memory_order_acquire)) return 1;
         if (!bridge.poll()) return -1;
         if (bridge.exiting || bridge.closeRequested) return 2;
         if (!bridge.running) return 1;
@@ -882,6 +1151,7 @@ int nhxr_close() {
     bridge.closeRequested = true;
     if (bridge.phase == Phase::Drawing || bridge.phase == Phase::Queued) return 1;
     if (bridge.phase == Phase::Begun) bridge.finish(false);
+    if (bridge.gatedInFlight) return 1;
     bridge.destroy();
     return 0;
 }

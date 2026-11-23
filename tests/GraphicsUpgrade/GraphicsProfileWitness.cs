@@ -18,6 +18,7 @@ namespace NativeH3VR.QA
         private string output;
         private bool builtIn;
         private bool headset;
+        private int profilePairs;
 
         public static void Initialize()
         {
@@ -33,6 +34,9 @@ namespace NativeH3VR.QA
                 yield break;
             builtIn = Environment.GetEnvironmentVariable("NATIVEH3VR_GRAPHICS_PROFILE_BUILTIN") == "1";
             headset = Environment.GetEnvironmentVariable("NATIVEH3VR_GRAPHICS_PROFILE_HEADSET") == "1";
+            bool takeAndHold = !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("NATIVEH3VR_GRAPHICS_PROFILE_TNH"));
+            if (!int.TryParse(Environment.GetEnvironmentVariable("NATIVEH3VR_GRAPHICS_PROFILE_PAIRS"), out profilePairs) || profilePairs < 100)
+                profilePairs = takeAndHold ? 270 : 100;
 
             var pending = new Stack<IEnumerator>();
             pending.Push(Run());
@@ -71,7 +75,11 @@ namespace NativeH3VR.QA
         {
             yield return WaitForScene("MainMenu3");
             string map = Environment.GetEnvironmentVariable("NATIVEH3VR_GRAPHICS_PROFILE_TNH");
-            if (string.IsNullOrEmpty(map))
+            if (Environment.GetEnvironmentVariable("NATIVEH3VR_AIMED_OPTICS_WITNESS") == "1")
+                yield return WitnessAimedOptics();
+            else if (Environment.GetEnvironmentVariable("NATIVEH3VR_SHADOW_MOTION_WITNESS") == "1")
+                yield return WitnessShadowMotion();
+            else if (string.IsNullOrEmpty(map))
             {
                 yield return ProfileScene("MainMenu3");
                 string extraScenes = Environment.GetEnvironmentVariable("NATIVEH3VR_GRAPHICS_PROFILE_SCENE") ?? "";
@@ -124,34 +132,33 @@ namespace NativeH3VR.QA
                 }
 
                 // Load the API by name so the same witness binary can benchmark the stock player.
-                var options = Type.GetType("NativeH3VR.GraphicsUpgrade.GraphicsOptions, NativeH3VR.GraphicsUpgrade", true);
-                var key = Type.GetType("NativeH3VR.GraphicsUpgrade.GraphicsSetting, NativeH3VR.GraphicsUpgrade", true);
-                var set = options.GetMethod("SetIndex");
-                var preset = Enum.Parse(key, "Preset");
-                string[] names = { "performance", "balanced", "quality" };
+                var options = new GraphicsPresetControls();
+                string[] names = { "balanced", "quality", "ultra" };
                 for (int i = 0; i < names.Length; i++)
                 {
-                    set.Invoke(null, new[] { preset, (object)i });
+                    options.Set("Preset", i);
                     yield return Sample(scene, names[i], true, i);
-                    if (i == 1)
+                    if (i == 0)
                         yield return Sample(scene, "balanced-repeat", false);
                 }
 
+                options.Set("Preset", 1);
                 if (scene == "WarehouseRange_Rebuilt" || scene == "Friendly45_New")
                 {
-                    var shadowQuality = Enum.Parse(key, "ShadowQuality");
-                    var highShadows = options.GetMethod("GetIndex").Invoke(null, new[] { shadowQuality });
-                    set.Invoke(null, new[] { shadowQuality, (object)0 });
+                    int highShadows = options.Index("ShadowQuality");
+                    options.Set("ShadowQuality", 0);
                     yield return Sample(scene, "quality-shadows-off", false);
-                    set.Invoke(null, new[] { shadowQuality, highShadows });
+                    options.Set("ShadowQuality", highShadows);
                 }
 
-                set.Invoke(null, new[] { Enum.Parse(key, "Exposure"), (object)4 });
-                yield return Sample(scene, "quality-zero-exposure", false);
+                int exposure = options.Index("Exposure");
+                options.Set("Exposure", exposure + 1);
+                yield return Sample(scene, "quality-positive-exposure", false);
+                options.Set("Exposure", exposure);
 
                 // Hold scale, shadows, lights, AA, and HDR fixed while isolating the image effects.
                 foreach (string effect in new[] { "Bloom", "Sharpening", "Tonemapping", "AmbientOcclusion" })
-                    set.Invoke(null, new[] { Enum.Parse(key, effect), (object)0 });
+                    options.Set(effect, 0);
                 yield return Sample(scene, "quality-effects-off", false);
             }
             finally
@@ -161,30 +168,46 @@ namespace NativeH3VR.QA
         }
 
         private IEnumerator Sample(string scene, string label, bool profile, int preset = -1,
-            int profilePairs = 100, Action<string> recordState = null)
+            Action<string> recordState = null)
         {
             string name = scene + "-" + label;
             yield return new WaitForSecondsRealtime(profile ? 2f : 0.7f);
-            if (preset >= 0)
-                SavePipeline(name, preset);
+            var effectsBefore = preset >= 0 ? GraphicsPresetControls.ReadEffects() : default;
+            var historyBefore = preset == 2 ? GraphicsPresetControls.ReadTemporalHistories() : null;
+            var characterPass = preset == 2 ? Type.GetType(
+                "NativeH3VR.GraphicsUpgrade.H3VRCharacterShadowPass, NativeH3VR.GraphicsUpgrade") : null;
+            var drawGetter = characterPass?.GetProperty("LastDrawCount",
+                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)?.GetGetMethod(true);
+            var readShadowDraws = drawGetter == null ? null : (Func<int>)drawGetter.CreateDelegate(typeof(Func<int>));
+            int shadowSamples = 0, activeShadowSamples = 0, peakShadowDraws = 0;
 
             var latest = profile && FrameTimingManager.IsFeatureEnabled() ? new FrameTiming[1] : null;
             // The manual stereo bridge can run several engine updates per submitted eye pair.
             var gpuFrames = latest == null ? null :
-                new List<(int frame, ulong timestamp, double duration)>(profilePairs * 8);
+                new List<(int frame, ulong timestamp, double duration)>(Math.Min(profilePairs, 1024) * 8);
             ulong previousTimestamp = 0;
             recordState?.Invoke("begin");
             if (headset) RecordHardwareSample(name, "begin");
             int firstFrame = Time.frameCount + 1;
             ulong start = stereo.CompletedFrames;
+            ulong lastSampledPair = start;
             // Keep the full frame sample even when a live scene takes longer to submit it.
-            float deadline = Time.realtimeSinceStartup + (profile && profilePairs == TakeAndHoldPairs ? 120f : 25f);
+            float minimumTimeout = 120f;
+            float deadline = Time.realtimeSinceStartup + (profile ? Mathf.Max(minimumTimeout, profilePairs / 10f) : 25f);
             int count = profile ? profilePairs : 10;
             while (stereo.CompletedFrames < start + (ulong)count)
             {
                 if (Time.realtimeSinceStartup >= deadline)
                     throw new InvalidOperationException(
                         $"Submitted {stereo.CompletedFrames - start}/{count} stereo pairs before deadline for {name}");
+                if (readShadowDraws != null && stereo.CompletedFrames != lastSampledPair)
+                {
+                    lastSampledPair = stereo.CompletedFrames;
+                    int draws = readShadowDraws();
+                    shadowSamples++;
+                    if (draws > 0) activeShadowSamples++;
+                    peakShadowDraws = Math.Max(peakShadowDraws, draws);
+                }
                 if (latest != null)
                 {
                     FrameTimingManager.CaptureFrameTimings();
@@ -203,6 +226,9 @@ namespace NativeH3VR.QA
             if (profile)
             {
                 File.WriteAllText(Path.Combine(output, name + "-frames.txt"), firstFrame + " " + lastFrame);
+                if (readShadowDraws != null)
+                    File.WriteAllText(Path.Combine(output, name + "-character-shadows.json"),
+                        JsonConvert.SerializeObject(new { shadowSamples, activeShadowSamples, peakShadowDraws }));
                 using var timings = File.CreateText(Path.Combine(output, name + "-unity-gpu.csv"));
                 timings.WriteLine("observed_unity_frame,frame_start_timestamp,unity_gpu_frame_ms");
                 if (gpuFrames != null)
@@ -214,6 +240,9 @@ namespace NativeH3VR.QA
             else VerifyControllers(name);
             yield return new WaitForEndOfFrame();
             Require(!stereo.SuspendSceneRendering, "Scene rendering is suspended for " + name);
+            if (preset >= 0)
+                GraphicsPresetControls.CheckUrp(preset, stereo, Path.Combine(output, name + "-asset.txt"),
+                    Environment.GetEnvironmentVariable("NATIVEH3VR_GRAPHICS_PROFILE_EYE_SIZE"), effectsBefore, historyBefore);
             var position = stereo.TrackingOrigin.TransformPoint(stereo.LatestFrame.head.Position);
             var rotation = stereo.TrackingOrigin.rotation * stereo.LatestFrame.head.Rotation;
             File.WriteAllText(Path.Combine(output, name + "-pose.txt"), string.Join(" ", new[]
@@ -345,30 +374,6 @@ namespace NativeH3VR.QA
                 File.AppendAllText(Path.Combine(output, "controller-poses.csv"),
                     $"{sample},{source},{device.flags},{pose.trackedDeviceIndex},{hand.CMode},{hand.DMode}\n");
             }
-        }
-
-        private void SavePipeline(string name, int preset)
-        {
-            var asset = GraphicsSettings.currentRenderPipeline;
-            Require(asset && asset.GetType().FullName == "UnityEngine.Rendering.Universal.UniversalRenderPipelineAsset",
-                "Active pipeline is not URP");
-            object Property(string key) => asset.GetType().GetProperty(key).GetValue(asset, null);
-            var scale = (float)Property("renderScale");
-            var samples = (int)Property("msaaSampleCount");
-            var distance = (float)Property("shadowDistance");
-            var shadows = (int)Property("mainLightShadowmapResolution");
-            var lights = (int)Property("maxAdditionalLightsCount");
-            var hdr = (bool)Property("supportsHDR");
-            Require(Mathf.Abs(scale - (preset == 0 ? 0.85f : 1f)) < 0.001f && samples == 1 << preset &&
-                    Mathf.Abs(distance - (15 << preset)) < 0.001f && shadows == 512 << preset &&
-                    lights == 2 << preset && hdr == (preset != 0),
-                name + " did not apply the expected URP settings");
-            File.WriteAllLines(Path.Combine(output, name + "-asset.txt"), new[]
-            {
-                asset.name, "renderScale=" + Number(scale), "msaaSampleCount=" + samples,
-                "shadowDistance=" + Number(distance), "mainLightShadowmapResolution=" + shadows,
-                "maxAdditionalLightsCount=" + lights, "supportsHDR=" + hdr
-            });
         }
 
         private static string Number(float number) => number.ToString("R", CultureInfo.InvariantCulture);

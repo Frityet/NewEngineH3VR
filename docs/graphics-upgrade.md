@@ -1,6 +1,6 @@
 # Optional URP renderer
 
-`--graphics-upgrade` builds the game and its stock bundles with Unity 6.7 and the editor’s bundled Universal Render Pipeline 17.7.0. The converter installs the rendering code into the generated project and migrates materials from the local Steam import. The option is also available in the terminal wizard. To return to the stock rendering path, launch the player from your original workspace.
+`--graphics-upgrade` builds the game and its stock bundles with Unity 6.7 and the editor’s bundled Universal Render Pipeline 17.7.0. The converter installs the rendering code into the generated project and migrates materials from the local Steam import. The option is also available in the terminal wizard. The combined macOS app also offers Base and Built-in at launch.
 
 The renderer, shaders and menu ship as regular source under `runtime/GraphicsUpgrade`. The converter patches the camera, shader warmup and menu hooks in the privately imported game assemblies. Those assemblies and the game assets stay in the local workspace.
 
@@ -22,31 +22,41 @@ dotnet run --project tools/UnityMetalCli -c Release -- combine \
 
 `--share-assets` also shares identical content inside Unity 6.7 player archives and asset bundles on APFS. The repacker verifies the decoded bytes and archive directory against each original and signs the result. Each renderer's archive has its own view of the shared data, so Finder's apparent file size can exceed the space allocated on disk.
 
-Put the absolute MacVR export path in `macvr-runtime.txt` next to the app. Open the app and choose a renderer. The picker starts on URP and remembers your selection. Once in URP, use **Options → Graphics Options → Preset** to change between Balanced and Quality while the game is running. Choose Base or Built-in when you next open the app.
+Put the absolute MacVR export path in `macvr-runtime.txt` next to the app. Open the app and choose a renderer. The picker starts on URP and remembers your selection. Once in URP, use **Options → Graphics Options → Preset** to select Balanced, Quality or Ultra while the game is running. Choose Base or Built-in when you next open the app.
 
-For a scripted launch, add `--renderer base`, `--renderer builtin` or `--renderer urp` to `UnityMetalCli run`. The command defaults to Base for existing tools and Base mods. For tools that read a specific renderer's build receipt or managed assemblies, the original layouts are under `Contents/Helpers/Base.bundle`, `Contents/Helpers/BuiltIn.bundle`, and `Contents/Helpers/URP.bundle`. A mod is still tied to the receipt for its renderer.
+For a scripted launch, pass `--renderer base`, `--renderer builtin` or `--renderer urp` to `UnityMetalCli run`. The command defaults to Base for existing tools and Base mods. The renderer-specific build receipts and managed assemblies live under `Contents/Helpers` in `Base.bundle`, `BuiltIn.bundle` and `URP.bundle`. Mods are bound to the receipt for their renderer.
 
 ## Graphics Options
 
-Open **Graphics Options** from the game’s options panel. **Balanced** is the initial preset. The first page controls resolution, sampling, lighting and shadows. **Effects** opens bloom, sharpening, exposure and tone mapping. **Game Settings** opens the stock controls for game quality, scene color grading, texture filtering, particle collisions and scope MSAA. Changes take effect immediately and persist across launches.
+Open **Graphics Options** from the game’s options panel. **Balanced** is the initial preset. The first page controls resolution, sampling, lighting and shadows. **Effects** opens bloom, sharpening, exposure, tone mapping, fog and reflections. **Game Settings** opens the stock controls for game quality, scene color grading, texture filtering, particle collisions and scope MSAA. Changes take effect immediately and persist across launches.
 
 The launcher saves the graphics choices in `graphics-options.json` inside its `--state-dir`. Each new state directory starts with Balanced. Direct player launches use Unity’s player preferences.
 
-| Setting | Performance | Balanced | Quality |
+| Setting | Balanced | Quality | Ultra |
 | --- | --- | --- | --- |
-| Render scale | 85% | 100% | 100% |
-| MSAA | Off | 2× | 4× |
-| Shadow distance | 15 m | 30 m | 60 m |
-| Main shadow atlas / cascades | 512 / 1 | 1024 / 2 | 2048 / 4 |
-| Additional lights per object | 2 | 4 | 8 |
-| HDR rendering | Off | On | On |
-| Bloom | Off | Subtle | Full |
-| Bloom radius | Tight | Standard | Wide |
-| Sharpening | Off | Low | Low |
-| Specular filtering | Off | Low | High |
-| Exposure compensation | 0 EV | 0 EV | 0 EV |
-| Tone mapping | Off | Game | Game |
-| Ambient occlusion | Off | Off | On |
+| Render scale | 100% | 100% | 100% |
+| Anti-aliasing | 2× MSAA | 4× MSAA | High-quality TAA |
+| Shadow distance | 30 m | 60 m | 100 m |
+| Main shadow atlas / cascades | 1024 / 2 | 2048 / 4 | 4096 / 4 |
+| Additional-light shadow atlas | 512 | 1024 | 2048 |
+| Character shadows | Scene | Scene | Enhanced |
+| Additional lights per object | 4 | 8 | 8 |
+| HDR rendering | On | On | On |
+| Bloom / radius | Subtle / Standard | Full / Wide | Full / Wide |
+| Sharpening | Low | Low | Low |
+| Specular filtering | Low | High | High |
+| Exposure / tone mapping | 0 EV / Game | 0 EV / Game | 0 EV / Game |
+| Ambient occlusion | Off | On | On |
+| Volumetric fog | Off | Scene | Enhanced |
+| Screen-space reflections | Off | Off | On |
+
+**Character shadows → Enhanced** adds soft contact shadows beneath nearby Sosigs on opaque ground. The shadow follows each visible body segment and uses the local lighting direction. Sunlit scenes use a short contact shadow alongside the game's moving silhouette. Rooms with baked lighting use a wider, softer shadow. Enhanced fades between 14 and 22 m and processes up to 12 nearby characters per frame. You can switch it independently on the first Graphics Options page.
+
+Quality and Ultra add shadowed sunlight where the map has authored fog and a directional light. The effect follows the map's fog density and shadow distance. Ultra integrates more samples for smoother shafts. The Fog control adjusts this extra scattering. The original distance fog follows the scene in every preset.
+
+Ultra traces reflections against the current eye's opaque color and depth on eligible glossy surfaces. Rough stone, concrete and other nonmetallic surfaces get their broad sheen from the scene lighting and reflection probes. The screen-space pass fades reflections on close objects and at the edges of each eye's view, rejects unreliable depth crossings, and checks the full-resolution depth when compositing a hit. TAA accumulates each eye separately and resets on scene or camera cuts. Unity derives shadow-caster culling from each eye’s current projection. Copying the main camera’s culling matrix previously made shadows disappear as the viewer turned in Northest Dakota. Offscreen scope and thermal cameras retain their own rendering path.
+
+Saved Balanced, Quality and Ultra selections gain their new defaults. Custom settings keep their existing controls. The former Performance preset loads as Custom with its original render scale and effects.
 
 Render scale ranges from 70% to 130% of the output dimensions. On MacVR the compositor continues to receive the headset’s requested eye size and projection. HDR controls the scene color buffer. Bloom, tone mapping and ambient occlusion can each be disabled independently. Exposure ranges from −1 to +1 EV in quarter-stop steps. Saves from before the exposure setting use 0 EV until you change exposure or select a preset.
 
@@ -78,6 +88,29 @@ On an Apple M5 Max with synthetic MacVR, the optimized built-in player reached s
 
 ## Performance in stock scenes
 
+### URP Ultra on M5 Max
+
+The signed Unity 6.7 player ran at 1440 × 1600 per eye on a Valve Index connected to MacVR Home at 120.02 Hz. Ultra used High TAA, screen-space reflections, Enhanced fog and character shadows, and a 4096-pixel main shadow atlas with a 100 m range. Each window requested 1080 pairs. The eleven Ultra windows below contained 11,878 completed stereo pairs over 99.0 seconds.
+
+| Scene | Window | Completed stereo pairs/s | Unity GPU p95 |
+| --- | --- | ---: | ---: |
+| Main menu | Menu | 120.02 | 3.99 ms |
+| Warehouse Range | Range | 120.02 | 4.10 ms |
+| Friendly 45 | Range | 120.02 | 4.65 ms |
+| Duney Range | Daylight sandbox | 119.91 | 4.42 ms |
+| Grillhouse | Two-story house scene | 120.02 | 3.48 ms |
+| Classic Hallways | Opening Take / first Hold | 119.14 / 120.02 | 3.82 / 3.99 ms |
+| Northest Dakota | Opening Take / first Hold | 120.02 / 120.02 | 4.07 / 4.16 ms |
+| Institution | Opening Take / first Hold | 120.02 / 120.02 | 3.80 / 4.10 ms |
+
+The Take & Hold runs used sequence 0 with active enemies during each Hold. The character-shadow pass drew on every sampled stereo pair during the Institution and Classic Holds, with up to four and three visible characters respectively. Completed pairs measure the game’s delivery to the focused MacVR Home session. The 90 FPS target allows 11.11 ms per frame. In dense scenes the SSR pass selects nearby visible reflective surfaces and traces them at one-third resolution. Sparse scenes use half-resolution rays.
+
+The Northest Dakota head-motion check kept a fixed shaded snow patch in view while moving the simulated head through 65 positions. The prior Ultra build jumped between roughly 51 and 175 display levels. The updated build kept the same patch between 50.89 and 51.72 across both 1440 × 1600 eyes. Quality remained between 52.02 and 52.53. At a second viewpoint, the first-Hold tree shadow 50.5 m away remained 113 to 119 levels darker than the nearby sunlit snow on Ultra through turns, side steps and the return to centre in both eyes.
+
+The character-shadow check toggled Scene → Enhanced → Scene on a frozen stock Hold, then shifted the Sosig 35 cm and turned it 35°. In both eyes and at both poses, Enhanced darkened 605–1,302 sampled ground points in Institution and 1,139–2,119 in Classic Hallways by at least eight display-luma levels. Each measurement used ground points visible to its eye and stable between the two Scene captures. Zero stable points brightened by eight levels. Northest Dakota also retained its moving sunlight silhouette when the native body and clothing meshes cast shadows.
+
+### Earlier menu and range measurements
+
 These initial menu and range measurements used signed macOS players before the scene-grading and specular-filtering updates. They used 1440 × 1600 per eye and a 90 Hz target on the M5 Max, with the same simulated headset pose in each scene. The table gives median CPU time in milliseconds for rendering both eyes and scheduling submission.
 
 | Scene | Optimized built-in | URP Performance | URP Balanced | URP Quality |
@@ -98,6 +131,10 @@ python3 tests/GraphicsUpgrade/run.py --app "$APP" --launcher "$LAUNCHER" \
 python3 tests/GraphicsUpgrade/run.py --profile --scene WarehouseRange_Rebuilt --scene Friendly45_New \
   --app "$APP" --launcher "$LAUNCHER" --runtime "$MACVR" --out "$PWD/.local/graphics-profile"
 uv run tests/GraphicsUpgrade/measure.py "$PWD/.local/graphics-profile"
+python3 tests/GraphicsUpgrade/run.py --shadow-motion --renderer urp \
+  --app "$APP" --launcher "$LAUNCHER" --runtime "$MACVR" --out "$PWD/.local/northest-shadow-motion"
+python3 tests/GraphicsUpgrade/run.py --sosig-shadow --sosig-contact --tnh Institution --renderer urp \
+  --app "$APP" --launcher "$LAUNCHER" --runtime "$MACVR" --out "$PWD/.local/institution-character-shadow"
 ```
 
 The interaction check exercises the stock panel, controller ray, preset and preference restore. The profile run captures each submitted eye, switches presets at a fixed pose and records renderer settings, stereo CPU submission and compositor frame intervals. The Metal GPU counter times the Unity command buffer that owns the OpenXR submission event. Earlier command buffers can contribute additional GPU work. When the player supplies GPU frame timings, the profiler also saves Unity’s independent GPU duration for each engine frame. This includes engine updates between stereo submissions. The analyzer reports both distributions separately and leaves unavailable counters blank.
@@ -106,20 +143,20 @@ The interaction check exercises the stock panel, controller ray, preset and pref
 
 The profiler can enter Classic Hallways (`Classic`), Northest Dakota (`NorthestDakota`) and Institution (`Institution`) through the stock lobby. Each session measures the opening Take in the starting supply area and the first Hold during an active hacking wave. Stock route sequences 0, 1 and 3 give three different starting areas and first objectives on each map.
 
-Use one renderer per fresh session. The first session records the chosen stock Hold marker and headset heading. Pass that state to the other two sessions for the same map and sequence. For example, to measure Classic Hallways on sequence 0, set `BUILTIN` and `URP` to the two generated apps, and `CAPTURES` to the output root.
+Use one renderer per fresh session. The first session records the chosen stock Hold marker and headset heading. Pass that state to each URP session for the same map and sequence. For example, to measure Classic Hallways on sequence 0, set `BUILTIN` and `URP` to the two generated apps, and `CAPTURES` to the output root.
 
 ```sh
 python3 tests/GraphicsUpgrade/run.py --profile --tnh Classic --tnh-seed 0 --builtin \
   --app "$BUILTIN" --launcher "$LAUNCHER" --runtime "$MACVR" --out "$CAPTURES/r01/Classic-stock"
 observer="$CAPTURES/r01/Classic-stock/TakeAndHoldClassic-hold-stock-state.json"
-for preset in balanced quality; do
+for preset in balanced quality ultra; do
   python3 tests/GraphicsUpgrade/run.py --profile --tnh Classic --tnh-seed 0 --preset "$preset" \
     --tnh-observer-from "$observer" --app "$URP" --launcher "$LAUNCHER" --runtime "$MACVR" \
     --out "$CAPTURES/r01/Classic-$preset"
 done
 ```
 
-Store sequences 1 and 3 in `r02` and `r03`. Name the session directories `<map ID>-stock`, `<map ID>-balanced` and `<map ID>-quality`. The scene names used in the state filenames are `TakeAndHoldClassic`, `TakeAndHold_WinterWasteland` and `Institution`.
+Store sequences 1 and 3 in `r02` and `r03`. Name the session directories `<map ID>-stock`, `<map ID>-balanced`, `<map ID>-quality` and `<map ID>-ultra`. The scene names used in the state filenames are `TakeAndHoldClassic`, `TakeAndHold_WinterWasteland` and `Institution`.
 
 ```sh
 uv run tests/GraphicsUpgrade/compare_tnh.py "$CAPTURES" "$CAPTURES/report"
@@ -137,7 +174,7 @@ At the first Hold on sequence 1, the tree casts a shadow on snow 49–52 m from 
 
 Institution uses its own scene color profile. In an earlier Quality test, a custom Neutral curve retained more shadow detail than ACES on the same camera pose. Balanced and Quality now follow the game’s active profile by default. The Graphics Options tone-mapping control can override it.
 
-### Measured Take & Hold results
+### Earlier synthetic Take & Hold results
 
 The M5 Max ran the signed players with synthetic MacVR at 1440 × 1600 per eye and a 90 Hz target. Each cell gives delivered stereo FPS, p95 stereo CPU milliseconds and p95 Unity GPU milliseconds. Each map and phase pools three stock route sequences. Stereo CPU covers both eye renders and submission. Unity GPU comes from Frame Timing Manager.
 
@@ -156,7 +193,7 @@ The longest sampled gap between compositor completions was 67.8 ms in Northest D
 
 A historical Balanced run recorded a 502.6 ms Institution opening Take gap on sequence 0 and 68.2 FPS during its first Hold on sequence 3. Those runs used the earlier presets. The cause remains undetermined.
 
-### Connected Valve Index results
+### Earlier connected Valve Index results at 150%
 
 The same M5 Max ran all three renderers with a Valve Index connected to MacVR Home at 120.02 Hz and its saved 150% render setting, 1764 × 1960 per eye. Each cell gives game-submitted stereo pairs per second and p95 Unity GPU time in milliseconds. Each renderer ran the opening Take and first Hold once per map on sequence 0.
 

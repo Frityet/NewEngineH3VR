@@ -78,13 +78,14 @@ namespace H3VRConverter
             {
                 renderer = ScriptableObject.CreateInstance<UniversalRendererData>();
                 renderer.name = "NativeH3VR Renderer";
-                renderer.postProcessData = AssetDatabase.LoadAssetAtPath<PostProcessData>(
-                    "Packages/" + PackageName + "/Runtime/Data/PostProcessData.asset");
-                if (renderer.postProcessData == null)
-                    throw new InvalidOperationException("Could not load the URP post-processing resources.");
                 AssetDatabase.CreateAsset(renderer, RendererPath);
             }
+            if (renderer.postProcessData == null)
+                renderer.postProcessData = AssetDatabase.LoadAssetAtPath<PostProcessData>(
+                    "Packages/" + PackageName + "/Runtime/Data/PostProcessData.asset");
             ResourceReloader.ReloadAllNullIn(renderer, "Packages/" + PackageName);
+            if (renderer.postProcessData == null || renderer.postProcessData.shaders?.temporalAntialiasingPS == null)
+                throw new InvalidOperationException("Could not load the URP temporal antialiasing resources.");
             renderer.renderingMode = RenderingMode.Forward;
             var feature = EnsureFeature<H3VRRendererFeature>(renderer, "NativeH3VR Game Clarity");
             feature.compositionShader = LoadShader(ShaderPath);

@@ -458,6 +458,7 @@ public sealed partial class Pipeline(string repository, ConversionConfig config)
             {
                 if (!OperatingSystem.IsMacOS()) throw new PlatformNotSupportedException("The macOS player must be signed and verified on macOS.");
                 Integration.PlaceMacPlayerLibraries(output);
+                if (config.GraphicsUpgrade) UniversalTemporalRequests.Install(Path.Combine(data, "Managed"));
                 playerReceipt = PlayerReceipt.Write(output, config.GameDirectory, Path.Combine(Receipts, "extract.json"), config.UnityVersion, config.GraphicsUpgrade);
                 using var playerMetadata = JsonDocument.Parse(File.ReadAllText(playerReceipt));
                 var executable = playerMetadata.RootElement.GetProperty("playerExecutable").GetString()!;

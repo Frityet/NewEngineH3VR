@@ -15,7 +15,6 @@ namespace NativeH3VR.QA
 {
     public sealed partial class GraphicsProfileWitness
     {
-        private const int TakeAndHoldPairs = 270;
         private const int EquipmentSeed = 42;
         private const int SimulationSeed = 14796;
         private const string StockCharacter = "h3vr:Generic_0_BeginnerBlake";
@@ -46,26 +45,25 @@ namespace NativeH3VR.QA
             int sequence = int.Parse(Environment.GetEnvironmentVariable("NATIVEH3VR_GRAPHICS_PROFILE_TNH_SEED") ?? "0",
                 System.Globalization.CultureInfo.InvariantCulture);
             string variant = builtIn ? "stock" : Environment.GetEnvironmentVariable("NATIVEH3VR_GRAPHICS_PROFILE_PRESET");
-            Require(variant == "stock" || variant == "balanced" || variant == "quality", "Unknown T&H profile variant");
-            int preset = builtIn ? -1 : variant == "balanced" ? 1 : 2;
+            int preset = variant switch
+            {
+                "stock" when builtIn => -1,
+                "balanced" => 0,
+                "quality" => 1,
+                "ultra" => 2,
+                _ => throw new InvalidOperationException("Unknown T&H profile variant")
+            };
             if (builtIn)
                 Require(!GraphicsSettings.currentRenderPipeline, "Expected a Built-in pipeline for the T&H baseline");
             else
             {
-                var options = Type.GetType("NativeH3VR.GraphicsUpgrade.GraphicsOptions, NativeH3VR.GraphicsUpgrade", true);
-                var setting = Type.GetType("NativeH3VR.GraphicsUpgrade.GraphicsSetting, NativeH3VR.GraphicsUpgrade", true);
-                var presetKey = Enum.Parse(setting, "Preset");
-                options.GetMethod("SetIndex").Invoke(null, new[] { presetKey, (object)preset });
-                var getIndex = options.GetMethod("GetIndex");
-                var choiceLabel = options.GetMethod("ChoiceLabel");
-                var resolved = (int)getIndex.Invoke(null, new[] { presetKey });
+                var options = new GraphicsPresetControls();
+                options.Set("Preset", preset);
+                var resolved = options.Index("Preset");
                 Require(resolved == preset, "The active T&H graphics preset did not match " + variant);
                 var choices = new Dictionary<string, string>();
-                foreach (var key in Enum.GetValues(setting))
-                {
-                    var index = getIndex.Invoke(null, new[] { key });
-                    choices.Add(key.ToString(), (string)choiceLabel.Invoke(null, new[] { key, index }));
-                }
+                foreach (string key in options.Keys)
+                    choices.Add(key, options.Label(key));
                 File.WriteAllText(Path.Combine(output, "graphics-selection.json"), JsonConvert.SerializeObject(
                     new { preset = resolved, mode = variant, choices }, Formatting.Indented));
             }
@@ -123,8 +121,10 @@ namespace NativeH3VR.QA
             bool replayObserver = !string.IsNullOrEmpty(observerFile);
             if (replayObserver)
                 (markerIndex, replayDirection) = LoadHoldObserver(observerFile, selected, manager, hold);
-            yield return Sample(scene, "take-" + variant, true, preset, TakeAndHoldPairs,
-                RecordLiveWindow(selected, manager, TNH_Phase.Take, 0f, "take-" + variant));
+            bool sosigWitness = Environment.GetEnvironmentVariable("NATIVEH3VR_SOSIG_SHADOW_WITNESS") == "1";
+            if (!sosigWitness)
+                yield return Sample(scene, "take-" + variant, true, preset,
+                    RecordLiveWindow(selected, manager, TNH_Phase.Take, 0f, "take-" + variant));
             string materialNames = Environment.GetEnvironmentVariable("NATIVEH3VR_TAKE_MATERIALS");
             if (!string.IsNullOrEmpty(materialNames))
                 yield return InspectTakeMaterials(scene, variant, preset, materialNames.Split('\n'));
@@ -165,7 +165,12 @@ namespace NativeH3VR.QA
                 floor = new { floor.x, floor.y, floor.z },
                 direction = new { observerDirection.x, observerDirection.y, observerDirection.z }
             };
-            yield return Sample(scene, "hold-" + variant, true, preset, TakeAndHoldPairs,
+            if (sosigWitness)
+            {
+                yield return WitnessSosigShadow(hold);
+                yield break;
+            }
+            yield return Sample(scene, "hold-" + variant, true, preset,
                 RecordLiveWindow(selected, manager, TNH_Phase.Hold, holdStart, "hold-" + variant, observer));
             if (Environment.GetEnvironmentVariable("NATIVEH3VR_COVER_WITNESS") == "1")
                 yield return InspectHoldCover(scene + "-cover-" + variant);

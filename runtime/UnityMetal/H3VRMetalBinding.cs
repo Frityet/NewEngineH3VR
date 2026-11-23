@@ -51,7 +51,7 @@ namespace NativeH3VR
 
         public void BindCamera(Camera camera, Transform origin) => renderer.BindCamera(camera, origin);
         public void Suspend(bool suspend) => renderer.SuspendSceneRendering = suspend;
-        public bool IsEyeCamera(Camera camera) => renderer.IsRenderingEye && camera == renderer.SourceCamera;
+        public bool IsEyeCamera(Camera camera) => renderer.IsRenderingEye && XRBridge.SceneCameraForRender(camera) == renderer.SourceCamera;
 
         public bool TryGetSphereVisibility(BoundingSphere sphere, out bool visible) =>
             renderer.TryGetSphereVisibility(sphere, out visible);

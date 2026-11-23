@@ -18,7 +18,7 @@ MAPS = {
     "NorthestDakota": ("Northest Dakota", "TakeAndHold_WinterWasteland"),
     "Institution": ("Institution", "Institution"),
 }
-MODES = ("stock", "balanced", "quality")
+MODES = ("stock", "balanced", "quality", "ultra")
 PHASES = ("take", "hold")
 REPEATS = ("r01", "r02", "r03")
 POSE_POSITION_METERS = 0.01
@@ -152,9 +152,23 @@ def verify_profile(path, stem, mode):
     asset, *settings = asset_path.read_text().splitlines()
     actual = dict(line.split("=", 1) for line in settings)
     require("NativeH3VR" in asset, f"Unexpected pipeline name: {asset}")
+    if "characterShadows" in actual:
+        require(actual["characterShadows"] == ("Enhanced" if mode == "ultra" else "Scene"),
+                f"Unexpected {mode} character shadow setting")
     factor = 2 if mode == "balanced" else 4
-    expected = {"renderScale": 1, "msaaSampleCount": factor, "shadowDistance": 15 * factor,
+    expected = {"renderScale": 1, "msaaSampleCount": 1 if mode == "ultra" else factor, "shadowDistance": 15 * factor,
                 "mainLightShadowmapResolution": 512 * factor, "maxAdditionalLightsCount": 2 * factor}
+    if "shadowDetailChoices" in actual:
+        choices = int(actual["shadowDetailChoices"])
+        require(choices in (4, 5), "Unexpected URP shadow detail choices")
+        if mode == "ultra" and choices == 5:
+            expected.update(shadowDistance=100, mainLightShadowmapResolution=4096)
+        expected.update(additionalLightsShadowmapResolution=expected["mainLightShadowmapResolution"] // 2,
+                        shadowCascadeCount=2 if mode == "balanced" else 4)
+        if mode == "ultra":
+            quality = "High" if choices == 5 else "Medium"
+            require(all(actual[f"temporalQuality{eye}"] == quality for eye in range(2)),
+                    f"Ultra does not use {quality} TAA in both eyes")
     require(all(math.isclose(float(actual[key]), number, abs_tol=0.001) for key, number in expected.items())
             and actual["supportsHDR"].lower() == "true", f"Unexpected {mode} pipeline settings")
     profile = {"pipeline": asset, **expected, "supportsHDR": True}
@@ -162,7 +176,8 @@ def verify_profile(path, stem, mode):
     if selection_path.is_file():
         selection = json.loads(selection_path.read_text())
         require(isinstance(selection, dict) and selection.get("mode") == mode
-                and selection.get("preset") == (1 if mode == "balanced" else 2),
+                and selection.get("preset") == (("balanced", "quality", "ultra").index(mode) if "antiAliasing" in actual
+                                                 else (1 if mode == "balanced" else 2)),
                 f"Recorded graphics preset does not match {mode}")
         choices = selection.get("choices")
         require(isinstance(choices, dict) and choices.get("Preset") == mode.title()
@@ -310,10 +325,12 @@ def inspect(root):
         "results": [], "failures": [],
     }
     for map_id, (map_name, scene) in MAPS.items():
-        windows = {(phase, mode): [] for phase in PHASES for mode in MODES}
+        # Historical comparison sets predate Ultra.
+        modes = MODES if any((root / repeat / f"{map_id}-ultra").is_dir() for repeat in REPEATS) else MODES[:-1]
+        windows = {(phase, mode): [] for phase in PHASES for mode in modes}
         for repeat in REPEATS:
             references = {}
-            for mode in MODES:
+            for mode in modes:
                 group = root / repeat / f"{map_id}-{mode}"
                 try:
                     sources = capture_sources(group)

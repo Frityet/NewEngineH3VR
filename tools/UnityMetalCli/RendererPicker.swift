@@ -1,7 +1,12 @@
 import AppKit
 import Darwin
 
-private let renderers = [("base", "Base"), ("builtin", "Built-in"), ("urp", "URP")]
+private typealias Renderer = (id: String, title: String, bundle: String)
+private let renderers: [Renderer] = [
+    ("base", "Base", "Base.bundle"),
+    ("builtin", "Built-in", "BuiltIn.bundle"),
+    ("urp", "URP", "URP.bundle")
+]
 private let preference = "NativeH3VRRenderer"
 
 private struct LaunchError: LocalizedError {
@@ -17,20 +22,26 @@ struct RendererPicker {
         let args = Array(CommandLine.arguments.dropFirst())
         let environment = ProcessInfo.processInfo.environment
         do {
-            // Earlier launchers already verify the Base receipt and set up MacVR.
-            // Keep those callers, including existing Base mods, on the Base build.
+            let available = renderers.filter {
+                FileManager.default.fileExists(atPath: profile(app, $0).path)
+            }
+            guard let first = available.first else {
+                throw LaunchError("The app has no installed renderer.")
+            }
+            // Prepared launches use the same renderer as the receipt at the app root.
             if environment["NATIVEH3VR_OPENXR_LOADER"] != nil && environment["NATIVEH3VR_STATE_DIR"] != nil {
-                try runPreparedBase(app, args)
+                try runPrepared(app, first, args)
             } else {
                 let synthetic = args.contains("--synthetic")
                 let options = args.filter { $0 != "--synthetic" && !$0.hasPrefix("-psn_") }
                 let renderer: String?
                 if options.isEmpty {
-                    renderer = chooseRenderer()
-                } else if options.count == 2 && options[0] == "--renderer" && renderers.contains(where: { $0.0 == options[1] }) {
+                    renderer = available.count == 1 ? first.id : chooseRenderer(available)
+                } else if options.count == 2 && options[0] == "--renderer" && available.contains(where: { $0.id == options[1] }) {
                     renderer = options[1]
                 } else {
-                    throw LaunchError("Use --renderer base, builtin or urp.")
+                    let names = available.map { $0.id }.joined(separator: ", ")
+                    throw LaunchError("Use --renderer with an installed renderer (\(names)).")
                 }
                 if let renderer {
                     try launch(app, renderer: renderer, synthetic: synthetic, environment: environment)
@@ -52,32 +63,36 @@ struct RendererPicker {
         return alert.runModal()
     }
 
-    @MainActor private static func chooseRenderer() -> String? {
+    @MainActor private static func chooseRenderer(_ available: [Renderer]) -> String? {
         let picker = NSPopUpButton(frame: NSRect(x: 0, y: 0, width: 200, height: 28))
-        picker.addItems(withTitles: renderers.map { $0.1 })
+        picker.addItems(withTitles: available.map { $0.title })
         let last = UserDefaults.standard.string(forKey: preference)
-        picker.selectItem(at: renderers.firstIndex(where: { $0.0 == last }) ?? 2)
+        picker.selectItem(at: available.firstIndex(where: { $0.id == last })
+                          ?? available.firstIndex(where: { $0.id == "urp" }) ?? 0)
         let alert = NSAlert()
         alert.messageText = "Choose a renderer"
         alert.accessoryView = picker
         alert.addButton(withTitle: "Play")
         alert.addButton(withTitle: "Cancel")
         guard show(alert) == .alertFirstButtonReturn else { return nil }
-        let renderer = renderers[picker.indexOfSelectedItem].0
+        let renderer = available[picker.indexOfSelectedItem].id
         UserDefaults.standard.set(renderer, forKey: preference)
         return renderer
     }
 
-    private static func runPreparedBase(_ app: URL, _ args: [String]) throws {
-        let profile = app.appendingPathComponent("Contents/Helpers/Base.bundle")
-        guard let program = Bundle(url: profile)?.executableURL?.path else {
-            throw LaunchError("The Base renderer is missing from this app.")
+    private static func profile(_ app: URL, _ renderer: Renderer) -> URL {
+        app.appendingPathComponent("Contents/Helpers/" + renderer.bundle)
+    }
+
+    private static func runPrepared(_ app: URL, _ renderer: Renderer, _ args: [String]) throws {
+        guard let program = Bundle(url: profile(app, renderer))?.executableURL?.path else {
+            throw LaunchError("The \(renderer.title) renderer is missing from this app.")
         }
         var argv = ([program] + args).map { strdup($0) }
         argv.append(nil)
         defer { argv.forEach { free($0) } }
         let code = argv.withUnsafeMutableBufferPointer { execv(program, $0.baseAddress!) }
-        throw LaunchError("The Base renderer could not start (\(code), \(String(cString: strerror(errno)))).")
+        throw LaunchError("The \(renderer.title) renderer could not start (\(code), \(String(cString: strerror(errno)))).")
     }
 
     private static func launch(_ app: URL, renderer: String, synthetic: Bool, environment: [String: String]) throws {

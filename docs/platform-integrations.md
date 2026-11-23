@@ -72,7 +72,7 @@ dotnet run --project tools/UnityMetalCli -c Release -- run \
 - Put `--state-dir` and the log, trace, profile and capture outputs under the checkout's `.local/` directory. Unity keeps settings and saves in `--state-dir`.
 - Pass `--run-checkout /path/to/checkout` to use another checkout's `.local/` for state, logs, traces and captures.
 - The launcher checks the runtime and the app signature first. It points only this process at MacVR, through `XR_RUNTIME_JSON`.
-- Headset launches use MacVR’s saved headset calibration, room setup and render resolution. Set `VR_STATE_DIR` to select a custom MacVR state directory. Synthetic runs use their own runtime state under `--state-dir`.
+- Headset launches use MacVR’s saved calibration and room setup. On an M5 Max with the supported MacVR 0041221c runtime, URP defaults to 1440 × 1600 per eye (100% for the Valve Index) and can submit the pair using Metal shared events. Explicit `NATIVEH3VR_EYE_WIDTH` and `NATIVEH3VR_EYE_HEIGHT` settings take precedence. Other configurations use the runtime’s render resolution. Set `VR_STATE_DIR` to select a custom MacVR state directory. Synthetic runs use their own runtime state under `--state-dir`.
 - Steam gets the real H3VR app ID and does its own startup and ownership checks.
 
 ### With mods

@@ -80,9 +80,10 @@ def inspect(root, baseline):
     for quality_pose in sorted(root.glob("*-quality-pose.txt")):
         scene = quality_pose.name.removesuffix("-quality-pose.txt")
         data = report[scene] = {"captures": {}, "differences": {}}
-        labels = ("performance", "balanced", "balanced-repeat", "quality", "quality-effects-off")
-        if (root / f"{scene}-quality-zero-exposure-pose.txt").is_file():
-            labels += ("quality-zero-exposure",)
+        labels = ("balanced", "balanced-repeat", "quality", "quality-effects-off")
+        for optional in ("ultra", "performance", "quality-positive-exposure", "quality-zero-exposure"):
+            if (root / f"{scene}-{optional}-pose.txt").is_file():
+                labels += (optional,)
         if scene in SHADOW_REGIONS and (root / f"{scene}-quality-shadows-off-pose.txt").is_file():
             labels += ("quality-shadows-off",)
         reference_pose = pose(root, scene, "balanced")
@@ -96,10 +97,22 @@ def inspect(root, baseline):
                 validate_health(value, f"{scene} {label}", eye, failures)
             differences = data["differences"][eye] = {
                 "balancedRepeat": compare(images["balanced"], images["balanced-repeat"]),
-                "qualityVsPerformance": compare(images["quality"], images["performance"]),
                 "qualityVsEffectsOff": compare(images["quality"], images["quality-effects-off"]),
             }
+            if "performance" in images:
+                differences["qualityVsPerformance"] = compare(images["quality"], images["performance"])
+            else:
+                differences["qualityVsBalanced"] = compare(images["quality"], images["balanced"])
+            if "ultra" in images:
+                differences["ultraVsQuality"] = compare(images["ultra"], images["quality"])
             noise = differences["balancedRepeat"]["meanAbsoluteRgbBytes"]
+            if "quality-positive-exposure" in images:
+                differences["qualityVsPositiveExposure"] = compare(images["quality"], images["quality-positive-exposure"])
+                captures = data["captures"][eye]
+                gain = captures["quality-positive-exposure"]["meanRec709LumaBytes"] - captures["quality"]["meanRec709LumaBytes"]
+                drift = abs(captures["balanced"]["meanRec709LumaBytes"] - captures["balanced-repeat"]["meanRec709LumaBytes"])
+                if gain <= drift + 0.15:
+                    failures.append(f"{scene} {eye} positive exposure did not brighten the image above repeat variation")
             if "quality-zero-exposure" in images:
                 differences["qualityVsZeroExposure"] = compare(images["quality"], images["quality-zero-exposure"])
                 captures = data["captures"][eye]
@@ -107,7 +120,7 @@ def inspect(root, baseline):
                 drift = abs(captures["balanced"]["meanRec709LumaBytes"] - captures["balanced-repeat"]["meanRec709LumaBytes"])
                 if gain <= drift + 0.15:
                     failures.append(f"{scene} {eye} positive exposure did not brighten the image above repeat variation")
-            for comparison in (key for key in differences if key != "balancedRepeat"):
+            for comparison in (key for key in differences if key not in ("balancedRepeat", "ultraVsQuality")):
                 if differences[comparison]["meanAbsoluteRgbBytes"] <= noise + 0.15:
                     failures.append(f"{scene} {eye} {comparison} was indistinguishable from the repeat noise")
             if "quality-shadows-off" in images:

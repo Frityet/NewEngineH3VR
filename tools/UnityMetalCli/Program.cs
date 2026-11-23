@@ -13,6 +13,10 @@ internal static class Program
             [PathOption("unity-editor"), PathOption("openxr-headers"), PathOption("platform"), PathOption("output"), new("unity-version", "VERSION")]),
         new("combine", "Put three signed renderer builds into a single local NativeH3VR app.",
             [PathOption("base"), PathOption("builtin"), PathOption("urp"), PathOption("output"), new("share-assets")]),
+        new("package-urp", "Package only the URP player in a launchable NativeH3VR app.",
+            [PathOption("app"), PathOption("output")]),
+        new("refresh-launcher", "Replace and verify the launcher in a staged NativeH3VR app.",
+            [PathOption("app")]),
         new("run", "Launch a private Apple Silicon player against a verified MacVR package.",
             [
                 PathOption("app"), PathOption("runtime"), PathOption("state-dir"), PathOption("log-file"),
@@ -33,7 +37,7 @@ internal static class Program
     {
         if (args.Length == 0 || args[0] is "-h" or "--help" or "help")
         {
-            Console.WriteLine("Usage: UnityMetalCli <build|combine|run|profile|smoke> [options]");
+            Console.WriteLine("Usage: UnityMetalCli <build|combine|package-urp|refresh-launcher|run|profile|smoke> [options]");
             foreach (var item in Commands)
                 Console.WriteLine($"  {item.Name,-8} {item.Description}");
             Console.WriteLine("Run a subcommand with --help for its options.");
@@ -73,6 +77,12 @@ internal static class Program
                 case "combine":
                     await RendererPackage.CombineAsync(options["base"], options["builtin"], options["urp"],
                         options["output"], options.Has("share-assets"), cancellation.Token);
+                    return 0;
+                case "package-urp":
+                    await RendererPackage.PackageUrpAsync(options["app"], options["output"], cancellation.Token);
+                    return 0;
+                case "refresh-launcher":
+                    await RendererPackage.RefreshLauncherAsync(options["app"], cancellation.Token);
                     return 0;
                 case "run":
                     bool synthetic = options.Has("synthetic");

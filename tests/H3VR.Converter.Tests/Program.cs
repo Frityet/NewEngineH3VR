@@ -317,6 +317,7 @@ cases.AddRange(PlayerEnlightenTests.Cases());
 cases.AddRange(PlayerReflectionProbesTests.Cases());
 cases.AddRange(BundlePlanTests.Cases());
 cases.AddRange(PipelineTests.Cases());
+cases.Add(UniversalTemporalRequestsTests.Case());
 cases.AddRange(InstallationDiscoveryTests.Cases());
 cases.AddRange(AssetRipperIntegrationTests.Cases());
 cases.AddRange(ShaderToolCacheTests.Cases());

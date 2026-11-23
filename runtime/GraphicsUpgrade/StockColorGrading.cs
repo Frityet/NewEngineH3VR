@@ -67,7 +67,7 @@ namespace NativeH3VR.GraphicsUpgrade
 
         internal static bool TryGetBinding(Camera camera, out Binding grade)
         {
-            if (Cameras.TryGetValue(camera, out var state) && state.evaluatedFrame == Time.frameCount && state.grade.Texture)
+            if (Cameras.TryGetValue(XRBridge.SceneCameraForRender(camera), out var state) && state.evaluatedFrame == Time.frameCount && state.grade.Texture)
             {
                 grade = state.grade;
                 return true;
@@ -83,6 +83,7 @@ namespace NativeH3VR.GraphicsUpgrade
 
             try
             {
+                camera = XRBridge.SceneCameraForRender(camera);
                 if (!camera.TryGetComponent<PostProcessLayer>(out var layer) || !layer.isActiveAndEnabled) return;
                 if (!initialized)
                 {

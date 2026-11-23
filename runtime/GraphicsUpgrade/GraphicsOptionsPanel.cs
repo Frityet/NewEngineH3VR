@@ -40,12 +40,13 @@ namespace NativeH3VR.GraphicsUpgrade
             GraphicsSetting.AdditionalLights,
             GraphicsSetting.AmbientOcclusion,
             GraphicsSetting.SpecularFiltering,
-            GraphicsSetting.Hdr
+            GraphicsSetting.Hdr,
+            GraphicsSetting.CharacterShadows
         };
         private static readonly GraphicsSetting[] GlowSettings =
             { GraphicsSetting.Bloom, GraphicsSetting.BloomRadius, GraphicsSetting.Sharpening };
         private static readonly GraphicsSetting[] ColorSettings =
-            { GraphicsSetting.Tonemapping, GraphicsSetting.Exposure };
+            { GraphicsSetting.Tonemapping, GraphicsSetting.Exposure, GraphicsSetting.FogQuality, GraphicsSetting.Reflections };
 
         private const float TextScale = 0.07f;
         private readonly Dictionary<GraphicsSetting, Text> values = new Dictionary<GraphicsSetting, Text>();
@@ -89,7 +90,7 @@ namespace NativeH3VR.GraphicsUpgrade
             Move(screen.OBS_Custom_MSAA, gamePage);
             Move(screen.OBS_Custom_TextureFiltering, gamePage);
             Move(screen.OBS_Custom_ParticleFXColQuality, gamePage);
-            Move(screen.OBS_Post_CC, gamePage);
+            Move(screen.OBS_Post_CC, GraphicsOptions.UsesStockColorGrading ? gamePage : superseded);
             Move(screen.OBS_Post_Bloom, superseded);
             Move(screen.OBS_Post_AO, superseded);
             Move(screen.OBS_Custom_Shadows, superseded);

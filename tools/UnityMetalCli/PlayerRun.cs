@@ -15,8 +15,10 @@ internal static class PlayerRun
     private static readonly string[] RuntimeFiles =
         ["macvr.json", "libMacVROpenXR.dylib", "libIndexCore.dylib", "libopenxr_loader.dylib"];
 
-    private sealed record MacVR(string Manifest, string Loader, string Version, string Revision);
-    internal sealed record Player(string Program, bool Stock, bool SupportsExternalMods);
+    private const string GatedMacVR = "0041221cba7318d5bbf487b585891421088491f7";
+    private const string GatedMacVRGraphicsHash = "b0e18b7702b9374adbd9bc246151db4146eaddcc258d8c3252de3360e0920aa3";
+    private sealed record MacVR(string Manifest, string Loader, string Version, string Revision, bool SupportsGatedPacing);
+    internal sealed record Player(string Program, bool Stock, bool SupportsExternalMods, bool Universal = false);
 
     internal static async Task<int> RunAsync(
         Launch launch, CancellationToken cancellation, IReadOnlyDictionary<string, string?>? extraEnvironment = null)
@@ -35,7 +37,7 @@ internal static class PlayerRun
         string runtimeRoot = SafeFiles.Canonical(launch.Runtime);
         string state = SafeFiles.Canonical(launch.State);
         var runtime = VerifyRuntime(runtimeRoot);
-        string profileApp = RendererPackage.Select(app, launch.Renderer);
+        var (profileApp, renderer) = RendererPackage.Select(app, launch.Renderer);
         if (profileApp != app)
             await ChildProcess.CheckedAsync("/usr/bin/codesign", ["--verify", "--strict", "--ignore-resources", app], cancellation);
         Player player = await VerifyPlayerAsync(profileApp, cancellation);
@@ -75,6 +77,28 @@ internal static class PlayerRun
         var environment = extraEnvironment is null
             ? new Dictionary<string, string?>(StringComparer.Ordinal)
             : new Dictionary<string, string?>(extraEnvironment, StringComparer.Ordinal);
+        string? Effective(string key) => environment.TryGetValue(key, out string? value)
+            ? value : Environment.GetEnvironmentVariable(key);
+        bool HasOverride(string key) => environment.ContainsKey(key) || !string.IsNullOrEmpty(Effective(key));
+
+        if (player.Universal && runtime.SupportsGatedPacing && !launch.Synthetic && capture is null &&
+            Effective("NATIVEH3VR_METAL_GATED_PACING") != "0")
+        {
+            var cpu = await ChildProcess.RunAsync("/usr/sbin/sysctl", ["-n", "machdep.cpu.brand_string"],
+                cancellation, captureOutput: true);
+            if (cpu.ExitCode == 0 && cpu.Output.Trim() == "Apple M5 Max")
+            {
+                const string width = "NATIVEH3VR_EYE_WIDTH";
+                const string height = "NATIVEH3VR_EYE_HEIGHT";
+                if (!HasOverride(width) && !HasOverride(height))
+                {
+                    environment[width] = "1440";
+                    environment[height] = "1600";
+                }
+                if (Effective(width) == "1440" && Effective(height) == "1600" && !HasOverride("VR_OPENXR_ASYNC"))
+                    environment["VR_OPENXR_ASYNC"] = "1";
+            }
+        }
         environment["XR_API_LAYER_PATH"] = null;
         environment["XR_ENABLE_API_LAYERS"] = null;
         environment["VR_OPENXR_CAPTURE_EVERY"] = null;
@@ -116,7 +140,7 @@ internal static class PlayerRun
                 throw new IOException("Run output already exists: " + output);
         }
         Console.WriteLine($"MacVR {runtime.Version} revision {runtime.Revision} from {runtime.Manifest}");
-        if (profileApp != app) Console.WriteLine($"NativeH3VR renderer: {launch.Renderer ?? "base"}");
+        if (renderer is not null) Console.WriteLine($"NativeH3VR renderer: {renderer}");
         Console.Out.Flush();
         var result = await ChildProcess.RunAsync(player.Program,
             ["-force-metal", "-logFile", log, .. launch.PlayerArguments],
@@ -150,8 +174,10 @@ internal static class PlayerRun
         string? library = runtimeManifest.RootElement.GetProperty("runtime").GetProperty("library_path").GetString();
         if (library is not ("libMacVROpenXR.dylib" or "./libMacVROpenXR.dylib"))
             throw new InvalidDataException("Expected a relocatable MacVR runtime manifest.");
+        string revision = metadata.GetProperty("sourceRevision").GetString()!;
+        bool supported = revision == GatedMacVR && hashes.GetProperty("libMacVROpenXR.dylib").GetString() == GatedMacVRGraphicsHash;
         return new(manifest, Path.Combine(root, RuntimeFiles[^1]),
-            metadata.GetProperty("version").GetString()!, metadata.GetProperty("sourceRevision").GetString()!);
+            metadata.GetProperty("version").GetString()!, revision, supported);
     }
 
     internal static async Task<Player> VerifyPlayerAsync(string app, CancellationToken cancellation)
@@ -184,7 +210,9 @@ internal static class PlayerRun
         }
         bool externalMods = receipt.TryGetProperty("modHostSchemaVersion", out var modHost)
             && modHost.ValueKind == JsonValueKind.Number && modHost.TryGetInt32(out var version) && version == 2;
-        return new(program, true, externalMods);
+        bool universal = receipt.TryGetProperty("graphicsPipeline", out var pipeline) &&
+            pipeline.GetString()?.StartsWith("URP ", StringComparison.Ordinal) == true;
+        return new(program, true, externalMods, universal);
     }
 
     private static bool IsLeaf(string name) =>

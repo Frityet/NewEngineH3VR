@@ -4,13 +4,13 @@ using System.Reflection;
 using System.Runtime.CompilerServices;
 using UnityEngine;
 using UnityEngine.Rendering;
-using UnityEngine.Rendering.Universal;
 
 namespace NativeH3VR.GraphicsUpgrade
 {
     internal static class StockScopeCameraCallbacks
     {
         private static readonly Dictionary<Camera, PIPScope_Camera> Rendering = new();
+        private static readonly HashSet<Camera> Manual = new();
         private static readonly ConditionalWeakTable<PIPScope_MainCamera, MainCameraCallbacks> MainCallbacks = new();
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
@@ -19,6 +19,7 @@ namespace NativeH3VR.GraphicsUpgrade
             RenderPipelineManager.beginCameraRendering -= Begin;
             RenderPipelineManager.endCameraRendering -= End;
             Rendering.Clear();
+            Manual.Clear();
         }
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]
@@ -30,10 +31,29 @@ namespace NativeH3VR.GraphicsUpgrade
 
         private static void Begin(ScriptableRenderContext context, Camera camera)
         {
-            if (GraphicsSettings.currentRenderPipeline is not UniversalRenderPipelineAsset ||
+            if (!Manual.Contains(camera)) BeginCamera(XRBridge.SceneCameraForRender(camera), camera);
+        }
+
+        // Main PreCull renders optic cameras. Complete those requests before
+        // entering the tracked eye's render graph and culling jobs.
+        internal static void BeforeManualRender(Camera source, Camera camera)
+        {
+            Manual.Add(camera);
+            try { BeginCamera(source, camera); }
+            catch { Manual.Remove(camera); throw; }
+        }
+
+        internal static void AfterManualRender(Camera camera)
+        {
+            if (Manual.Remove(camera)) EndCamera(camera);
+        }
+
+        private static void BeginCamera(Camera sceneCamera, Camera camera)
+        {
+            if (!GraphicsSettings.currentRenderPipeline ||
                 camera.cameraType != CameraType.Game ||
-                !camera.TryGetComponent<PIPScope_Camera>(out var scope) ||
-                !scope.isActiveAndEnabled || scope.cam != camera ||
+                !sceneCamera.TryGetComponent<PIPScope_Camera>(out var scope) ||
+                !scope.isActiveAndEnabled || scope.cam != sceneCamera ||
                 !Rendering.TryAdd(camera, scope))
                 return;
 
@@ -49,12 +69,17 @@ namespace NativeH3VR.GraphicsUpgrade
             }
             catch
             {
-                End(context, camera);
+                EndCamera(camera);
                 throw;
             }
         }
 
         private static void End(ScriptableRenderContext context, Camera camera)
+        {
+            if (!Manual.Contains(camera)) EndCamera(camera);
+        }
+
+        private static void EndCamera(Camera camera)
         {
             if (!Rendering.Remove(camera, out var scope) || !scope)
                 return;

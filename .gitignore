@@ -44,6 +44,7 @@
 !/runtime/**/*.csproj
 !/runtime/GraphicsUpgrade/Shaders/*.shader
 !/runtime/GraphicsUpgrade/Shaders/*.hlsl
+!/runtime/GraphicsUpgrade/Shaders/Resources/NativeH3VRScreenEffects.shader
 !/editor/**/*.cs
 !/tests/**/*.cs
 !/tests/**/*.csproj

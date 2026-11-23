@@ -16,6 +16,7 @@ namespace NativeH3VR.GraphicsUpgrade
         private Material trailMaterial;
         private Material shakeMaterial;
         private TrailPass trails;
+        private H3VRReticlePass reticles;
         private FeedbackPass feedback;
         private FadePass fade;
 
@@ -25,6 +26,7 @@ namespace NativeH3VR.GraphicsUpgrade
             trailMaterial = trailShader ? CoreUtils.CreateEngineMaterial(trailShader) : null;
             shakeMaterial = screenShakeShader ? CoreUtils.CreateEngineMaterial(screenShakeShader) : null;
             trails = new TrailPass(trailMaterial);
+            reticles = new H3VRReticlePass();
             feedback = new FeedbackPass(shakeMaterial);
             fade = new FadePass(shakeMaterial);
         }
@@ -38,11 +40,16 @@ namespace NativeH3VR.GraphicsUpgrade
             if (trailMaterial && trails.HasTrails())
                 renderer.EnqueuePass(trails);
 
-            if (shakeMaterial && camera.TryGetComponent<ScreenShakeVR>(out var effect) &&
+            var sceneCamera = XRBridge.SceneCameraForRender(camera);
+            if (reticles.HasReticles() &&
+                (!sceneCamera.TryGetComponent<PIPScope_Camera>(out var scope) || !scope.isThermal))
+                renderer.EnqueuePass(reticles);
+
+            if (shakeMaterial && sceneCamera.TryGetComponent<ScreenShakeVR>(out var effect) &&
                 effect.isActiveAndEnabled && FeedbackPass.IsShaking(effect))
                 renderer.EnqueuePass(feedback);
 
-            if (shakeMaterial && camera.TryGetComponent<Valve.VR.SteamVR_Fade>(out var viewFade) &&
+            if (shakeMaterial && sceneCamera.TryGetComponent<Valve.VR.SteamVR_Fade>(out var viewFade) &&
                 viewFade.isActiveAndEnabled && fade.Prepare(viewFade))
                 renderer.EnqueuePass(fade);
         }
@@ -211,7 +218,7 @@ namespace NativeH3VR.GraphicsUpgrade
 
             public override void RecordRenderGraph(RenderGraph graph, ContextContainer frameData)
             {
-                var camera = frameData.Get<UniversalCameraData>().camera;
+                var camera = XRBridge.SceneCameraForRender(frameData.Get<UniversalCameraData>().camera);
                 var resources = frameData.Get<UniversalResourceData>();
                 if (resources.isActiveTargetBackBuffer || !camera.TryGetComponent<ScreenShakeVR>(out var effect) ||
                     !effect.isActiveAndEnabled || Shake?.GetValue(effect) is not float shake ||

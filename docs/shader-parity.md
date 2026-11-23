@@ -72,6 +72,8 @@ The original FX manager serializes the scope postprocess shader directly and its
 
 In a full converted game, run `tests/GraphicsUpgrade/run.py --optics` with the usual `--app`, `--runtime`, `--launcher` and `--out` arguments. This resolves the shader from the game's active scope postprocess material. Check the recorded shader and night-vision parameters in `inputs.txt` when pairing the 16 images with their retail references. The signal-to-noise setting changes the rendered grain.
 
+Use `--aim-optics` in the converted URP player to aim the stock Classic 3–12×42 scope and elevated MRO at each native eye in Quality and Ultra. The witness checks that the scope camera draws at the designed eye-relief distance and that changing the red-dot brightness changes the pixels on the lens. It writes `aimed-optics.json` with the results for each eye.
+
 `RetailThermalWitness.cs` loads the stock handheld thermal camera from the game item database. It captures the ordinary view, raw sensor, processed lens texture and ordinary reset using the camera's own targets. Compile it with the retail references above, bootstrap `NativeH3VR.QA.RetailThermalWitness` and set `NATIVEH3VR_THERMAL_WITNESS` to a private output directory. For a converted player, run `tests/GraphicsUpgrade/run.py --thermal` with the player, runtime, launcher and output paths. The witness exits after writing `thermal.json`.
 
 ## Whole-game material sweep

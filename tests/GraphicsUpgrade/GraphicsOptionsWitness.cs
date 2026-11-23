@@ -80,32 +80,95 @@ namespace NativeH3VR.QA
                 yield return CheckViewFade("");
                 if (failed) yield break;
             }
+            (int reflections, int fog, int receivers) effectsBefore;
+            int[] historyBefore;
+            yield return new WaitForSecondsRealtime(1f);
+            try
+            {
+                effectsBefore = GraphicsPresetControls.ReadEffects();
+                historyBefore = GraphicsPresetControls.ReadTemporalHistories();
+            }
+            catch (Exception error) { Finish(error); yield break; }
+            yield return new WaitForSecondsRealtime(1f);
+            yield return new WaitForEndOfFrame();
+            try
+            {
+                GraphicsPresetControls.CheckUrp(3, NativeStereoRenderer.Instance,
+                    Path.Combine(output, (verifySaved ? "restart" : "interaction") + "-custom-asset.txt"),
+                    "1440 1600", effectsBefore, historyBefore, expectedRenderScale: 1.15f, expectedSamples: 1);
+                GraphicsPresetControls.CheckUnrelatedRenderRequest(
+                    Path.Combine(output, (verifySaved ? "restart" : "interaction") + "-still-history.txt"));
+            }
+            catch (Exception error)
+            {
+                Finish(error);
+                yield break;
+            }
             Finish(null);
+        }
+
+        private const int FadeCropSize = 32;
+        private const int MinimumStableFadePixels = 128;
+
+        private IEnumerator SettleFade()
+        {
+            var stereo = NativeStereoRenderer.Instance;
+            if (!stereo)
+            {
+                Finish(new InvalidOperationException("The native stereo renderer is unavailable for the fade witness"));
+                yield break;
+            }
+            ulong target = stereo.CompletedFrames + 16;
+            float deadline = Time.realtimeSinceStartup + 15f;
+            while (stereo.CompletedFrames < target)
+            {
+                if (Time.realtimeSinceStartup >= deadline)
+                {
+                    Finish(new TimeoutException("Waiting for 16 settled stereo pairs after the stock fade changed"));
+                    yield break;
+                }
+                yield return null;
+            }
+            yield return new WaitForEndOfFrame();
         }
 
         private IEnumerator CheckViewFade(string profile)
         {
             Valve.VR.SteamVR_Fade.Start(Color.clear, 0f);
-            yield return new WaitForSecondsRealtime(0.25f);
-            Color32[][] ordinary;
-            try { ordinary = CaptureViewFade(profile + "uncovered"); }
+            yield return SettleFade();
+            if (failed) yield break;
+            Color32[][] before;
+            try { before = CaptureViewFade(profile + "uncovered"); }
             catch (Exception error) { Finish(error); yield break; }
 
             Valve.VR.SteamVR_Fade.Start(new Color(1f, 0f, 0f, 0.5f), 0f);
-            yield return new WaitForSecondsRealtime(0.25f);
+            yield return SettleFade();
+            if (failed) yield break;
+            Color32[][] blended;
+            try { blended = CaptureViewFade(profile + "half"); }
+            catch (Exception error) { Finish(error); yield break; }
+
+            Valve.VR.SteamVR_Fade.Start(Color.clear, 0f);
+            yield return SettleFade();
+            if (failed) yield break;
             try
             {
-                var blended = CaptureViewFade(profile + "half");
+                var after = CaptureViewFade(profile + "reference-after");
                 for (int eye = 0; eye < 2; eye++)
                 {
-                    double error = ordinary[eye].Zip(blended[eye], BlendError).Average();
-                    Require(error <= 3, $"Half-alpha stock fade has {error:F2} RGB error in eye {eye}");
+                    var metrics = MeasureFade(before[eye], after[eye], blended[eye]);
+                    File.AppendAllText(Path.Combine(output, "view-fade-metrics.txt"), FormattableString.Invariant(
+                        $"{profile}eye{eye}: stablePixels={metrics.count}, stableRgbError={metrics.error:F3}, fullRgbError={metrics.fullError:F3}\n"));
+                    Require(metrics.count >= MinimumStableFadePixels,
+                        $"The uncovered reference did not supply enough stable pixels in eye {eye}: {metrics.count}");
+                    Require(metrics.error <= 3, $"Half-alpha stock fade has {metrics.error:F2} stable RGB error in eye {eye}");
                 }
             }
             catch (Exception error) { Finish(error); yield break; }
 
             Valve.VR.SteamVR_Fade.Start(Color.red, 0f);
-            yield return new WaitForSecondsRealtime(0.25f);
+            yield return SettleFade();
+            if (failed) yield break;
             try
             {
                 var opaque = CaptureViewFade(profile + "opaque");
@@ -128,13 +191,54 @@ namespace NativeH3VR.QA
             catch (Exception error) { Finish(error); }
         }
 
-        private static double BlendError(Color32 ordinary, Color32 blended)
+        private static (int count, double error, double fullError) MeasureFade(
+            Color32[] before, Color32[] after, Color32[] blended)
         {
-            static float Encoded(float value, float fade) =>
-                255 * Mathf.LinearToGammaSpace((Mathf.GammaToLinearSpace(value / 255f) + fade) * 0.5f);
-            return (Mathf.Abs(Encoded(ordinary.r, 1f) - blended.r) +
-                    Mathf.Abs(Encoded(ordinary.g, 0f) - blended.g) +
-                    Mathf.Abs(Encoded(ordinary.b, 0f) - blended.b)) / 3.0;
+            int count = 0;
+            double sum = 0, fullSum = 0;
+            for (int n = 0; n < before.Length; n++)
+            {
+                double error = BlendError(before[n], after[n], blended[n]);
+                fullSum += error;
+                int x = n % FadeCropSize, y = n / FadeCropSize;
+                if (x < 2 || y < 2 || x >= FadeCropSize - 2 || y >= FadeCropSize - 2 ||
+                    !Matches(before[n], after[n], 4) || !FlatNeighborhood(before, n) || !FlatNeighborhood(after, n))
+                    continue;
+                sum += error;
+                count++;
+            }
+            return (count, count > 0 ? sum / count : double.PositiveInfinity, fullSum / before.Length);
+        }
+
+        // Choose the reference pixels without consulting the faded capture. Flat interiors
+        // stay comparable across the two TAA jitter sequences and minor tracking changes.
+        private static bool FlatNeighborhood(Color32[] pixels, int center)
+        {
+            int rMin = 255, gMin = 255, bMin = 255, rMax = 0, gMax = 0, bMax = 0;
+            for (int y = -2; y <= 2; y++)
+            for (int x = -2; x <= 2; x++)
+            {
+                var c = pixels[center + y * FadeCropSize + x];
+                rMin = Math.Min(rMin, c.r); rMax = Math.Max(rMax, c.r);
+                gMin = Math.Min(gMin, c.g); gMax = Math.Max(gMax, c.g);
+                bMin = Math.Min(bMin, c.b); bMax = Math.Max(bMax, c.b);
+            }
+            return rMax - rMin <= 8 && gMax - gMin <= 8 && bMax - bMin <= 8;
+        }
+
+        private static bool Matches(Color32 a, Color32 b, int tolerance) =>
+            Math.Abs(a.r - b.r) <= tolerance && Math.Abs(a.g - b.g) <= tolerance && Math.Abs(a.b - b.b) <= tolerance;
+
+        private static double BlendError(Color32 before, Color32 after, Color32 blended)
+        {
+            static float Encoded(float a, float b, float fade)
+            {
+                float linear = (Mathf.GammaToLinearSpace(a / 255f) + Mathf.GammaToLinearSpace(b / 255f)) * 0.5f;
+                return 255 * Mathf.LinearToGammaSpace((linear + fade) * 0.5f);
+            }
+            return (Mathf.Abs(Encoded(before.r, after.r, 1f) - blended.r) +
+                    Mathf.Abs(Encoded(before.g, after.g, 0f) - blended.g) +
+                    Mathf.Abs(Encoded(before.b, after.b, 0f) - blended.b)) / 3.0;
         }
 
         private Color32[][] CaptureViewFade(string state)
@@ -142,7 +246,7 @@ namespace NativeH3VR.QA
             var stereo = NativeStereoRenderer.Instance;
             Require(stereo && stereo.SourceCamera && stereo.SourceCamera.GetComponent<Valve.VR.SteamVR_Fade>(),
                 "The stock fade component is missing from the tracked camera");
-            const int size = 32;
+            const int size = FadeCropSize;
             var image = new Texture2D(size, size, TextureFormat.RGBA32, false);
             var previous = RenderTexture.active;
             var samples = new Color32[2][];
@@ -182,42 +286,72 @@ namespace NativeH3VR.QA
             var renderScale = nativePage.Find("RenderScale Value").GetComponent<Text>();
             var preset = nativePage.Find("Preset Value").GetComponent<Text>();
             var specular = nativePage.Find("SpecularFiltering Value").GetComponent<Text>();
+            var characterShadows = nativePage.Find("CharacterShadows Value").GetComponent<Text>();
             var radius = effects.Find("BloomRadius Value").GetComponent<Text>();
             var exposure = effects.Find("Exposure Value").GetComponent<Text>();
+            var antialiasing = nativePage.Find("Msaa Value").GetComponent<Text>();
+            var fog = effects.Find("FogQuality Value").GetComponent<Text>();
+            var reflections = effects.Find("Reflections Value").GetComponent<Text>();
             var tonemapping = effects.Find("Tonemapping Value").GetComponent<Text>();
             var expectedExposure = Path.Combine(output, "exposure.txt");
             var expectedPath = Path.Combine(output, "render-scale.txt");
             var stateDirectory = Environment.GetEnvironmentVariable("NATIVEH3VR_STATE_DIR");
             Require(!string.IsNullOrEmpty(stateDirectory), "Graphics Options witness requires isolated launcher state");
             string settingsPath = Path.Combine(stateDirectory, "graphics-options.json");
+            string savedSettings = Path.Combine(output, "saved-custom.json");
             if (verifySaved)
             {
-                Require(File.Exists(settingsPath) && preset.text == "Custom" && renderScale.text == File.ReadAllText(expectedPath),
+                Require(File.Exists(settingsPath) && File.ReadAllText(settingsPath) == File.ReadAllText(savedSettings) &&
+                        preset.text == "Custom" && renderScale.text == File.ReadAllText(expectedPath),
                     "Custom settings or render scale were lost across restart");
-                Require(specular.text == "Low", "Specular filtering was lost across restart");
+                Require(specular.text == "Low" && characterShadows.text == "Enhanced",
+                    "Specular filtering or character shadows were lost across restart");
                 Press(effectsTab, hand);
                 Require(effects.gameObject.activeInHierarchy && exposure.text == File.ReadAllText(expectedExposure) &&
-                        tonemapping.text == "ACES" && radius.text == "Tight", "Effect choices were lost across restart");
+                        tonemapping.text == "ACES" && radius.text == "Tight" && antialiasing.text == "TAA" &&
+                        fog.text == "Enhanced" && reflections.text == "Screen-space", "Effect choices were lost across restart");
                 return;
             }
 
             Require(!File.Exists(settingsPath) && preset.text == "Balanced" && renderScale.text == "100%" &&
-                    specular.text == "Low" && exposure.text == "0 EV" && tonemapping.text == "Game" && radius.text == "Standard",
+                    antialiasing.text == "2× MSAA" && fog.text == "Off" && reflections.text == "Off" &&
+                    specular.text == "Low" && characterShadows.text == "Scene" && exposure.text == "0 EV" && tonemapping.text == "Game" && radius.text == "Standard",
                 "Balanced did not open with its scene grade and default filters");
             Press(nativePage.Find("Preset Next"), hand);
             Require(preset.text == "Quality" && specular.text == "High" && radius.text == "Wide" &&
+                    antialiasing.text == "4× MSAA" && characterShadows.text == "Scene" && fog.text == "Scene" && reflections.text == "Off" &&
                     exposure.text == "0 EV" && tonemapping.text == "Game", "Unexpected Quality graphics choices");
+            Press(nativePage.Find("Preset Next"), hand);
+            Require(preset.text == "Ultra" && antialiasing.text == "TAA" && renderScale.text == "100%" &&
+                    characterShadows.text == "Enhanced" && fog.text == "Enhanced" && reflections.text == "Screen-space",
+                "Unexpected Ultra graphics choices");
+            Press(nativePage.Find("Msaa Next"), hand);
+            Require(preset.text == "Custom" && antialiasing.text == "Off", "TAA did not wrap to disabled anti-aliasing");
+            Press(nativePage.Find("Msaa Previous"), hand);
+            Require(preset.text == "Ultra" && antialiasing.text == "TAA", "Restoring TAA did not restore Ultra");
+            Press(nativePage.Find("Preset Next"), hand);
+            Require(preset.text == "Balanced", "Preset arrow did not wrap from Ultra to Balanced");
+            Press(nativePage.Find("Preset Next"), hand);
+            Require(preset.text == "Quality", "Preset arrow did not return to Quality");
             Press(nativePage.Find("RenderScale Next"), hand);
             Require(renderScale.text == "115%" && preset.text == "Custom", "The render-scale arrow did not select Custom at 115%");
             RoundTrip(nativePage, hand, "RenderScale", "Msaa", "ShadowQuality", "ShadowDistance", "AdditionalLights",
-                "AmbientOcclusion", "Hdr", "SpecularFiltering");
+                "AmbientOcclusion", "Hdr", "SpecularFiltering", "CharacterShadows");
+            Press(nativePage.Find("CharacterShadows Next"), hand);
+            Require(characterShadows.text == "Enhanced", "The character shadows arrow did not select Enhanced");
+            Press(nativePage.Find("Msaa Next"), hand);
+            Require(antialiasing.text == "TAA", "The anti-aliasing control did not select TAA");
             Press(nativePage.Find("SpecularFiltering Previous"), hand);
             Require(specular.text == "Low", "The specular filtering control did not change to Low");
             CapturePage(canvas, back.forward, "native-graphics.png");
 
             Press(effectsTab, hand);
             Require(effects.gameObject.activeInHierarchy && !nativePage.gameObject.activeInHierarchy, "Effects did not open");
-            RoundTrip(effects, hand, "Bloom", "BloomRadius", "Sharpening", "Tonemapping", "Exposure");
+            RoundTrip(effects, hand, "Bloom", "BloomRadius", "Sharpening", "Tonemapping", "Exposure", "FogQuality", "Reflections");
+            Press(effects.Find("FogQuality Next"), hand);
+            Press(effects.Find("Reflections Next"), hand);
+            Require(fog.text == "Enhanced" && reflections.text == "Screen-space",
+                "The Effects arrows did not enable enhanced fog and screen-space reflections");
             Press(effects.Find("BloomRadius Next"), hand);
             Press(effects.Find("Exposure Next"), hand);
             Press(effects.Find("Tonemapping Previous"), hand);
@@ -239,8 +373,9 @@ namespace NativeH3VR.QA
             Require(!quality.gameObject.activeInHierarchy, "Stock Back did not return to options navigation");
             Press(graphics.transform, hand);
             Require(nativePage.gameObject.activeInHierarchy && renderScale.text == "115%" && preset.text == "Custom" &&
-                    exposure.text == "+0.25 EV", "Reopening Graphics Options lost the selected settings");
+                    exposure.text == "+0.25 EV" && characterShadows.text == "Enhanced", "Reopening Graphics Options lost the selected settings");
             Require(File.Exists(settingsPath), "Graphics controls did not write to isolated launcher state");
+            File.Copy(settingsPath, savedSettings);
             File.WriteAllText(expectedPath, renderScale.text);
             File.WriteAllText(expectedExposure, exposure.text);
         }

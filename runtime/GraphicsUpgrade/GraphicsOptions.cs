@@ -11,11 +11,13 @@ namespace NativeH3VR.GraphicsUpgrade
     public enum GraphicsSetting
     {
         Preset, RenderScale, Msaa, ShadowDistance, ShadowQuality, AdditionalLights,
-        Hdr, Bloom, Sharpening, Tonemapping, AmbientOcclusion, Exposure, BloomRadius, SpecularFiltering
+        Hdr, Bloom, Sharpening, Tonemapping, AmbientOcclusion, Exposure, BloomRadius, SpecularFiltering, FogQuality, Reflections,
+        CharacterShadows
     }
 
     public static class GraphicsOptions
     {
+        internal const bool UsesStockColorGrading = true;
         const string Preference = "NativeH3VR.URP.Graphics.v1";
         const string PreferenceFile = "graphics-options.json";
         const int NeutralExposureIndex = 4;
@@ -25,32 +27,35 @@ namespace NativeH3VR.GraphicsUpgrade
         {
             "Preset", "Render scale", "Anti-aliasing", "Shadow distance", "Shadow detail",
             "Lights per object", "HDR rendering", "Bloom", "Sharpening", "Tone mapping", "Ambient occlusion", "Exposure",
-            "Bloom radius", "Specular filtering"
+            "Bloom radius", "Specular filtering", "Fog", "Reflections", "Character shadows"
         };
         static readonly string[][] Choices =
         {
-            new[] { "Performance", "Balanced", "Quality" },
+            new[] { "Balanced", "Quality", "Ultra" },
             new[] { "70%", "85%", "100%", "115%", "130%" },
-            new[] { "Off", "2× MSAA", "4× MSAA" },
+            new[] { "Off", "2× MSAA", "4× MSAA", "TAA" },
             new[] { "15 m", "30 m", "60 m", "100 m" },
-            new[] { "Off", "Low", "Medium", "High" },
+            new[] { "Off", "Low", "Medium", "High", "Ultra" },
             new[] { "0", "2", "4", "8" },
             new[] { "Off", "On" }, new[] { "Off", "Subtle", "Full" },
             new[] { "Off", "Low", "Medium", "High" }, new[] { "Off", "Neutral", "ACES", "Game" },
             new[] { "Off", "On" },
             new[] { "-1 EV", "-0.75 EV", "-0.5 EV", "-0.25 EV", "0 EV", "+0.25 EV", "+0.5 EV", "+0.75 EV", "+1 EV" },
-            new[] { "Tight", "Standard", "Wide" }, new[] { "Off", "Low", "High" }
+            new[] { "Tight", "Standard", "Wide" }, new[] { "Off", "Low", "High" },
+            new[] { "Off", "Scene", "Enhanced" }, new[] { "Off", "Screen-space" }, new[] { "Scene", "Enhanced" }
         };
         static readonly float[] RenderScales = { 0.70f, 0.85f, 1f, 1.15f, 1.30f };
         static readonly int[] Distances = { 15, 30, 60, 100 };
         static readonly int[] LightCounts = { 0, 2, 4, 8 };
         static readonly int[][] Presets =
         {
-            // Scale, MSAA, distance, detail, lights, HDR, bloom, sharpen, tone, AO, exposure, bloom radius, specular filtering
-            new[] { 1, 0, 0, 1, 1, 0, 0, 0, 0, 0, NeutralExposureIndex, 0, 0 },
-            new[] { 2, 1, 1, 2, 2, 1, 1, 1, GameGrading, 0, NeutralExposureIndex, 1, 1 },
-            new[] { 2, 2, 2, 3, 3, 1, 2, 1, GameGrading, 1, NeutralExposureIndex, 2, 2 }
+            // Scale, AA, distance, detail, lights, HDR, bloom, sharpen, tone, AO, exposure, bloom radius, specular, fog, reflections, character shadows
+            new[] { 2, 1, 1, 2, 2, 1, 1, 1, GameGrading, 0, NeutralExposureIndex, 1, 1, 0, 0, 0 },
+            new[] { 2, 2, 2, 3, 3, 1, 2, 1, GameGrading, 1, NeutralExposureIndex, 2, 2, 1, 0, 0 },
+            new[] { 2, 3, 3, 4, 3, 1, 2, 1, GameGrading, 1, NeutralExposureIndex, 2, 2, 2, 1, 1 }
         };
+        static readonly int[] PreviousPerformance = { 1, 0, 0, 1, 1, 0, 0, 0, 0, 0, NeutralExposureIndex, 0, 0 };
+        const int PreviousSettingCount = 13;
         static readonly int[][] PreviousPresets =
         {
             new[] { 1, 0, 0, 1, 1, 0, 0, 0, 0, 0, 4 },
@@ -86,6 +91,7 @@ namespace NativeH3VR.GraphicsUpgrade
             if (key == GraphicsSetting.Preset) Array.Copy(Presets[index], values, values.Length);
             else values[(int)key - 1] = index;
             Apply();
+            H3VREyeRendering.InvalidateTemporalHistory();
             Save();
             Changed?.Invoke();
         }
@@ -93,7 +99,7 @@ namespace NativeH3VR.GraphicsUpgrade
         static void Load()
         {
             if (values != null) return;
-            values = (int[])Presets[1].Clone();
+            values = (int[])Presets[0].Clone();
             try
             {
                 var stateDirectory = Environment.GetEnvironmentVariable("NATIVEH3VR_STATE_DIR");
@@ -112,10 +118,28 @@ namespace NativeH3VR.GraphicsUpgrade
 
                 var saved = JsonUtility.FromJson<SavedOptions>(json);
                 if (saved?.values == null) return;
-                for (int i = 0; i < PreviousPresets.Length; i++)
-                    if (saved.values.Length == PreviousPresets[i].Length &&
-                        (saved.values.AsSpan().SequenceEqual(PreviousPresets[i]) ||
-                         saved.values.AsSpan().SequenceEqual(Presets[i].AsSpan(0, saved.values.Length))))
+                var stored = saved.values.AsSpan();
+                if (stored.Length == (int)GraphicsSetting.CharacterShadows - 1)
+                {
+                    foreach (var preset in Presets)
+                        if (stored.SequenceEqual(preset.AsSpan(0, stored.Length)))
+                        {
+                            values = (int[])preset.Clone();
+                            return;
+                        }
+                }
+                if (stored.Length == PreviousPresets[0].Length &&
+                    (stored.SequenceEqual(PreviousPresets[0]) || stored.SequenceEqual(PreviousPerformance.AsSpan(0, stored.Length))))
+                {
+                    Array.Copy(PreviousPerformance, values, PreviousPerformance.Length);
+                    return;
+                }
+                for (int i = 0; i < 2; i++)
+                    if ((stored.Length == PreviousPresets[i + 1].Length &&
+                         (stored.SequenceEqual(PreviousPresets[i + 1]) ||
+                          stored.SequenceEqual(Presets[i].AsSpan(0, stored.Length)))) ||
+                        (stored.Length == PreviousSettingCount &&
+                         stored.SequenceEqual(Presets[i].AsSpan(0, PreviousSettingCount))))
                     {
                         values = (int[])Presets[i].Clone();
                         return;
@@ -181,7 +205,11 @@ namespace NativeH3VR.GraphicsUpgrade
         static bool IsPreferenceError(Exception error) =>
             error is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException or PlayerPrefsException;
 
-        internal static int Samples => 1 << GetIndex(GraphicsSetting.Msaa);
+        internal static bool TemporalAA => GetIndex(GraphicsSetting.Msaa) == 3;
+        internal static int Samples => TemporalAA ? 1 : 1 << GetIndex(GraphicsSetting.Msaa);
+        internal static int FogQuality => GetIndex(GraphicsSetting.FogQuality);
+        internal static int Reflections => GetIndex(GraphicsSetting.Reflections);
+        internal static bool CharacterShadows => GetIndex(GraphicsSetting.CharacterShadows) != 0;
         internal static bool Hdr => GetIndex(GraphicsSetting.Hdr) != 0;
         internal static float Glow => GetIndex(GraphicsSetting.Bloom) * 0.12f;
         static readonly Vector4[] BloomKernels = {
@@ -228,14 +256,14 @@ namespace NativeH3VR.GraphicsUpgrade
             active.supportsHDR = Hdr;
             int shadows = GetIndex(GraphicsSetting.ShadowQuality);
             active.shadowDistance = shadows == 0 ? 0f : Distances[GetIndex(GraphicsSetting.ShadowDistance)];
-            active.shadowCascadeCount = shadows == 3 ? 4 : Math.Max(1, shadows);
+            active.shadowCascadeCount = shadows >= 3 ? 4 : Math.Max(1, shadows);
             active.mainLightShadowmapResolution = 512 << Math.Max(0, shadows - 1);
             active.additionalLightsShadowmapResolution = Math.Max(512, active.mainLightShadowmapResolution / 2);
             active.maxAdditionalLightsCount = LightCounts[GetIndex(GraphicsSetting.AdditionalLights)];
             Shader.SetGlobalFloat(SpecularFilter, GetIndex(GraphicsSetting.SpecularFiltering) * 0.5f);
         }
 
-        static void PrepareCamera(ScriptableRenderContext context, Camera camera)
+        internal static void PrepareStereoInput(Camera camera)
         {
             // The stock pose dispatcher uses Camera.onPreCull, which SRP eyes do not raise.
             if (H3VREyeRendering.IsPlayerStereoEye(camera) && lastInputFrame != Time.frameCount)
@@ -243,6 +271,11 @@ namespace NativeH3VR.GraphicsUpgrade
                 lastInputFrame = Time.frameCount;
                 SteamVR_Input.OnPreCull();
             }
+        }
+
+        static void PrepareCamera(ScriptableRenderContext context, Camera camera)
+        {
+            PrepareStereoInput(camera);
             if (!H3VREyeRendering.IsPlayerView(camera)) return;
             camera.allowHDR = Hdr;
             camera.allowMSAA = Samples > 1;

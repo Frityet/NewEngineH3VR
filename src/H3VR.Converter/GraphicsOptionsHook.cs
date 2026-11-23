@@ -55,6 +55,7 @@ internal static class GraphicsOptionsHook
         il.Append(il.Create(OpCodes.Callvirt, invoke));
         il.Append(il.Create(OpCodes.Ret));
         StockThermalScopeHook.Install(module);
+        StockScopeVisibility.Install(module);
         UsePipelineShadowAtlas(module);
         ExposeStockFade(module);
 

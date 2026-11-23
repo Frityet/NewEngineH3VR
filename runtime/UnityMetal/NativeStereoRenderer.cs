@@ -321,7 +321,7 @@ namespace NativeH3VR
                 for (int eye = 0; eye < 2; eye++)
                 {
                     var target = EyeTarget(eye, (int)frame.width, (int)frame.height);
-                    if (!SuspendSceneRendering) RenderEye(eye == 0 ? frame.left : frame.right, target);
+                    if (!SuspendSceneRendering) RenderEye(eye, eye == 0 ? frame.left : frame.right, target);
                 }
                 var overlay = new MetalOpenXR.Overlay
                 {
@@ -339,7 +339,8 @@ namespace NativeH3VR
         {
             if (targets[eye] == null)
             {
-                var descriptor = new RenderTextureDescriptor(width, height, GraphicsFormat.R8G8B8A8_SRGB, 24);
+                int depthBits = XRBridge.EyeTargetRequiresDepth ? 24 : 0;
+                var descriptor = new RenderTextureDescriptor(width, height, GraphicsFormat.R8G8B8A8_SRGB, depthBits);
                 targets[eye] = new RenderTexture(descriptor) { name = eye == 0 ? "OpenXR left eye" : "OpenXR right eye" };
                 pointers[eye] = IntPtr.Zero;
             }
@@ -359,7 +360,7 @@ namespace NativeH3VR
             return targets[eye];
         }
 
-        void RenderEye(MetalOpenXR.View view, RenderTexture target)
+        void RenderEye(int eye, MetalOpenXR.View view, RenderTexture target)
         {
             Camera camera = SourceCamera;
             Transform transform = camera.transform;
@@ -383,7 +384,7 @@ namespace NativeH3VR
                 camera.projectionMatrix = EyeProjection;
                 camera.nonJitteredProjectionMatrix = EyeProjection;
                 if (renderPipelineEye == null) camera.Render();
-                else renderPipelineEye(camera, target);
+                else XRBridge.RenderTrackedEye(camera, eye, target);
             }
             finally
             {
