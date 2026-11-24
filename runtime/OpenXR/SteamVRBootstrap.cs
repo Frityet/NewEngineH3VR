@@ -40,9 +40,15 @@ namespace NativeH3VR
 
         public static SteamVR Create()
         {
+#if NATIVEH3VR_METAL
             if (!XRBridge.IsRunning)
                 throw new InvalidOperationException(
                     "Unity XR has no active device. Configure and start a Unity XR provider before initializing the game.");
+#else
+            // Unity can start the OpenXR session after scene callbacks run. The
+            // camera and pose components need this facade to finish those callbacks.
+            Application.runInBackground = true;
+#endif
 
             SteamVR instance = Interface<SteamVR>();
             Set(typeof(SteamVR), null, "_instance", instance);
